@@ -594,20 +594,30 @@ void VideoDriver_Amiga::MainLoop()
 
 bool VideoDriver_Amiga::ChangeResolution(int w, int h)
 {
-	/* Deliberately does NOT reopen the screen.
+	/* Apply immediately.
 	 *
-	 * Switching size on the fly leaves the interface built for the old one:
-	 * every open window keeps its position and width, so going from 640 to 320
-	 * left a single window covering the whole display. The font cannot follow
-	 * either - the glyph tables are built once at startup. Changing both
-	 * properly means re-laying out every window and rebuilding the fonts, which
-	 * is a far bigger job than it looks.
-	 *
-	 * So the choice is recorded and applied on the next run. Returning true is
-	 * what makes OpenTTD keep the new value and write it to openttd.cfg. */
-	amigagfx_log(WantSmallFont((uint)w)
-	             ? "resolution set - restart to apply (lores, small interface font)"
-	             : "resolution set - restart to apply (hires, normal interface font)");
+	 * An earlier version deferred this to a restart, to avoid windows laid out
+	 * for the old size ending up off-screen. That was worse: ChangeResInGame()
+	 * compares the request against _screen.width/height, so a driver that
+	 * changes nothing means _cur_resolution is never updated and the choice is
+	 * not even written to openttd.cfg - the player is stuck in both directions.
+	 * DELETE closes all windows, which deals with anything left hanging off the
+	 * edge. */
+	if (!CreateMainSurface(w, h)) return false;
+
+	/* Store what was actually opened, not what was asked for: the width is
+	 * rounded up to the 32-pixel grid the c2p requires. */
+	_cur_resolution.width  = _screen.width;
+	_cur_resolution.height = _screen.height;
+
+	/* The font still cannot follow - glyph tables and window widths are built
+	 * once at startup - so say so instead of leaving a lores screen wearing the
+	 * hires font. */
+	if (WantSmallFont((uint)_screen.width) != _amiga_small_font) {
+		amigagfx_log(WantSmallFont((uint)_screen.width)
+		             ? "lores: restart for the small interface font"
+		             : "hires: restart for the normal interface font");
+	}
 	return true;
 }
 

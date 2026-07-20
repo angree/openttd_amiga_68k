@@ -56,6 +56,12 @@ static FVideoDriver_Amiga iFVideoDriver_Amiga;
  * confounded with whatever else changed in the same build. */
 static bool _force_bbox;
 
+/** Diagnostic: "-v amiga:rmbaslmb" makes the RIGHT button behave exactly like
+ * the LEFT one. If right-clicking then acts like a left click, the IDCMP event
+ * is arriving fine and the fault is in the scroll handling; if nothing happens
+ * at all, the button never reaches us and the problem is below our code. */
+static bool _rmb_as_lmb;
+
 /** Last physical pointer position, needed because Intuition cannot warp the
  * mouse: during fix_at scrolling _cursor.pos stays anchored, so deltas have
  * to be measured against this instead. */
@@ -236,7 +242,8 @@ static void PollEvents()
 				break;
 
 			case AMIGAGFX_EV_MOUSEDOWN:
-				if (ev.code == AMIGAGFX_BUTTON_LEFT) {
+				if (ev.code == AMIGAGFX_BUTTON_LEFT || _rmb_as_lmb) {
+					if (ev.code != AMIGAGFX_BUTTON_LEFT) amigagfx_log("RMB down -> treated as LMB");
 					_left_button_down = true;
 				} else {
 					_right_button_down = true;
@@ -254,7 +261,7 @@ static void PollEvents()
 				break;
 
 			case AMIGAGFX_EV_MOUSEUP:
-				if (ev.code == AMIGAGFX_BUTTON_LEFT) {
+				if (ev.code == AMIGAGFX_BUTTON_LEFT || _rmb_as_lmb) {
 					_left_button_down = false;
 					_left_button_clicked = false;
 				} else {
@@ -276,6 +283,7 @@ static void PollEvents()
 const char *VideoDriver_Amiga::Start(const char * const *parm)
 {
 	_force_bbox = (GetDriverParam(parm, "bbox") != NULL);
+	_rmb_as_lmb = (GetDriverParam(parm, "rmbaslmb") != NULL);
 
 	if (!CreateMainSurface(_cur_resolution.width, _cur_resolution.height)) {
 		return "Could not open the Amiga screen";

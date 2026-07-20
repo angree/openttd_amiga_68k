@@ -4,14 +4,14 @@ A native port of OpenTTD 1.0.5 to classic AmigaOS 3.x on 68k, with its own
 video driver written against Intuition and graphics.library. No SDL, no RTG
 card required — it runs on plain AGA.
 
-**This is not a release. Do not expect to play it properly yet.**
+**Early work — playable, but not finished.**
 
-It is playable with the mouse — you can generate a map, build road, rail and
-stations, run vehicles and scroll around. But there is **no sound**, **no
-keyboard input at all**, and every industry reports its cargo as "invalid
-cargo". So it is worth looking at and testing, not worth sinking an evening
-into. The toolchain findings in BUILDING.md are arguably the more useful half of
-this repository.
+You can generate a map, build road, rail, stations and depots, run vehicles and
+give them orders, with mouse and keyboard. What is missing is **sound** (no AHI
+driver yet) and industries still report their cargo as "invalid cargo", which
+limits how far a game can actually be taken. Worth playing with and testing; not
+yet worth a long campaign. The toolchain findings in BUILDING.md may well be the
+more useful half of this repository.
 
 ![OpenTTD running on an emulated A4000/040 with AGA](screenshots/newgame.png)
 
@@ -63,34 +63,36 @@ A full-screen repaint is therefore around 8.5 fps on an 040/25 and roughly
 
 ## State of things
 
-Works: map generation, saving and loading, the menus, the scenario editor,
-building track/road/stations, vehicles running, full mouse control including
-right-drag map scrolling.
+Works: map generation, saving and loading, the menus and the scenario editor,
+building track, road, stations and depots, running vehicles, giving them orders,
+full mouse control including right-drag scrolling, and the keyboard.
 
-Does not work yet — these are the blockers:
+Resolution is selectable in Game Options: 320x256 and 352x272 (PAL lores, no
+interlace) or 640x480 and 640x512 (hires interlaced). The interface font follows
+it automatically. A change takes effect on the next run, because window layouts
+and the glyph tables are built once at startup.
 
-- **You cannot scroll the map.** Right-drag scrolling does nothing, and the
-  arrow keys do not either, because keyboard input does not arrive at all —
-  IDCMP delivers no key events to the backdrop window. Between them this makes
-  the game unplayable in practice.
+Does not work yet:
+
 - **Every industry shows "invalid cargo"** for the cargo it accepts and
-  produces. Not yet diagnosed; the cargo tables themselves look endian-clean, so
-  the cause is elsewhere.
-- **Closing some windows is very slow.** `window.cpp` has to be built at `-O0`
-  to avoid a crash (see BUILDING.md), and that costs speed across the whole GUI.
-  Finding the single optimisation pass responsible would fix both.
-- **Sound.** OpenSFX is recognised as a sound set, but there is no AHI driver,
-  so the game runs with `-s null`.
+  produces. Under investigation.
+- **No sound.** OpenSFX is recognised as a sound set, but there is no AHI
+  driver, so the game runs with `-s null`.
+- **Closing some windows is slow.** `window.cpp` has to be built at `-O0` to
+  avoid a crash (see BUILDING.md), and that costs speed across the whole
+  interface. Finding the single optimisation pass responsible would fix both.
 - **Networking** is disabled in this build.
 - Memory use is high — roughly 11 MB with the default 4 MB sprite cache and an
-  unstripped binary. An 8 MB A1200 will need both trimmed.
+  unstripped binary. Half-size graphics and a smaller cache are the planned way
+  down to an 8 MB machine.
 
 ## Requirements
 
-- **68040 with FPU.** Not optional: terrain generation does its maths in
-  floating point. A 68LC040 or an 030 without an FPU will not work. 25 MHz is
-  the practical floor, 40 MHz or an 060 is noticeably better. The simulation
-  itself is integer-only, so only map generation depends on this.
+- **68040. No FPU required.** A soft-float build generates maps with no
+  measurable time penalty, so a 68LC040 works. 25 MHz is the practical floor,
+  40 MHz or an 060 is noticeably better. Only map generation touches floating
+  point at all; the simulation is integer-only by design, because OpenTTD keeps
+  multiplayer deterministic across platforms.
 - **AGA.** A1200, A4000 or CD32. There is no Picasso96/CyberGraphX path yet, and
   no ECS/OCS support — those chipsets top out at 32 colours where the game needs
   256. RTG is the more interesting of the two to add, and the driver is

@@ -64,6 +64,8 @@ static int    g_width, g_height, g_bpr;
 static ULONG  g_planesize;
 static ULONG  g_epoch;
 static unsigned long g_blits;
+static ULONG g_want_modeid;
+static int   g_used_fallback;
 
 static ULONG raw_ticks(void)
 {
@@ -102,18 +104,31 @@ int amigagfx_open(int w, int h)
 			g_bitmap.Planes[i] = (PLANEPTR)(g_chip + (ULONG)i * g_planesize);
 	}
 
-	g_screen = OpenScreenTags(NULL,
-	                          SA_BitMap,    (ULONG)&g_bitmap,
-	                          SA_Width,     (ULONG)w,
-	                          SA_Height,    (ULONG)h,
-	                          SA_Depth,     (ULONG)DEPTH,
-	                          SA_Type,      (ULONG)CUSTOMSCREEN,
-	                          SA_Quiet,     (ULONG)TRUE,
-	                          SA_ShowTitle, (ULONG)FALSE,
-	                          SA_DisplayID, (ULONG)(PAL_MONITOR_ID | HIRESLACE_KEY),
-	                          TAG_END);
+	/* Pick the display mode from the size actually asked for, instead of always
+	 * forcing hires-interlaced. 320-wide means lores, and anything at or below
+	 * 256 lines fits a PAL frame without interlace - which also means no
+	 * flicker, the main reason to want a lores mode in the first place. */
+	{
+		ULONG modeid = PAL_MONITOR_ID;
+		modeid |= (w > 400) ? HIRES_KEY : LORES_KEY;
+		if (h > 300) modeid |= 0x0004;          /* LACE bit */
+		g_want_modeid = modeid;
+
+		g_screen = OpenScreenTags(NULL,
+		                          SA_BitMap,    (ULONG)&g_bitmap,
+		                          SA_Width,     (ULONG)w,
+		                          SA_Height,    (ULONG)h,
+		                          SA_Depth,     (ULONG)DEPTH,
+		                          SA_Type,      (ULONG)CUSTOMSCREEN,
+		                          SA_Quiet,     (ULONG)TRUE,
+		                          SA_ShowTitle, (ULONG)FALSE,
+		                          SA_DisplayID, modeid,
+		                          TAG_END);
+	}
 	if (g_screen == NULL) {
-		/* let the system pick a mode if PAL HiRes-Laced is unavailable */
+		/* Fallback: the system picks. NOTE this drops our mode entirely, so a
+		 * lores request silently becomes whatever Workbench runs - usually hires. */
+		g_used_fallback = 1;
 		g_screen = OpenScreenTags(NULL,
 		                          SA_BitMap,    (ULONG)&g_bitmap,
 		                          SA_Width,     (ULONG)w,
@@ -125,7 +140,21 @@ int amigagfx_open(int w, int h)
 		                          TAG_END);
 	}
 	if (g_screen == NULL) { amigagfx_close(); return 3; }
-	fprintf(stdout, "amiga: screen open %dx%d depth 8, bpr %d\n", w, h, g_bpr); fflush(stdout);
+	{
+		/* Report the mode Intuition ACTUALLY granted, not the one we asked for.
+		 * It substitutes silently when a mode is unavailable, and a lores-sized
+		 * screen running in a hires mode looks identical in a log that only
+		 * prints the pixel dimensions. */
+		ULONG got = GetVPModeID(&g_screen->ViewPort);
+		fprintf(stdout, "amiga: screen open %dx%d depth 8, bpr %d\n", w, h, g_bpr);
+		fprintf(stdout, "amiga: modeid wanted $%08lx got $%08lx  %s%s  [%s]\n",
+		        (unsigned long)g_want_modeid, (unsigned long)got,
+		        (got & HIRES_KEY) ? "HIRES " : "LORES ",
+		        (got & 0x0004) ? "INTERLACED" : "non-interlaced",
+		        g_used_fallback ? "SYSTEM FALLBACK - our mode was refused"
+		                        : "our mode accepted");
+		fflush(stdout);
+	}
 
 	g_window = OpenWindowTags(NULL,
 	                          WA_CustomScreen, (ULONG)g_screen,
@@ -251,13 +280,12 @@ int amigagfx_poll(AmigaGfxEvent *ev)
 			}
 			break;
 		case IDCMP_RAWKEY:
-			/* 0x45 = ESC. Key-up codes have bit 7 set and are ignored. */
-			if (code == 0x45) {
-				ev->type = AMIGAGFX_EV_QUIT;
-			} else if ((code & 0x80) == 0) {
-				ev->type = AMIGAGFX_EV_KEY;
-				ev->code = (int)code;
-			}
+			/* Pass EVERY raw code through, releases included (bit 7 set): the
+			 * C++ side needs them to track shift and control. ESC is no longer
+			 * swallowed as "quit" either - the game wants it for closing
+			 * windows, and quitting belongs in the menu. */
+			ev->type = AMIGAGFX_EV_KEY;
+			ev->code = (int)code;
 			break;
 		default:
 			break;

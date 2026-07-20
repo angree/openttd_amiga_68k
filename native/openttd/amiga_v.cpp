@@ -20,6 +20,7 @@
 
 #include "../stdafx.h"
 #include <stdio.h>      /* snprintf for the blit statistics line */
+#include <stdlib.h>     /* atoi for the frameskip driver parameter */
 #include "../openttd.h"
 #include "../gfx_func.h"
 #include "../variables.h"
@@ -29,8 +30,126 @@
 #include "../functions.h"
 #include "../genworld.h"
 #include "../core/random_func.hpp"
+#include "../fontcache.h"
 #include "amiga_v.h"
 #include "amiga_gfx.h"
+
+/**
+ * The modes offered in Game Options -> Screen resolution.
+ *
+ * Widths are all multiples of 32 because Kalms' c2p converts 32-pixel columns;
+ * 368, the other common PAL overscan width, is not and would be rejected.
+ *
+ *   320x256  plain PAL lores, no interlace - no flicker
+ *   352x272  PAL lores with overscan: same mode, bigger window
+ *   640x480  PAL hires interlaced - the readable, default choice
+ *   640x512  full PAL hires interlaced
+ */
+static const Dimension _amiga_resolutions[] = {
+	{ 320, 256 },
+	{ 352, 272 },
+	{ 640, 480 },
+	{ 640, 512 },
+};
+
+
+/**
+ * Amiga raw key code -> OpenTTD key code.
+ *
+ * Keyboard events were reaching the driver all along - they were simply never
+ * forwarded, which is why only ESC appeared to work (it was hard-wired to quit).
+ * Raw codes are positional and layout-independent, so this table is written
+ * against the physical Amiga keyboard.
+ *
+ * Printable keys carry their ASCII character as well; OpenTTD wants
+ * character | (keycode << 16) and uses the character for text entry.
+ */
+struct AmigaKey { uint8 raw; uint16 wkc; char ascii; char shifted; };
+
+static const AmigaKey _amiga_keys[] = {
+	{ 0x45, WKC_ESC,       0,   0   },
+	{ 0x41, WKC_BACKSPACE, 0,   0   },
+	{ 0x46, WKC_DELETE,    0,   0   },
+	{ 0x44, WKC_RETURN,    0,   0   },
+	{ 0x43, WKC_RETURN,    0,   0   },   /* keypad Enter */
+	{ 0x42, WKC_TAB,       0,   0   },
+	{ 0x40, WKC_SPACE,    ' ', ' '  },
+	{ 0x4C, WKC_UP,        0,   0   },
+	{ 0x4D, WKC_DOWN,      0,   0   },
+	{ 0x4E, WKC_RIGHT,     0,   0   },
+	{ 0x4F, WKC_LEFT,      0,   0   },
+	{ 0x50, WKC_F1,        0,   0   }, { 0x51, WKC_F2,  0, 0 },
+	{ 0x52, WKC_F3,        0,   0   }, { 0x53, WKC_F4,  0, 0 },
+	{ 0x54, WKC_F5,        0,   0   }, { 0x55, WKC_F6,  0, 0 },
+	{ 0x56, WKC_F7,        0,   0   }, { 0x57, WKC_F8,  0, 0 },
+	{ 0x58, WKC_F9,        0,   0   }, { 0x59, WKC_F10, 0, 0 },
+
+	{ 0x01, '1', '1', '!' }, { 0x02, '2', '2', '@' }, { 0x03, '3', '3', '#' },
+	{ 0x04, '4', '4', '$' }, { 0x05, '5', '5', '%' }, { 0x06, '6', '6', '^' },
+	{ 0x07, '7', '7', '&' }, { 0x08, '8', '8', '*' }, { 0x09, '9', '9', '(' },
+	{ 0x0A, '0', '0', ')' }, { 0x0B, '-', '-', '_' }, { 0x0C, '=', '=', '+' },
+
+	{ 0x10, 'Q', 'q', 'Q' }, { 0x11, 'W', 'w', 'W' }, { 0x12, 'E', 'e', 'E' },
+	{ 0x13, 'R', 'r', 'R' }, { 0x14, 'T', 't', 'T' }, { 0x15, 'Y', 'y', 'Y' },
+	{ 0x16, 'U', 'u', 'U' }, { 0x17, 'I', 'i', 'I' }, { 0x18, 'O', 'o', 'O' },
+	{ 0x19, 'P', 'p', 'P' },
+
+	{ 0x20, 'A', 'a', 'A' }, { 0x21, 'S', 's', 'S' }, { 0x22, 'D', 'd', 'D' },
+	{ 0x23, 'F', 'f', 'F' }, { 0x24, 'G', 'g', 'G' }, { 0x25, 'H', 'h', 'H' },
+	{ 0x26, 'J', 'j', 'J' }, { 0x27, 'K', 'k', 'K' }, { 0x28, 'L', 'l', 'L' },
+
+	{ 0x31, 'Z', 'z', 'Z' }, { 0x32, 'X', 'x', 'X' }, { 0x33, 'C', 'c', 'C' },
+	{ 0x34, 'V', 'v', 'V' }, { 0x35, 'B', 'b', 'B' }, { 0x36, 'N', 'n', 'N' },
+	{ 0x37, 'M', 'm', 'M' },
+	{ 0x38, ',', ',', '<' }, { 0x39, '.', '.', '>' }, { 0x3A, '/', '/', '?' },
+};
+
+/** Qualifier state, tracked from the raw codes for shift and control. */
+static bool _amiga_shift, _amiga_ctrl;
+
+static void HandleAmigaKey(int raw)
+{
+	uint16 wkc = 0;
+	char   ch  = 0;
+
+	for (uint i = 0; i < lengthof(_amiga_keys); i++) {
+		if (_amiga_keys[i].raw != raw) continue;
+		wkc = _amiga_keys[i].wkc;
+		ch  = _amiga_shift ? _amiga_keys[i].shifted : _amiga_keys[i].ascii;
+		break;
+	}
+	if (wkc == 0) return;
+
+	if (_amiga_shift) wkc |= WKC_SHIFT;
+	if (_amiga_ctrl)  wkc |= WKC_CTRL;
+
+	HandleKeypress((uint32)(uint8)ch | ((uint32)wkc << 16));
+}
+
+/**
+ * Adaptive frame skipping.
+ *
+ * The simulation rate is fixed and must stay that way - OpenTTD relies on it
+ * for determinism and savegame compatibility, so slowing the game clock to
+ * cope with a slow machine would change how the game actually plays.
+ *
+ * The honest lever is to draw less often. This is precisely what fast-forward
+ * demonstrates: it does not make the machine faster, it lets the game loop run
+ * without waiting, and the simulation catches up. Here we get the same effect
+ * automatically by dropping frames only while we are behind schedule.
+ *
+ * "-v amiga:frameskip=N" pins it to a fixed value; the default adapts.
+ */
+#define MAX_FRAMESKIP 8
+
+static int  _frameskip;        ///< frames to drop between drawn ones
+static int  _skip_left;        ///< countdown to the next drawn frame
+static bool _frameskip_auto;   ///< OFF by default: dropping frames looked far worse
+                               ///< in practice than letting the player hit fast-forward.
+static int  _fs_report;
+
+/** Lores modes get the small interface font, hires the normal one. */
+static inline bool WantSmallFont(uint w) { return w < 400; }
 
 static FVideoDriver_Amiga iFVideoDriver_Amiga;
 
@@ -269,6 +388,18 @@ static void PollEvents()
 				HandleMouseEvents();
 				break;
 
+			case AMIGAGFX_EV_KEY:
+				/* Shift and Ctrl arrive as ordinary raw codes with bit 7 set on
+				 * release; track them so combinations work. */
+				switch (ev.code & 0x7f) {
+					case 0x60: case 0x61: _amiga_shift = ((ev.code & 0x80) == 0); break;
+					case 0x63:            _amiga_ctrl  = ((ev.code & 0x80) == 0); break;
+					default:
+						if ((ev.code & 0x80) == 0) HandleAmigaKey(ev.code & 0x7f);
+						break;
+				}
+				break;
+
 			case AMIGAGFX_EV_QUIT:
 				HandleExitGameRequest();
 				break;
@@ -283,6 +414,25 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 {
 	_force_bbox = (GetDriverParam(parm, "bbox") != NULL);
 	_rmb_as_lmb = (GetDriverParam(parm, "rmbaslmb") != NULL);
+
+	{
+		const char *fs = GetDriverParam(parm, "frameskip");
+		if (fs != NULL) {
+			_frameskip_auto = false;
+			_frameskip = Clamp(atoi(fs), 0, MAX_FRAMESKIP);
+		}
+	}
+
+	/* Offer the Amiga modes in Game Options -> Screen resolution. */
+	_num_resolutions = 0;
+	for (uint i = 0; i < lengthof(_amiga_resolutions) && _num_resolutions < lengthof(_resolutions); i++) {
+		_resolutions[_num_resolutions++] = _amiga_resolutions[i];
+	}
+
+	/* The font tables are built once, just after this, so the choice has to be
+	 * made now. Changing resolution later reopens the screen immediately but
+	 * leaves the font as it was - hence the restart note in ChangeResolution. */
+	_amiga_small_font = WantSmallFont(_cur_resolution.width);
 
 	if (!CreateMainSurface(_cur_resolution.width, _cur_resolution.height)) {
 		return "Could not open the Amiga screen";
@@ -373,6 +523,24 @@ void VideoDriver_Amiga::MainLoop()
 
 		if (trace < 3) amigagfx_log("iter: millis");
 		cur_ticks = amigagfx_millis();
+
+		/* How late are we? next_tick is when the current game tick was due, so
+		 * anything past it means the previous frame overran its budget. */
+		if (_frameskip_auto && !_fast_forward) {
+			int32 late = (int32)(cur_ticks - next_tick);
+			if (late > 60) {
+				if (_frameskip < MAX_FRAMESKIP) _frameskip++;
+			} else if (late < 0 && _frameskip > 0) {
+				_frameskip--;
+			}
+		}
+
+		/* Decide before GameLoop so UpdateWindows can be skipped too - that is
+		 * where the blitter cost is, and OpenTTD keeps its dirty blocks until
+		 * something actually draws them, so nothing is lost by waiting. */
+		bool draw_frame = (_skip_left <= 0);
+		if (draw_frame) _skip_left = _frameskip; else _skip_left--;
+
 		if (cur_ticks >= next_tick || (_fast_forward && !_pause_mode) || cur_ticks < prev_cur_ticks) {
 			_realtime_tick += cur_ticks - last_cur_ticks;
 			last_cur_ticks = cur_ticks;
@@ -411,14 +579,36 @@ void VideoDriver_Amiga::MainLoop()
 		}
 
 		if (trace < 3) amigagfx_log("blit enter");
-		DrawSurfaceToScreen();
+		if (draw_frame) DrawSurfaceToScreen();
+
+		if (_frameskip != _fs_report) {
+			char b[80];
+			snprintf(b, sizeof(b), "frameskip now %d (drawing 1 frame in %d)",
+			         _frameskip, _frameskip + 1);
+			amigagfx_log(b);
+			_fs_report = _frameskip;
+		}
 		if (trace < 3) { amigagfx_log("blit done - frame complete"); trace++; }
 	}
 }
 
 bool VideoDriver_Amiga::ChangeResolution(int w, int h)
 {
-	return CreateMainSurface(w, h);
+	/* Deliberately does NOT reopen the screen.
+	 *
+	 * Switching size on the fly leaves the interface built for the old one:
+	 * every open window keeps its position and width, so going from 640 to 320
+	 * left a single window covering the whole display. The font cannot follow
+	 * either - the glyph tables are built once at startup. Changing both
+	 * properly means re-laying out every window and rebuilding the fonts, which
+	 * is a far bigger job than it looks.
+	 *
+	 * So the choice is recorded and applied on the next run. Returning true is
+	 * what makes OpenTTD keep the new value and write it to openttd.cfg. */
+	amigagfx_log(WantSmallFont((uint)w)
+	             ? "resolution set - restart to apply (lores, small interface font)"
+	             : "resolution set - restart to apply (hires, normal interface font)");
+	return true;
 }
 
 bool VideoDriver_Amiga::ToggleFullscreen(bool fullscreen)

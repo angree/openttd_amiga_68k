@@ -1,0 +1,58 @@
+# Whitelist approach: ignore everything, then explicitly allow what we publish.
+# This repository must never contain Kickstart ROMs, Workbench images, original
+# Transport Tycoon Deluxe data or any other licensed material.
+#
+# Scope is deliberately narrow: the sources, what is needed to compile them, and
+# enough documentation to reproduce the build. Internal working notes stay out.
+/*
+
+!/.gitignore
+!/README.md
+!/BUILDING.md
+!/LICENSE
+!/native/
+!/build/
+!/screenshots/
+
+# Inside build/, only the scripts that actually build something.
+/build/*
+!/build/apply-amiga-patches.py
+!/build/build-openttd.sh
+
+# Compiled Amiga executables carry no extension, so match them by name.
+/native/agabench
+/native/agac2p
+/native/againput
+/native/gfxtest
+/native/exctest
+/native/exc_*
+/native/fptest
+/native/fptest_*
+/native/zlibtest
+/native/zsrc_*
+/native/z_*
+
+# Emulator disk images, ROMs, game data, build output
+*.hdf
+*.HDF
+*.rom
+*.ROM
+*.adf
+*.lha
+*.grf
+*.cat
+*.dat
+*.sav
+*.obg
+*.obs
+*.obm
+*.o
+*.a
+*.exe
+*.dll
+*.log
+
+# Editor / OS noise
+Thumbs.db
+.DS_Store
+*~

@@ -4,10 +4,14 @@ A native port of OpenTTD 1.0.5 to classic AmigaOS 3.x on 68k, with its own
 video driver written against Intuition and graphics.library. No SDL, no RTG
 card required — it runs on plain AGA.
 
-This is early work. It is playable enough to generate a map, build a road and a
-station and watch a vehicle drive, but it is not finished software and it is not
-a release. Consider it a proof that the thing is possible, plus the notes needed
-for someone else to carry it further.
+**This is not a release. Do not expect to play it properly yet.**
+
+It gets far enough to generate a map, build a road and a station and watch a
+vehicle drive, which is enough to show the approach works. But you cannot scroll
+the map (neither right-drag nor the arrow keys work), and every industry reports
+its cargo as "invalid cargo", so an actual game is not yet possible. The code is
+published at this stage because the port is real and the toolchain findings in
+BUILDING.md are worth having in the open, not because it is ready.
 
 ![OpenTTD running on an emulated A4000/040 with AGA](screenshots/newgame.png)
 
@@ -62,11 +66,18 @@ A full-screen repaint is therefore around 8.5 fps on an 040/25 and roughly
 Works: map generation, saving and loading, the menus, the scenario editor,
 building track/road/stations, vehicles running, mouse input.
 
-Does not work yet:
+Does not work yet — these are the blockers:
 
-- **Keyboard input.** IDCMP delivers no key events to the backdrop window; not
-  yet diagnosed.
-- **Right-button map scrolling.** Under investigation.
+- **You cannot scroll the map.** Right-drag scrolling does nothing, and the
+  arrow keys do not either, because keyboard input does not arrive at all —
+  IDCMP delivers no key events to the backdrop window. Between them this makes
+  the game unplayable in practice.
+- **Every industry shows "invalid cargo"** for the cargo it accepts and
+  produces. Not yet diagnosed; the cargo tables themselves look endian-clean, so
+  the cause is elsewhere.
+- **Closing some windows is very slow.** `window.cpp` has to be built at `-O0`
+  to avoid a crash (see BUILDING.md), and that costs speed across the whole GUI.
+  Finding the single optimisation pass responsible would fix both.
 - **Sound.** OpenSFX is recognised as a sound set, but there is no AHI driver,
   so the game runs with `-s null`.
 - **Networking** is disabled in this build.

@@ -6,12 +6,12 @@ card required — it runs on plain AGA.
 
 **This is not a release. Do not expect to play it properly yet.**
 
-It gets far enough to generate a map, build a road and a station and watch a
-vehicle drive, which is enough to show the approach works. But you cannot scroll
-the map (neither right-drag nor the arrow keys work), and every industry reports
-its cargo as "invalid cargo", so an actual game is not yet possible. The code is
-published at this stage because the port is real and the toolchain findings in
-BUILDING.md are worth having in the open, not because it is ready.
+It is playable with the mouse — you can generate a map, build road, rail and
+stations, run vehicles and scroll around. But there is **no sound**, **no
+keyboard input at all**, and every industry reports its cargo as "invalid
+cargo". So it is worth looking at and testing, not worth sinking an evening
+into. The toolchain findings in BUILDING.md are arguably the more useful half of
+this repository.
 
 ![OpenTTD running on an emulated A4000/040 with AGA](screenshots/newgame.png)
 
@@ -64,7 +64,8 @@ A full-screen repaint is therefore around 8.5 fps on an 040/25 and roughly
 ## State of things
 
 Works: map generation, saving and loading, the menus, the scenario editor,
-building track/road/stations, vehicles running, mouse input.
+building track/road/stations, vehicles running, full mouse control including
+right-drag map scrolling.
 
 Does not work yet — these are the blockers:
 
@@ -86,10 +87,22 @@ Does not work yet — these are the blockers:
 
 ## Requirements
 
-- AmigaOS 3.1, 68040 **with FPU** (see BUILDING.md — map generation needs it;
-  the game logic itself is integer-only)
-- 640x480 or better in 256 colours
-- OpenGFX and OpenSFX in `data/`
+- **68040 with FPU.** Not optional: terrain generation does its maths in
+  floating point. A 68LC040 or an 030 without an FPU will not work. 25 MHz is
+  the practical floor, 40 MHz or an 060 is noticeably better. The simulation
+  itself is integer-only, so only map generation depends on this.
+- **AGA.** A1200, A4000 or CD32. There is no Picasso96/CyberGraphX path yet, and
+  no ECS/OCS support — those chipsets top out at 32 colours where the game needs
+  256. RTG is the more interesting of the two to add, and the driver is
+  structured so it can be.
+- **16 MB Fast RAM.** The executable is 5 MB on its own, plus a 4 MB sprite
+  cache and the map. 8 MB is not enough as shipped, though trimming the sprite
+  cache would help. (The binary cannot be stripped — `m68k-amigaos-strip`
+  produces an executable that halts the CPU on load.)
+- AmigaOS 3.0 or 3.1, ~30 MB free disk space.
+
+Nothing from the original Transport Tycoon Deluxe is needed. The release archive
+bundles OpenGFX and OpenSFX, so it runs as unpacked.
 
 ## Building
 

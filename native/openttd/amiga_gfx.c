@@ -28,6 +28,9 @@
 #include <graphics/gfx.h>
 #include <graphics/displayinfo.h>
 #include <exec/memory.h>
+#include <exec/io.h>
+#include <devices/input.h>
+#include <devices/inputevent.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -41,6 +44,15 @@ void amigagfx_log(const char *msg)
 {
 	fprintf(stdout, "amiga: %s\n", msg);
 	fflush(stdout);
+}
+
+/* Chatty per-play diagnostics (currently only the periodic "blit #N" line) are
+ * off by default; the C++ driver switches them on for "-v amiga:verbose". */
+static int g_verbose;
+
+void amigagfx_set_verbose(int verbose)
+{
+	g_verbose = verbose;
 }
 
 /* Argument block for the assembly c2p; layout must match native/c2p_glue.s. */
@@ -66,6 +78,98 @@ static ULONG  g_epoch;
 static unsigned long g_blits;
 static ULONG g_want_modeid;
 static int   g_used_fallback;
+
+/* input.device, opened lazily and only for IND_WRITEEVENT: Intuition has no
+ * "warp the pointer" call, but feeding an IECLASS_NEWPOINTERPOS event with
+ * IESUBCLASS_PIXEL (screen + pixel coordinates) into the input stream moves
+ * the system pointer to an absolute position. Needed for right-drag map
+ * scrolling, where the pointer must not pile up at the screen edge.
+ * g_input_state: 0 = not tried yet, 1 = open, -1 = failed (stay a no-op). */
+static struct MsgPort  *g_input_mp;
+static struct IOStdReq *g_input_io;
+static int              g_input_state;
+
+static int input_device_open(void)
+{
+	if (g_input_state != 0) return g_input_state > 0;
+	g_input_state = -1;
+
+	g_input_mp = CreateMsgPort();
+	if (g_input_mp == NULL) {
+		amigagfx_log("input.device: CreateMsgPort FAILED - pointer warp disabled");
+		return 0;
+	}
+
+	g_input_io = (struct IOStdReq *)CreateIORequest(g_input_mp, sizeof(struct IOStdReq));
+	if (g_input_io == NULL) {
+		DeleteMsgPort(g_input_mp); g_input_mp = NULL;
+		amigagfx_log("input.device: CreateIORequest FAILED - pointer warp disabled");
+		return 0;
+	}
+
+	if (OpenDevice((CONST_STRPTR)"input.device", 0, (struct IORequest *)g_input_io, 0) != 0) {
+		DeleteIORequest(g_input_io); g_input_io = NULL;
+		DeleteMsgPort(g_input_mp);   g_input_mp = NULL;
+		amigagfx_log("input.device: OpenDevice FAILED - pointer warp disabled");
+		return 0;
+	}
+
+	amigagfx_log("input.device open - pointer warp ready (NEWPOINTERPOS/PIXEL)");
+	g_input_state = 1;
+	return 1;
+}
+
+static void input_device_close(void)
+{
+	if (g_input_state > 0) CloseDevice((struct IORequest *)g_input_io);
+	if (g_input_io != NULL) { DeleteIORequest(g_input_io); g_input_io = NULL; }
+	if (g_input_mp != NULL) { DeleteMsgPort(g_input_mp);   g_input_mp = NULL; }
+	g_input_state = 0;
+}
+
+int amigagfx_warp_pointer(int x, int y)
+{
+	struct InputEvent ie;
+	struct IEPointerPixel pp;
+	BYTE err;
+
+	if (g_screen == NULL) return 0;
+	if (!input_device_open()) return 0;
+
+	/* IECLASS_POINTERPOS did NOT work here: its ie_X/ie_Y are in the input
+	 * device's own coordinate space, not screen pixels, and on our
+	 * hires-interlaced screens the two differ per axis - the pointer never
+	 * visibly moved. IECLASS_NEWPOINTERPOS (V36, so any OS 2.0+) with
+	 * IESUBCLASS_PIXEL instead takes an explicit target screen plus true
+	 * pixel coordinates in that screen, which is unambiguous in every mode. */
+	pp.iepp_Screen     = g_screen;
+	pp.iepp_Position.X = (WORD)x;
+	pp.iepp_Position.Y = (WORD)y;
+
+	memset(&ie, 0, sizeof(ie));        /* zeroes ie_NextEvent and ie_TimeStamp */
+	ie.ie_Class        = IECLASS_NEWPOINTERPOS;
+	ie.ie_SubClass     = IESUBCLASS_PIXEL;
+	ie.ie_Code         = IECODE_NOBUTTON;
+	ie.ie_Qualifier    = 0;            /* absolute: no IEQUALIFIER_RELATIVEMOUSE */
+	ie.ie_EventAddress = &pp;          /* pp lives across DoIO - it is synchronous */
+
+	g_input_io->io_Command = IND_WRITEEVENT;
+	g_input_io->io_Data    = &ie;
+	g_input_io->io_Length  = sizeof(ie);
+	err = DoIO((struct IORequest *)g_input_io);
+
+	{
+		static int warps, fails;
+		if ((err == 0 && warps < 6) || (err != 0 && fails < 4)) {
+			char b[96];
+			snprintf(b, sizeof(b), "warp sent: pixel %d,%d on %dx%d screen, DoIO rc=%d",
+			         x, y, g_width, g_height, (int)err);
+			amigagfx_log(b);
+			if (err == 0) warps++; else fails++;
+		}
+	}
+	return err == 0;
+}
 
 static ULONG raw_ticks(void)
 {
@@ -177,6 +281,7 @@ int amigagfx_open(int w, int h)
 
 void amigagfx_close(void)
 {
+	input_device_close();
 	if (g_window != NULL) { CloseWindow(g_window); g_window = NULL; }
 	if (g_screen != NULL) { CloseScreen(g_screen); g_screen = NULL; }
 	if (g_chip != NULL)   { FreeMem(g_chip, g_planesize * DEPTH); g_chip = NULL; }
@@ -203,6 +308,153 @@ void amigagfx_set_palette(const unsigned char *rgb, int first, int count)
 	}
 	table[1 + count * 3] = 0UL;
 	LoadRGB32(&g_screen->ViewPort, table);
+}
+
+/* ---- Startup splash ------------------------------------------------------
+ *
+ * File format ("ASPL", written by build/make-splash.py), all fields big-endian
+ * which on this 68k is simply native order - but they are still assembled
+ * byte-by-byte so the loader does not depend on struct layout or alignment:
+ *
+ *   offset 0  : magic    4 bytes, ASCII "ASPL"
+ *   offset 4  : uint16   width
+ *   offset 6  : uint16   height
+ *   offset 8  : uint16   ncolours (<= 256)
+ *   offset 10 : uint16   reserved (0)
+ *   offset 12 : palette  ncolours * 3 bytes, R,G,B
+ *   then      : pixels   width * height bytes of palette indices
+ *
+ * Index 0 is pure black and fills the screen around the image, so the whole
+ * screen fades as one. The fade NEVER re-runs the c2p or touches the chunky
+ * buffer: the image is converted once, then only the colour registers are
+ * rewritten with the stored RGB triples scaled by a 0..256 fixed-point
+ * factor. A fade step is 256 palette writes, not a frame conversion. */
+
+#define SPLASH_FADE_MS 500UL
+#define SPLASH_HOLD_TICKS 125   /* Delay() ticks of 20 ms -> 2.5 s */
+
+/* One palette write of the splash palette scaled by factor 0..256. */
+static void splash_palette_step(const UBYTE *pal, int ncol, long factor)
+{
+	UBYTE rgb[256 * 3];
+	int i;
+
+	for (i = 0; i < ncol * 3; i++) {
+		rgb[i] = (UBYTE)(((long)pal[i] * factor) >> 8);
+	}
+	amigagfx_set_palette(rgb, 0, ncol);
+}
+
+/* Ramp the palette factor from 'from' to 'to' over dur_ms, paced by the
+ * DateStamp millisecond clock (20 ms granularity) and Delay(1). */
+static void splash_fade(const UBYTE *pal, int ncol, long from, long to, ULONG dur_ms)
+{
+	ULONG t0 = amigagfx_millis();
+
+	for (;;) {
+		ULONG el = amigagfx_millis() - t0;
+		if (el >= dur_ms) break;
+		splash_palette_step(pal, ncol, from + ((to - from) * (long)el) / (long)dur_ms);
+		Delay(1);
+	}
+	splash_palette_step(pal, ncol, to);   /* land exactly on the end value */
+}
+
+void amigagfx_splash(const char *path)
+{
+	FILE *f = NULL;
+	UBYTE *pix = NULL;
+	UBYTE hdr[12];
+	UBYTE pal[256 * 3];
+	int w, h, ncol, scale, dx, dy, x, y;
+	char msg[128];
+
+	if (g_screen == NULL || g_chunky == NULL) return;
+
+	f = fopen(path, "rb");
+	if (f == NULL) {
+		snprintf(msg, sizeof(msg), "splash: %s not found - skipped", path);
+		amigagfx_log(msg);
+		return;
+	}
+
+	if (fread(hdr, 1, sizeof(hdr), f) != sizeof(hdr) ||
+	    hdr[0] != 'A' || hdr[1] != 'S' || hdr[2] != 'P' || hdr[3] != 'L') {
+		amigagfx_log("splash: bad or truncated header - skipped");
+		fclose(f);
+		return;
+	}
+
+	w    = ((int)hdr[4] << 8) | hdr[5];
+	h    = ((int)hdr[6] << 8) | hdr[7];
+	ncol = ((int)hdr[8] << 8) | hdr[9];
+
+	/* 2x nearest-neighbour on tall (hires) screens, 1x on lores. */
+	scale = (g_height >= 400) ? 2 : 1;
+
+	if (w <= 0 || h <= 0 || ncol <= 0 || ncol > 256 ||
+	    w * scale > g_width || h * scale > g_height) {
+		snprintf(msg, sizeof(msg), "splash: %dx%d ncol %d does not fit %dx%d @%dx - skipped",
+		         w, h, ncol, g_width, g_height, scale);
+		amigagfx_log(msg);
+		fclose(f);
+		return;
+	}
+
+	pix = (UBYTE *)AllocVec((ULONG)w * h, MEMF_ANY);
+	if (pix == NULL) {
+		amigagfx_log("splash: no memory for pixels - skipped");
+		fclose(f);
+		return;
+	}
+
+	if (fread(pal, 1, (size_t)ncol * 3, f) != (size_t)ncol * 3 ||
+	    fread(pix, 1, (size_t)w * h, f) != (size_t)w * h) {
+		amigagfx_log("splash: file shorter than header claims - skipped");
+		FreeVec(pix);
+		fclose(f);
+		return;
+	}
+	fclose(f);
+	f = NULL;
+
+	/* Black the palette out BEFORE the image reaches the screen, so the fade
+	 * starts from darkness instead of flashing the game palette. */
+	splash_palette_step(pal, ncol, 0);
+
+	/* Compose once: black border (index 0), image centred. */
+	memset(g_chunky, 0, (ULONG)g_width * g_height);
+	dx = (g_width  - w * scale) / 2;
+	dy = (g_height - h * scale) / 2;
+	for (y = 0; y < h; y++) {
+		const UBYTE *src = pix + (ULONG)y * w;
+		UBYTE *dst = g_chunky + (ULONG)(dy + y * scale) * g_width + dx;
+		if (scale == 1) {
+			memcpy(dst, src, (size_t)w);
+		} else {
+			UBYTE *d = dst;
+			for (x = 0; x < w; x++) { UBYTE c = src[x]; *d++ = c; *d++ = c; }
+			memcpy(dst + g_width, dst, (size_t)w * 2);   /* double the row */
+		}
+	}
+	FreeVec(pix);
+	pix = NULL;
+
+	/* The ONE chunky-to-planar conversion of the splash. */
+	amigagfx_blit(0, 0, g_width, g_height);
+
+	snprintf(msg, sizeof(msg), "splash: %dx%d ncol %d at %d,%d scale %dx", w, h, ncol, dx, dy, scale);
+	amigagfx_log(msg);
+
+	/* Fade in, hold, fade out - palette-only from here on. */
+	splash_fade(pal, ncol, 0, 256, SPLASH_FADE_MS);
+	Delay(SPLASH_HOLD_TICKS);
+	splash_fade(pal, ncol, 256, 0, SPLASH_FADE_MS);
+
+	/* Leave the screen genuinely black: clear the chunky buffer and convert
+	 * once more, so restoring the game palette cannot flash the image back. */
+	memset(g_chunky, 0, (ULONG)g_width * g_height);
+	amigagfx_blit(0, 0, g_width, g_height);
 }
 
 void amigagfx_blit(int x, int y, int w, int h)
@@ -237,12 +489,15 @@ void amigagfx_blit(int x, int y, int w, int h)
 	args.bpl = g_chip;
 	c2p_rect_asm(&args);
 
-	/* First blit and then every 200th: proves the main loop is really running
-	 * and pushing pixels, without flooding the log. */
+	/* The FIRST blit is logged always - it is the one-shot proof that the main
+	 * loop reached the screen. The every-200th heartbeat costs I/O for the
+	 * whole session, so it now needs "-v amiga:verbose". */
 	g_blits++;
-	if (g_blits == 1 || (g_blits % 200) == 0)
+	if (g_blits == 1 || (g_verbose && (g_blits % 200) == 0)) {
 		fprintf(stdout, "amiga: blit #%lu  %dx%d at %d,%d\n",
-		        g_blits, (int)args.w, (int)args.h, (int)args.x, (int)args.y); fflush(stdout);
+		        g_blits, (int)args.w, (int)args.h, (int)args.x, (int)args.y);
+		fflush(stdout);
+	}
 }
 
 int amigagfx_poll(AmigaGfxEvent *ev)

@@ -19,7 +19,7 @@
  */
 
 #include "../stdafx.h"
-#include <stdio.h>      /* snprintf for the blit statistics line */
+#include <stdio.h>      /* snprintf for the diagnostic log lines */
 #include <stdlib.h>     /* atoi for the frameskip driver parameter */
 #include "../openttd.h"
 #include "../gfx_func.h"
@@ -31,6 +31,7 @@
 #include "../genworld.h"
 #include "../core/random_func.hpp"
 #include "../fontcache.h"
+#include "../settings_func.h" /* SaveToConfig - see ChangeResolution */
 #include "amiga_v.h"
 #include "amiga_gfx.h"
 
@@ -175,6 +176,13 @@ static FVideoDriver_Amiga iFVideoDriver_Amiga;
  * confounded with whatever else changed in the same build. */
 static bool _force_bbox;
 
+/** "-v amiga:verbose" re-enables the per-frame diagnostics that are too chatty
+ * for normal play on a 68040: the first-iterations trace in MainLoop, the
+ * right-drag scroll deltas, the periodic blit-statistics summary and the
+ * periodic "blit #N" heartbeat in amiga_gfx.c. Startup lines, errors and the
+ * capped pointer-warp diagnostics stay on unconditionally. */
+static bool _verbose;
+
 /** Diagnostic: "-v amiga:rmbaslmb" makes the RIGHT button behave exactly like
  * the LEFT one. If right-clicking then acts like a left click, the IDCMP event
  * is arriving fine and the fault is in the scroll handling; if nothing happens
@@ -186,6 +194,31 @@ static bool _rmb_as_lmb;
  * to be measured against this instead. */
 static int _phys_x, _phys_y;
 static int _dbg_scroll;
+
+/** Pointer warp bookkeeping for right-drag scrolling.
+ *
+ * While _cursor.fix_at is set only deltas matter, but the SYSTEM pointer still
+ * moves and would eventually hit the screen border, where the deltas drop to
+ * zero and the scroll dead-ends. So after every drained batch of movement we
+ * push it back to the screen centre through input.device
+ * (amigagfx_warp_pointer, IECLASS_NEWPOINTERPOS + IESUBCLASS_PIXEL): the
+ * pointer then hovers around the centre for the whole drag and can never even
+ * approach an edge. This mirrors SDL's warp-based relative mouse mode.
+ *
+ * The warp itself comes back to us as a perfectly ordinary IDCMP mouse-move,
+ * and reporting THAT as movement would jump the map by half a screen. Hence
+ * the pending flag: remember the exact target and swallow the first move that
+ * lands on it, resyncing _phys_* instead of producing a delta. Events already
+ * queued before the warp carry pre-warp coordinates and are processed first
+ * (the input stream is ordered), so their deltas against _phys_* stay valid.
+ * Should the echo ever get lost (warp silently ignored), a stuck pending flag
+ * would block all further warps - so after WARP_ECHO_LIMIT non-matching moves
+ * it is cleared, logged, and the next poll simply warps again. */
+static bool _warp_pending;
+static int  _warp_x, _warp_y;
+static int  _warp_misses;
+static int  _dbg_warp_trig, _dbg_warp_echo;
+#define WARP_ECHO_LIMIT 20
 
 struct DirtyRect { int left, top, right, bottom; };
 static DirtyRect _dirty[MAX_DIRTY_RECTS];
@@ -244,40 +277,14 @@ static void CheckPaletteAnim()
 	_pal_count_dirty = 0;
 }
 
-/** Proof that the rectangle list is worth it: how many pixels we actually
- * convert versus what a single bounding box would have cost. */
-static uint32 _stat_frames, _stat_px_real, _stat_px_bbox;
-
-static void ReportBlitStats()
-{
-	char buf[128];
-	uint32 saved = (_stat_px_bbox > _stat_px_real)
-	             ? ((_stat_px_bbox - _stat_px_real) * 100 / _stat_px_bbox) : 0;
-	snprintf(buf, sizeof(buf),
-	         "%u frames: %u kpx converted vs %u kpx for one bbox (%u%% saved)",
-	         (uint)_stat_frames, (uint)(_stat_px_real / 1000),
-	         (uint)(_stat_px_bbox / 1000), (uint)saved);
-	amigagfx_log(buf);
-	_stat_frames = 0;
-	_stat_px_real = 0;
-	_stat_px_bbox = 0;
-}
+/* The per-200-frames blit statistics ("N kpx converted vs M kpx for one bbox")
+ * are gone for release: they had already proven their point - the rectangle
+ * list beats a single bounding box - and both the area sums every frame and
+ * the log I/O were measurable overhead on a 68040. To re-measure, run with
+ * "-v amiga:bbox" and compare feel/timings; the A/B switch is still here. */
 
 static void DrawSurfaceToScreen()
 {
-	if (_bbox_right > _bbox_left && _bbox_bottom > _bbox_top) {
-		_stat_px_bbox += (uint32)(_bbox_right - _bbox_left) * (_bbox_bottom - _bbox_top);
-		if (_dirty_overflow || _force_bbox) {
-			_stat_px_real += (uint32)(_bbox_right - _bbox_left) * (_bbox_bottom - _bbox_top);
-		} else {
-			for (int i = 0; i < _num_dirty; i++) {
-				_stat_px_real += (uint32)(_dirty[i].right - _dirty[i].left) *
-				                 (_dirty[i].bottom - _dirty[i].top);
-			}
-		}
-		if (++_stat_frames >= 200) ReportBlitStats();
-	}
-
 	if (_dirty_overflow || _force_bbox) {
 		if (_bbox_right > _bbox_left && _bbox_bottom > _bbox_top) {
 			amigagfx_blit(_bbox_left, _bbox_top,
@@ -313,6 +320,12 @@ static bool CreateMainSurface(uint w, uint h)
 
 	ResetDirty();
 
+	/* A key held across a resolution change would leave its bit stuck: the
+	 * release goes to a window that no longer exists. Same for a pending warp
+	 * echo - the new screen will never deliver it. */
+	_dirkeys = 0;
+	_warp_pending = false;
+
 	BlitterFactoryBase::GetCurrentBlitter()->PostResize();
 	UpdatePalette(0, 256);
 	GameSizeChanged();
@@ -328,6 +341,33 @@ static void PollEvents()
 	while (amigagfx_poll(&ev) != 0) {
 		switch (ev.type) {
 			case AMIGAGFX_EV_MOUSEMOVE:
+				/* Echo of our own pointer warp? Swallow it: it is not user
+				 * movement. If the drag ended before the echo arrived, fall
+				 * through instead - the pointer genuinely is at the warped
+				 * position now and the normal path records exactly that.
+				 * Moves that do NOT match are pre-warp events still in the
+				 * queue and fall through as ordinary deltas; if too many pass
+				 * without a match the echo is lost, so unblock and retry. */
+				if (_warp_pending) {
+					if (_dbg_warp_echo < 8) {
+						char b[96];
+						snprintf(b, sizeof(b), "move while warp pending: %d,%d (target %d,%d)",
+						         ev.x, ev.y, _warp_x, _warp_y);
+						amigagfx_log(b);
+						_dbg_warp_echo++;
+					}
+					if (ev.x == _warp_x && ev.y == _warp_y) {
+						_warp_pending = false;
+						if (_cursor.fix_at) {
+							_phys_x = ev.x;
+							_phys_y = ev.y;
+							break;
+						}
+					} else if (++_warp_misses >= WARP_ECHO_LIMIT) {
+						_warp_pending = false;
+						amigagfx_log("warp echo never arrived - unblocking to retry");
+					}
+				}
 				/* Right-button map scrolling: OpenTTD sets _cursor.fix_at and
 				 * then expects the driver to pin the pointer and report only
 				 * the movement deltas. SDL does that by warping the mouse;
@@ -339,7 +379,7 @@ static void PollEvents()
 				if (_cursor.fix_at) {
 					_cursor.delta.x = ev.x - _phys_x;
 					_cursor.delta.y = ev.y - _phys_y;
-					if (_dbg_scroll < 8) {
+					if (_verbose && _dbg_scroll < 8) {
 						char b[96];
 						snprintf(b, sizeof(b), "scroll delta %d,%d (rmb=%d)",
 						         (int)_cursor.delta.x, (int)_cursor.delta.y,
@@ -388,17 +428,35 @@ static void PollEvents()
 				HandleMouseEvents();
 				break;
 
-			case AMIGAGFX_EV_KEY:
+			case AMIGAGFX_EV_KEY: {
+				int  raw  = ev.code & 0x7f;
+				bool down = ((ev.code & 0x80) == 0);
+
+				/* _dirkeys is a key-STATE bitmask (1=left 2=up 4=right 8=down)
+				 * that every video driver maintains itself; window.cpp polls it
+				 * each frame to scroll the viewport. It needs press AND release,
+				 * unlike the one-shot dispatch below. */
+				switch (raw) {
+					case 0x4F: if (down) _dirkeys |= 1; else _dirkeys &= ~1; break; /* left  */
+					case 0x4C: if (down) _dirkeys |= 2; else _dirkeys &= ~2; break; /* up    */
+					case 0x4E: if (down) _dirkeys |= 4; else _dirkeys &= ~4; break; /* right */
+					case 0x4D: if (down) _dirkeys |= 8; else _dirkeys &= ~8; break; /* down  */
+					default: break;
+				}
+
 				/* Shift and Ctrl arrive as ordinary raw codes with bit 7 set on
-				 * release; track them so combinations work. */
-				switch (ev.code & 0x7f) {
-					case 0x60: case 0x61: _amiga_shift = ((ev.code & 0x80) == 0); break;
-					case 0x63:            _amiga_ctrl  = ((ev.code & 0x80) == 0); break;
+				 * release; track them so combinations work. Arrows still go
+				 * through HandleAmigaKey too - menus and lists use them as
+				 * ordinary keypresses. */
+				switch (raw) {
+					case 0x60: case 0x61: _amiga_shift = down; break;
+					case 0x63:            _amiga_ctrl  = down; break;
 					default:
-						if ((ev.code & 0x80) == 0) HandleAmigaKey(ev.code & 0x7f);
+						if (down) HandleAmigaKey(raw);
 						break;
 				}
 				break;
+			}
 
 			case AMIGAGFX_EV_QUIT:
 				HandleExitGameRequest();
@@ -408,12 +466,40 @@ static void PollEvents()
 				break;
 		}
 	}
+
+	/* Recentre the system pointer whenever it has moved off the centre during
+	 * a fixed-cursor drag - not merely near the edges - so it can never come
+	 * anywhere close to a border. Decide only after the queue is drained:
+	 * everything still queued carries pre-warp coordinates, and warping
+	 * mid-drain would put the echo behind events whose deltas were measured
+	 * against the old position. */
+	if (_cursor.fix_at && !_warp_pending) {
+		int cx = _screen.width  / 2;
+		int cy = _screen.height / 2;
+		if (_phys_x != cx || _phys_y != cy) {
+			if (_dbg_warp_trig < 6) {
+				char b[96];
+				snprintf(b, sizeof(b), "warp trigger: phys %d,%d -> centre %d,%d (screen %dx%d)",
+				         _phys_x, _phys_y, cx, cy, (int)_screen.width, (int)_screen.height);
+				amigagfx_log(b);
+				_dbg_warp_trig++;
+			}
+			if (amigagfx_warp_pointer(cx, cy) != 0) {
+				_warp_pending = true;
+				_warp_misses  = 0;
+				_warp_x = cx;
+				_warp_y = cy;
+			}
+		}
+	}
 }
 
 const char *VideoDriver_Amiga::Start(const char * const *parm)
 {
 	_force_bbox = (GetDriverParam(parm, "bbox") != NULL);
 	_rmb_as_lmb = (GetDriverParam(parm, "rmbaslmb") != NULL);
+	_verbose    = (GetDriverParam(parm, "verbose") != NULL);
+	amigagfx_set_verbose(_verbose ? 1 : 0);
 
 	{
 		const char *fs = GetDriverParam(parm, "frameskip");
@@ -438,9 +524,18 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 		return "Could not open the Amiga screen";
 	}
 
+	/* Startup splash: palette-fade the logo in and out on the freshly opened
+	 * screen. Deliberately HERE and not in CreateMainSurface, so a later
+	 * resolution change never replays it. PROGDIR: finds the file next to the
+	 * executable regardless of the current directory. The splash leaves the
+	 * palette black, so restore the game palette before anything is drawn. */
+	amigagfx_splash("PROGDIR:splash.dat");
+	UpdatePalette(0, 256);
+
 	amigagfx_log(_force_bbox
 	             ? "dirty tracking: single bounding box (-v amiga:bbox)"
 	             : "dirty tracking: rectangle list");
+	if (_verbose) amigagfx_log("verbose diagnostics ON (-v amiga:verbose)");
 
 	MarkWholeScreenDirty();
 	amigagfx_log("VideoDriver_Amiga::Start done - OpenTTD now loads data");
@@ -452,6 +547,12 @@ void VideoDriver_Amiga::Stop()
 	amigagfx_close();
 }
 
+/* cc1plus segfaults optimising this one function (GCC 6.5, m68k, -O1).
+ * The build script would otherwise drop the WHOLE file to -O0 - and this
+ * file is the per-frame driver: event polling, the blit and the dirty-rect
+ * bookkeeping. Losing -O1 across all of it made the game unplayable.
+ * So disable optimisation for just the function that trips the bug. */
+__attribute__((optimize("O0")))
 void VideoDriver_Amiga::MakeDirty(int left, int top, int width, int height)
 {
 	int right  = left + width;
@@ -484,7 +585,12 @@ void VideoDriver_Amiga::MakeDirty(int left, int top, int width, int height)
 			if (_dirty[j].top    < _dirty[i].top)    _dirty[i].top    = _dirty[j].top;
 			if (_dirty[j].right  > _dirty[i].right)  _dirty[i].right  = _dirty[j].right;
 			if (_dirty[j].bottom > _dirty[i].bottom) _dirty[i].bottom = _dirty[j].bottom;
-			_dirty[j] = _dirty[--_num_dirty];
+			/* Split from "_dirty[j] = _dirty[--_num_dirty];": the side effect
+			 * inside the subscript segfaults this GCC at -O1 (cc1plus ICE).
+			 * Dropping the whole driver to -O0 to dodge it costs real frame
+			 * time, so keep the statement split instead. */
+			_num_dirty--;
+			_dirty[j] = _dirty[_num_dirty];
 		}
 		return;
 	}
@@ -508,7 +614,10 @@ void VideoDriver_Amiga::MainLoop()
 	uint32 last_cur_ticks = cur_ticks;
 	uint32 next_tick = cur_ticks + 30;
 	uint32 pal_tick = 0;
-	int    trace = 0;
+	/* Phase-marker trace of the first three iterations: only under
+	 * "-v amiga:verbose". Starting the counter at its limit means not one of
+	 * the "if (trace < 3)" comparisons ever logs in normal play. */
+	int    trace = _verbose ? 0 : 3;
 
 	amigagfx_log("MainLoop entered - data loaded, game is running");
 
@@ -603,12 +712,33 @@ bool VideoDriver_Amiga::ChangeResolution(int w, int h)
 	 * not even written to openttd.cfg - the player is stuck in both directions.
 	 * DELETE closes all windows, which deals with anything left hanging off the
 	 * edge. */
-	if (!CreateMainSurface(w, h)) return false;
+	{
+		/* Diagnostic, and deliberately in THIS file: if the resolution dropdown
+		 * appears to do nothing, this line separates "the handler never ran"
+		 * from "the screen could not be reopened". Instrumenting the caller
+		 * would risk changing its codegen, which is exactly the failure mode
+		 * under suspicion. */
+		char b[96];
+		snprintf(b, sizeof(b), "ChangeResolution asked for %dx%d (screen is %dx%d)",
+		         w, h, _screen.width, _screen.height);
+		amigagfx_log(b);
+	}
+
+	if (!CreateMainSurface(w, h)) {
+		amigagfx_log("ChangeResolution FAILED - screen not reopened");
+		return false;
+	}
 
 	/* Store what was actually opened, not what was asked for: the width is
 	 * rounded up to the 32-pixel grid the c2p requires. */
 	_cur_resolution.width  = _screen.width;
 	_cur_resolution.height = _screen.height;
+
+	/* Persist the choice right away. Upstream writes openttd.cfg only on a
+	 * clean game exit (the sole SaveToConfig() call site, openttd.cpp), but an
+	 * Amiga user typically resets the machine instead - so without this the
+	 * new resolution would be lost on every hard reset. */
+	SaveToConfig();
 
 	/* The font still cannot follow - glyph tables and window widths are built
 	 * once at startup - so say so instead of leaving a lores screen wearing the

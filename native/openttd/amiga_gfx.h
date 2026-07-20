@@ -67,10 +67,34 @@ unsigned long amigagfx_millis(void);
 /* Pops one pending event. Returns 0 when the queue is empty. */
 int amigagfx_poll(AmigaGfxEvent *ev);
 
+/* Move the system pointer to the ABSOLUTE pixel position x,y on OUR screen by
+ * writing an IECLASS_NEWPOINTERPOS / IESUBCLASS_PIXEL event to input.device
+ * (opened lazily, closed again by amigagfx_close). The screen pointer stays
+ * internal to amiga_gfx.c. Returns 1 if the event was sent, 0 if it could not
+ * be (input.device unavailable) - in that case it is a harmless no-op.
+ * NOTE: Intuition will deliver a normal mouse-move IDCMP event for the warp;
+ * the caller must expect and suppress it. */
+int amigagfx_warp_pointer(int x, int y);
+
 /* Append a line to the log. amigagfx_open() redirects stderr to Work:ottd.log
  * unbuffered, which is the only way to see anything at all: OpenTTD logs to
  * stderr and the AmigaDOS 3.1 shell can only redirect stdout. */
 void amigagfx_log(const char *msg);
+
+/* Non-zero re-enables the chatty per-play diagnostics on the C side (the
+ * periodic "blit #N" heartbeat). Off by default for a quiet release log; the
+ * C++ driver calls this for "-v amiga:verbose". */
+void amigagfx_set_verbose(int verbose);
+
+/* Show the startup splash image (ASPL file, see build/make-splash.py) on the
+ * already-open screen: fade in ~0.5 s, hold 2.5 s, fade out ~0.5 s. The image
+ * is converted chunky-to-planar exactly once; the fade animates only the
+ * palette registers, so it is cheap even on a 68030. Draws at 1x on screens
+ * below 400 lines, 2x nearest-neighbour otherwise. On any problem (missing
+ * file, bad magic, does not fit) it logs one line and returns without drawing.
+ * Leaves the chunky buffer cleared to index 0 and the palette black - the
+ * caller must restore the game palette afterwards. */
+void amigagfx_splash(const char *path);
 
 #ifdef __cplusplus
 }

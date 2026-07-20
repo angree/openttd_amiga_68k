@@ -246,18 +246,17 @@ static void PollEvents()
 					if (ev.code != AMIGAGFX_BUTTON_LEFT) amigagfx_log("RMB down -> treated as LMB");
 					_left_button_down = true;
 				} else {
+					/* BOTH flags are required. _right_button_down alone only
+					 * tells OpenTTD the button is held; it is
+					 * _right_button_clicked that window.cpp turns into a
+					 * right-click event, and that event is what starts viewport
+					 * scrolling. Missing it meant right-drag did nothing at all,
+					 * while the button was plainly being received. Both the SDL
+					 * and Win32 drivers set the pair together. */
 					_right_button_down = true;
-					/* Right-drag map scrolling has been reported as not working.
-					 * Log the whole chain so the failure point is unambiguous:
-					 * does the event even arrive, and does OpenTTD respond by
-					 * setting _cursor.fix_at? */
-					amigagfx_log("RMB down");
+					_right_button_clicked = true;
 				}
 				HandleMouseEvents();
-				if (ev.code != AMIGAGFX_BUTTON_LEFT) {
-					amigagfx_log(_cursor.fix_at ? "RMB: fix_at SET by OpenTTD"
-					                            : "RMB: fix_at NOT set");
-				}
 				break;
 
 			case AMIGAGFX_EV_MOUSEUP:

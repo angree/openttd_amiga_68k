@@ -119,7 +119,8 @@ void AmigaMemProbe(const char *label)
 	fclose(f);
 }
 
-/* Argument block for the assembly c2p; layout must match native/c2p_glue.s. */
+/* Argument blocks for the two assembly c2p routines; both layouts must match
+ * native/c2p_glue.s exactly. See that file for why there are two. */
 struct C2PArgs {
 	UWORD x, y, w, h;
 	UWORD cmod, bmod;
@@ -129,13 +130,37 @@ struct C2PArgs {
 };
 extern void c2p_rect_asm(struct C2PArgs *a);
 
-#define DEPTH 8
+struct C2P6Args {
+	UWORD chunkyx, chunkyy;
+	UWORD offsx, offsy;
+	APTR  chunky;
+	APTR  bitmap;
+};
+extern void c2p6_bm_asm(struct C2P6Args *a);
+
+/* Bitplanes per backend. EHB's six are the whole point of the mode: a quarter
+ * less Chip RAM for the display and a quarter less work in the c2p, on a chipset
+ * feature every Amiga back to the A1000 has. */
+#define DEPTH_AGA 8
+#define DEPTH_EHB 6
+
+/* Rows of scratch for the EHB c2p, which needs contiguous chunky input (see
+ * amigagfx_blit). A band rather than a full-screen copy: 64 rows of the widest
+ * EHB mode is 22 KB, where a full-screen shadow of the chunky buffer would be
+ * 160 KB standing idle for the whole session. The band is walked down the
+ * rectangle, so height is never a limit - only how much is copied at once. */
+#define EHB_SCRATCH_ROWS 64
 
 static struct Screen *g_screen;
 static struct Window *g_window;
 static struct BitMap  g_bitmap;
 static UBYTE *g_chip;
 static UBYTE *g_chunky;
+static UBYTE *g_ehb_scratch;              /* NULL unless an EHB screen is open */
+static int    g_ehb_scratch_rows;
+static UBYTE  g_ehb_pal[64 * 3];          /* set by amigagfx_set_ehb_palette */
+static int    g_ehb_pal_valid;
+static int    g_depth;                    /* bitplanes of the open planar screen */
 static int    g_width, g_height, g_bpr;   /* g_height = GAME AREA height */
 static int    g_yoff;                     /* first game-area line: 0, or the
                                            * system title bar height when the
@@ -440,22 +465,26 @@ unsigned long amigagfx_millis(void)
 	return (unsigned long)((raw_ticks() - g_epoch) * 20UL);
 }
 
-/* AGA: one contiguous Chip RAM block for eight equally spaced bitplanes, handed
- * to Intuition with SA_BitMap. Sets g_bpr / g_planesize / g_chip / g_bitmap -
- * none of which exist on the RTG path, where display memory lives on the card
- * and Chip RAM must not be touched at all. Returns 0 on success. */
-static int open_screen_aga(int w, int h, ULONG quiet, ULONG title)
+/* AGA and EHB: one contiguous Chip RAM block for equally spaced bitplanes,
+ * handed to Intuition with SA_BitMap. depth is DEPTH_AGA (8) or DEPTH_EHB (6);
+ * six additionally sets the chipset's Extra-Half-Brite bit in the mode id, which
+ * is what makes registers 32..63 half-intensity copies of 0..31 and is the
+ * difference between a real EHB screen and a 6-plane screen that merely uses 64
+ * pens. Sets g_bpr / g_planesize / g_chip / g_bitmap / g_depth - none of which
+ * exist on the RTG path, where display memory lives on the card and Chip RAM
+ * must not be touched at all. Returns 0 on success. */
+static int open_screen_aga(int w, int h, ULONG quiet, ULONG title, int depth)
 {
 	g_bpr    = ((w + 15) >> 4) << 1;
 	g_planesize = (ULONG)g_bpr * h;   /* planes ALWAYS cover the full screen */
 
-	g_chip = (UBYTE *)AllocMem(g_planesize * DEPTH, MEMF_CHIP | MEMF_CLEAR);
+	g_chip = (UBYTE *)AllocMem(g_planesize * depth, MEMF_CHIP | MEMF_CLEAR);
 	if (g_chip == NULL) return 2;
 
-	InitBitMap(&g_bitmap, DEPTH, w, h);
+	InitBitMap(&g_bitmap, depth, w, h);
 	{
 		int i;
-		for (i = 0; i < DEPTH; i++)
+		for (i = 0; i < depth; i++)
 			g_bitmap.Planes[i] = (PLANEPTR)(g_chip + (ULONG)i * g_planesize);
 	}
 
@@ -466,18 +495,24 @@ static int open_screen_aga(int w, int h, ULONG quiet, ULONG title)
 	 * 320x256 and 352x272 come out lores and 640x480 hires interlaced, with no
 	 * special-casing anywhere. Kept general on purpose: it derives the mode from
 	 * the size rather than from a table, so it stays correct whatever the
-	 * resolution list happens to offer. */
+	 * resolution list happens to offer.
+	 *
+	 * EXTRAHALFBRITE_KEY is a LORES-only key - graphics/modeid.h defines it and
+	 * EXTRAHALFBRITELACE_KEY and nothing else, because the chipset has no hires
+	 * EHB. The resolution list is what keeps that promise: it offers EHB at
+	 * lores widths only, so the OR below never produces an undefined mode. */
 	{
 		ULONG modeid = PAL_MONITOR_ID;
 		modeid |= (w > 400) ? HIRES_KEY : LORES_KEY;
 		if (h > 300) modeid |= 0x0004;          /* LACE bit */
+		if (depth == DEPTH_EHB) modeid |= EXTRAHALFBRITE_KEY;
 		g_want_modeid = modeid;
 
 		g_screen = OpenScreenTags(NULL,
 		                          SA_BitMap,    (ULONG)&g_bitmap,
 		                          SA_Width,     (ULONG)w,
 		                          SA_Height,    (ULONG)h,
-		                          SA_Depth,     (ULONG)DEPTH,
+		                          SA_Depth,     (ULONG)depth,
 		                          SA_Type,      (ULONG)CUSTOMSCREEN,
 		                          SA_Quiet,     quiet,
 		                          SA_ShowTitle, title,
@@ -488,15 +523,23 @@ static int open_screen_aga(int w, int h, ULONG quiet, ULONG title)
 		                          SA_DisplayID, modeid,
 		                          TAG_END);
 	}
-	if (g_screen == NULL) {
+	if (g_screen == NULL && depth == DEPTH_AGA) {
 		/* Fallback: the system picks. NOTE this drops our mode entirely, so a
-		 * lores request silently becomes whatever Workbench runs - usually hires. */
+		 * lores request silently becomes whatever Workbench runs - usually hires.
+		 *
+		 * Deliberately NOT done for EHB. Without SA_DisplayID Intuition picks a
+		 * mode with no Extra-Half-Brite bit, and a 6-plane screen in an ordinary
+		 * mode wants 64 independently settable registers - which ECS does not
+		 * have at all, and which our palette is not written for either, since
+		 * entries 32..63 are deliberately the hardware halves. The honest answer
+		 * to a refused EHB mode is to report failure and let amigagfx_open retry
+		 * at 8 planes, where the same reduced sprites still display correctly. */
 		g_used_fallback = 1;
 		g_screen = OpenScreenTags(NULL,
 		                          SA_BitMap,    (ULONG)&g_bitmap,
 		                          SA_Width,     (ULONG)w,
 		                          SA_Height,    (ULONG)h,
-		                          SA_Depth,     (ULONG)DEPTH,
+		                          SA_Depth,     (ULONG)depth,
 		                          SA_Type,      (ULONG)CUSTOMSCREEN,
 		                          SA_Quiet,     quiet,
 		                          SA_ShowTitle, title,
@@ -506,9 +549,37 @@ static int open_screen_aga(int w, int h, ULONG quiet, ULONG title)
 		                          SA_Pens,      (ULONG)g_screen_pens,
 		                          TAG_END);
 	}
-	if (g_screen == NULL) { FreeMem(g_chip, g_planesize * DEPTH); g_chip = NULL; return 3; }
+	if (g_screen == NULL) {
+		FreeMem(g_chip, g_planesize * depth); g_chip = NULL;
+		if (depth == DEPTH_EHB) {
+			fprintf(stdout, "amiga: EHB: OpenScreen refused mode $%08lx at %dx%d"
+			                " - falling back to 8 bitplanes\n",
+			        (unsigned long)g_want_modeid, w, h);
+			fflush(stdout);
+			return 7;
+		}
+		return 3;
+	}
 
-	g_backend = AMIGAGFX_BACKEND_AGA;
+	g_depth   = depth;
+	g_backend = (depth == DEPTH_EHB) ? AMIGAGFX_BACKEND_EHB : AMIGAGFX_BACKEND_AGA;
+
+	/* Scratch band for the 6-plane c2p, which takes no chunky rowmod. Allocated
+	 * with the screen so the blit never allocates; if it cannot be had, the EHB
+	 * screen is not opened at all rather than blitting only full-width
+	 * rectangles and leaving the rest of the display stale. */
+	if (depth == DEPTH_EHB) {
+		g_ehb_scratch_rows = EHB_SCRATCH_ROWS;
+		g_ehb_scratch = (UBYTE *)AllocVec((ULONG)w * g_ehb_scratch_rows, MEMF_ANY);
+		if (g_ehb_scratch == NULL) {
+			CloseScreen(g_screen); g_screen = NULL;
+			FreeMem(g_chip, g_planesize * depth); g_chip = NULL;
+			g_ehb_scratch_rows = 0;
+			amigagfx_log("EHB: no memory for the c2p scratch band"
+			             " - falling back to 8 bitplanes");
+			return 8;
+		}
+	}
 	return 0;
 }
 
@@ -530,7 +601,7 @@ static int open_screen_rtg(int w, int h, ULONG quiet, ULONG title)
 	g_screen = OpenScreenTags(NULL,
 	                          SA_Width,     (ULONG)w,
 	                          SA_Height,    (ULONG)h,
-	                          SA_Depth,     (ULONG)DEPTH,
+	                          SA_Depth,     (ULONG)DEPTH_AGA,
 	                          SA_Type,      (ULONG)CUSTOMSCREEN,
 	                          SA_Quiet,     quiet,
 	                          SA_ShowTitle, title,
@@ -547,6 +618,10 @@ static int open_screen_rtg(int w, int h, ULONG quiet, ULONG title)
 		return 6;
 	}
 
+	/* Nominal only: nothing on the RTG path allocates bitplanes or frees by
+	 * depth - the card owns the display memory - but g_depth must not be left
+	 * reading 6 from a previous EHB screen. */
+	g_depth   = DEPTH_AGA;
 	g_backend = AMIGAGFX_BACKEND_RTG;
 	probe_rtg_lock();
 	return 0;
@@ -562,24 +637,39 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 	int err;
 
 	fprintf(stdout, "amiga: amigagfx_open(%d,%d) wb_bar=%d backend=%s\n",
-	        w, h, show_bar, backend == AMIGAGFX_BACKEND_RTG ? "RTG" : "AGA");
+	        w, h, show_bar,
+	        backend == AMIGAGFX_BACKEND_RTG ? "RTG" :
+	        backend == AMIGAGFX_BACKEND_EHB ? "EHB" : "AGA");
 	fflush(stdout);
 	g_width  = w;
 	g_height = h;            /* provisional; reduced below if the bar shows */
 	g_yoff   = 0;
 	g_used_fallback = 0;
 	g_backend = AMIGAGFX_BACKEND_AGA;
+	g_depth   = DEPTH_AGA;
 	g_bpr = 0;
 	g_planesize = 0;
 	g_epoch  = raw_ticks();
 
-	/* RTG first when asked for, AGA whenever that did not work out. A machine
-	 * with no graphics card therefore behaves exactly as it did before RTG
-	 * support existed, and one log line always says why. */
-	err = (backend == AMIGAGFX_BACKEND_RTG) ? open_screen_rtg(w, h, quiet, title) : 5;
+	/* Ask for what was requested; fall back to a plain 8-bitplane AGA screen
+	 * whenever that did not work out. A machine with no graphics card therefore
+	 * behaves exactly as it did before RTG support existed, one without the
+	 * chipset mode behaves as it did before EHB did, and one log line always
+	 * says why. */
+	switch (backend) {
+		case AMIGAGFX_BACKEND_RTG:
+			err = open_screen_rtg(w, h, quiet, title);
+			break;
+		case AMIGAGFX_BACKEND_EHB:
+			err = open_screen_aga(w, h, quiet, title, DEPTH_EHB);
+			break;
+		default:
+			err = 5;
+			break;
+	}
 	if (err != 0) {
 		if (backend == AMIGAGFX_BACKEND_RTG) cgx_close();
-		err = open_screen_aga(w, h, quiet, title);
+		err = open_screen_aga(w, h, quiet, title, DEPTH_AGA);
 		if (err != 0) { amigagfx_close(); return err; }
 	}
 
@@ -615,13 +705,26 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 			        g_rtg_method == RTG_METHOD_LOCK ? "LockBitMap+memcpy"
 			                                        : "WriteLUTPixelArray");
 		} else {
-			fprintf(stdout, "amiga: AGA screen open %dx%d depth 8, bpr %d\n", w, h, g_bpr);
-			fprintf(stdout, "amiga: modeid wanted $%08lx got $%08lx  %s%s  [%s]\n",
+			fprintf(stdout, "amiga: %s screen open %dx%d depth %d, bpr %d,"
+			                " chip %lu KB\n",
+			        g_backend == AMIGAGFX_BACKEND_EHB ? "EHB" : "AGA",
+			        w, h, g_depth, g_bpr,
+			        (unsigned long)((g_planesize * g_depth) >> 10));
+			fprintf(stdout, "amiga: modeid wanted $%08lx got $%08lx  %s%s%s  [%s]\n",
 			        (unsigned long)g_want_modeid, (unsigned long)got,
 			        (got & HIRES_KEY) ? "HIRES " : "LORES ",
 			        (got & 0x0004) ? "INTERLACED" : "non-interlaced",
+			        (got & EXTRAHALFBRITE_KEY) ? " EHB" : "",
 			        g_used_fallback ? "SYSTEM FALLBACK - our mode was refused"
 			                        : "our mode accepted");
+			/* The EHB bit is the whole mode. If Intuition granted the screen but
+			 * dropped it, registers 32..63 are NOT hardware halves and half the
+			 * palette is wrong - so say so loudly rather than let it look like a
+			 * palette bug later. */
+			if (g_backend == AMIGAGFX_BACKEND_EHB && !(got & EXTRAHALFBRITE_KEY)) {
+				amigagfx_log("EHB: WARNING - granted mode has no EXTRAHALFBRITE bit;"
+				             " colours 32..63 will not be hardware half-brights");
+			}
 		}
 		fflush(stdout);
 	}
@@ -663,8 +766,11 @@ void amigagfx_close(void)
 	/* Chip RAM only ever exists on the AGA path; on RTG g_chip stays NULL and
 	 * this is a no-op, which is exactly the point - the card owns the display
 	 * memory and none of the machine's scarce Chip RAM is spent on it. */
-	if (g_chip != NULL)   { FreeMem(g_chip, g_planesize * DEPTH); g_chip = NULL; }
+	if (g_chip != NULL)   { FreeMem(g_chip, g_planesize * g_depth); g_chip = NULL; }
 	if (g_chunky != NULL) { FreeVec(g_chunky); g_chunky = NULL; }
+	if (g_ehb_scratch != NULL) { FreeVec(g_ehb_scratch); g_ehb_scratch = NULL; }
+	g_ehb_scratch_rows = 0;
+	g_depth = DEPTH_AGA;
 	/* The screen is gone, so nothing can be locked any more; hand the library
 	 * back. A resolution change closes and reopens it, which costs one
 	 * OpenLibrary on an already-resident library - not worth keeping state for. */
@@ -701,6 +807,31 @@ void amigagfx_set_palette(const unsigned char *rgb, int first, int count)
 	}
 	table[1 + count * 3] = 0UL;
 	LoadRGB32(&g_screen->ViewPort, table);
+}
+
+void amigagfx_set_ehb_palette(const unsigned char *rgb64)
+{
+	if (rgb64 == NULL) { g_ehb_pal_valid = 0; return; }
+	memcpy(g_ehb_pal, rgb64, sizeof(g_ehb_pal));
+	g_ehb_pal_valid = 1;
+}
+
+/* Nearest EHB pen for one RGB triple, plain squared distance over the 64
+ * entries. Used only by the splash and only once per colour in its palette
+ * (at most 256), so 16k distance computations for the whole image - nothing
+ * worth a smarter search on a 68030. */
+static UBYTE ehb_nearest(int r, int g, int b)
+{
+	int best = 0, bestd = 0x7fffffff, i;
+
+	for (i = 0; i < 64; i++) {
+		int dr = r - (int)g_ehb_pal[i * 3 + 0];
+		int dg = g - (int)g_ehb_pal[i * 3 + 1];
+		int db = b - (int)g_ehb_pal[i * 3 + 2];
+		int d  = dr * dr + dg * dg + db * db;
+		if (d < bestd) { bestd = d; best = i; }
+	}
+	return (UBYTE)best;
 }
 
 /* ---- Startup splash ------------------------------------------------------
@@ -759,10 +890,25 @@ void amigagfx_splash(const char *path)
 	UBYTE *pix = NULL;
 	UBYTE hdr[12];
 	UBYTE pal[256 * 3];
+	UBYTE ehb_map[256];          /* file palette index -> EHB pen, EHB only */
+	const UBYTE *fade_pal;       /* palette the fade actually animates */
+	int fade_ncol;
+	int is_ehb;
 	int w, h, ncol, scale, dx, dy, x, y;
 	char msg[128];
 
 	if (g_screen == NULL || g_chunky == NULL) return;
+
+	/* The splash must render in whatever mode the game opened, never the other
+	 * way round: the entire audience for the EHB mode is machines that cannot
+	 * show an 8-bitplane screen, so a splash that insisted on one would fail
+	 * before the game started. On EHB the IMAGE is reduced to the screen's 64
+	 * pens; the screen is not changed to suit the image. */
+	is_ehb = (g_backend == AMIGAGFX_BACKEND_EHB);
+	if (is_ehb && !g_ehb_pal_valid) {
+		amigagfx_log("splash: EHB screen but no EHB palette was handed over - skipped");
+		return;
+	}
 
 	f = fopen(path, "rb");
 	if (f == NULL) {
@@ -811,9 +957,37 @@ void amigagfx_splash(const char *path)
 	fclose(f);
 	f = NULL;
 
+	/* Which palette the screen will actually be showing, and therefore which one
+	 * the fade animates.
+	 *
+	 * On AGA and RTG that is the file's own palette, loaded as-is - unchanged
+	 * behaviour. On EHB it cannot be: there are 64 pens, and 32 of them are
+	 * hardware halves that cannot be set at all, so an arbitrary 256-colour
+	 * palette is simply not loadable. The image is therefore reduced to the EHB
+	 * pens once, here, and the fade then scales the EHB palette. Because entries
+	 * 32..63 of that palette are exactly the half-intensity images of 0..31,
+	 * scaling all 64 by one factor keeps the table consistent with what the
+	 * chipset derives - so the fade needs no special case of its own. */
+	if (is_ehb) {
+		int i;
+		for (i = 0; i < ncol; i++) {
+			ehb_map[i] = ehb_nearest((int)pal[i * 3 + 0],
+			                         (int)pal[i * 3 + 1],
+			                         (int)pal[i * 3 + 2]);
+		}
+		/* Index 0 is the border and must stay black in the reduced image too,
+		 * or the surround fades up to whatever happened to be nearest. */
+		ehb_map[0] = 0;
+		fade_pal  = g_ehb_pal;
+		fade_ncol = 64;
+	} else {
+		fade_pal  = pal;
+		fade_ncol = ncol;
+	}
+
 	/* Black the palette out BEFORE the image reaches the screen, so the fade
 	 * starts from darkness instead of flashing the game palette. */
-	splash_palette_step(pal, ncol, 0);
+	splash_palette_step(fade_pal, fade_ncol, 0);
 
 	/* Compose once: black border (index 0), image centred. */
 	memset(g_chunky, 0, (ULONG)g_width * g_height);
@@ -823,10 +997,18 @@ void amigagfx_splash(const char *path)
 		const UBYTE *src = pix + (ULONG)y * w;
 		UBYTE *dst = g_chunky + (ULONG)(dy + y * scale) * g_width + dx;
 		if (scale == 1) {
-			memcpy(dst, src, (size_t)w);
+			if (is_ehb) {
+				for (x = 0; x < w; x++) dst[x] = ehb_map[src[x]];
+			} else {
+				memcpy(dst, src, (size_t)w);
+			}
 		} else {
 			UBYTE *d = dst;
-			for (x = 0; x < w; x++) { UBYTE c = src[x]; *d++ = c; *d++ = c; }
+			if (is_ehb) {
+				for (x = 0; x < w; x++) { UBYTE c = ehb_map[src[x]]; *d++ = c; *d++ = c; }
+			} else {
+				for (x = 0; x < w; x++) { UBYTE c = src[x]; *d++ = c; *d++ = c; }
+			}
 			memcpy(dst + g_width, dst, (size_t)w * 2);   /* double the row */
 		}
 	}
@@ -836,13 +1018,14 @@ void amigagfx_splash(const char *path)
 	/* The ONE chunky-to-planar conversion of the splash. */
 	amigagfx_blit(0, 0, g_width, g_height);
 
-	snprintf(msg, sizeof(msg), "splash: %dx%d ncol %d at %d,%d scale %dx", w, h, ncol, dx, dy, scale);
+	snprintf(msg, sizeof(msg), "splash: %dx%d ncol %d at %d,%d scale %dx%s",
+	         w, h, ncol, dx, dy, scale, is_ehb ? " (reduced to 64 EHB pens)" : "");
 	amigagfx_log(msg);
 
 	/* Fade in, hold, fade out - palette-only from here on. */
-	splash_fade(pal, ncol, 0, 256, SPLASH_FADE_MS);
+	splash_fade(fade_pal, fade_ncol, 0, 256, SPLASH_FADE_MS);
 	Delay(SPLASH_HOLD_TICKS);
-	splash_fade(pal, ncol, 256, 0, SPLASH_FADE_MS);
+	splash_fade(fade_pal, fade_ncol, 256, 0, SPLASH_FADE_MS);
 
 	/* Leave the screen genuinely black: clear the chunky buffer and convert
 	 * once more, so restoring the game palette cannot flash the image back. */
@@ -916,6 +1099,63 @@ static void rtg_blit_wlut(int x, int y, int w, int h)
 	                   (UBYTE)CTABFMT_XRGB8);
 }
 
+/* EHB blit: six bitplanes through Kalms' stock c2p1x1_6_c5_bm_040.
+ *
+ * That routine takes no chunky ROWMOD - unlike the 8-plane c2p_rect, which is
+ * the only Kalms routine that does - so it insists its input be contiguous and
+ * exactly chunkyx wide. Two cases follow, and the first one is why this is
+ * cheap in practice:
+ *
+ *   full-width rectangle (x == 0, w == g_width): the rows of the chunky buffer
+ *     ARE contiguous, so the buffer is handed over directly and nothing is
+ *     copied at all. Most large dirty rectangles - and every full-screen
+ *     redraw, which is the expensive case - go this way.
+ *
+ *   narrower rectangle: the rows are copied into a scratch band first, in
+ *     chunks of at most EHB_SCRATCH_ROWS rows, and the routine is called once
+ *     per band. One extra memcpy of exactly the pixels being converted.
+ *
+ * Copying rather than hand-writing a 6-plane rect routine is a deliberate
+ * choice: this is released, validated assembly, and a memcpy is far cheaper
+ * than the class of bug a bespoke c2p would introduce. */
+static void ehb_blit(int x, int y, int w, int h)
+{
+	struct C2P6Args a;
+
+	a.chunkyx = (UWORD)w;
+	a.offsx   = (UWORD)x;
+	a.bitmap  = (APTR)&g_bitmap;
+
+	if (x == 0 && w == g_width) {
+		a.chunkyy = (UWORD)h;
+		a.offsy   = (UWORD)(y + g_yoff);
+		a.chunky  = (APTR)(g_chunky + (ULONG)y * g_width);
+		c2p6_bm_asm(&a);
+		return;
+	}
+
+	while (h > 0) {
+		int band = (h < g_ehb_scratch_rows) ? h : g_ehb_scratch_rows;
+		const UBYTE *src = g_chunky + (ULONG)y * g_width + x;
+		UBYTE *dst = g_ehb_scratch;
+		int row;
+
+		for (row = 0; row < band; row++) {
+			memcpy(dst, src, (size_t)w);
+			src += g_width;
+			dst += w;
+		}
+
+		a.chunkyy = (UWORD)band;
+		a.offsy   = (UWORD)(y + g_yoff);
+		a.chunky  = (APTR)g_ehb_scratch;
+		c2p6_bm_asm(&a);
+
+		y += band;
+		h -= band;
+	}
+}
+
 void amigagfx_blit(int x, int y, int w, int h)
 {
 	struct C2PArgs args;
@@ -926,11 +1166,16 @@ void amigagfx_blit(int x, int y, int w, int h)
 	x2 = x + w;
 	y2 = y + h;
 
-	/* The 32-pixel column granularity below is a property of Kalms' c2p and of
-	 * nothing else, so RTG must not pay for it: an RTG rectangle is used as
-	 * given and only clipped. Snapping it outwards there would convert pixels
-	 * that never changed, for no reason at all. */
-	if (g_backend == AMIGAGFX_BACKEND_AGA) {
+	/* The 32-pixel column granularity below is a property of the two c2p
+	 * routines and of nothing else, so RTG must not pay for it: an RTG rectangle
+	 * is used as given and only clipped. Snapping it outwards there would
+	 * convert pixels that never changed, for no reason at all.
+	 *
+	 * Both planar routines need it, and both are satisfied by the same snap:
+	 * c2p_rect wants x and width on a 32-pixel grid, and the 6-plane routine
+	 * wants a width that is a multiple of 32 and an x offset that is a multiple
+	 * of 8 - which a multiple of 32 already is. */
+	if (g_backend != AMIGAGFX_BACKEND_RTG) {
 		/* Kalms' c2p works on 32-pixel columns: grow the rect outwards to that
 		 * grid rather than refusing it, then clip to the screen. */
 		x  &= ~31;
@@ -960,6 +1205,19 @@ void amigagfx_blit(int x, int y, int w, int h)
 		if (g_blits == 1 || (g_verbose && (g_blits % 200) == 0)) {
 			fprintf(stdout, "amiga: rtg blit #%lu  %dx%d at %d,%d\n",
 			        g_blits, x2 - x, y2 - y, x, y);
+			fflush(stdout);
+		}
+		return;
+	}
+
+	if (g_backend == AMIGAGFX_BACKEND_EHB) {
+		ehb_blit(x, y, x2 - x, y2 - y);
+
+		g_blits++;
+		if (g_blits == 1 || (g_verbose && (g_blits % 200) == 0)) {
+			fprintf(stdout, "amiga: ehb blit #%lu  %dx%d at %d,%d  %s\n",
+			        g_blits, x2 - x, y2 - y, x, y,
+			        (x == 0 && x2 == g_width) ? "direct" : "via scratch band");
 			fflush(stdout);
 		}
 		return;

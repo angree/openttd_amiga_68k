@@ -1,6 +1,6 @@
 diff -ruN a/debug.cpp b/debug.cpp
---- a/debug.cpp	2026-07-21 15:47:41.362411500 +0200
-+++ b/debug.cpp	2026-07-21 15:47:41.932301900 +0200
+--- a/debug.cpp	2026-07-21 18:27:24.902155000 +0200
++++ b/debug.cpp	2026-07-21 18:27:25.534625400 +0200
 @@ -86,7 +86,7 @@
  		_sntprintf(tbuf, sizeof(tbuf), _T("%s"), OTTD2FS(dbg));
  		NKDbgPrintfW(_T("dbg: [%s] %s\n"), tbuf, OTTD2FS(buf));
@@ -11,8 +11,8 @@ diff -ruN a/debug.cpp b/debug.cpp
  		IConsoleDebug(dbg, buf);
  	} else {
 diff -ruN a/fileio.cpp b/fileio.cpp
---- a/fileio.cpp	2026-07-21 15:47:41.240523800 +0200
-+++ b/fileio.cpp	2026-07-21 15:47:41.927788700 +0200
+--- a/fileio.cpp	2026-07-21 18:27:24.851061700 +0200
++++ b/fileio.cpp	2026-07-21 18:27:25.529624300 +0200
 @@ -22,11 +22,13 @@
  #include <Path.h>
  #include <storage/FindDirectory.h>
@@ -38,8 +38,8 @@ diff -ruN a/fileio.cpp b/fileio.cpp
  	ttd_strlcpy(buf, name, MAX_PATH);
  
 diff -ruN a/fios.cpp b/fios.cpp
---- a/fios.cpp	2026-07-21 15:47:41.457830200 +0200
-+++ b/fios.cpp	2026-07-21 15:47:41.929300000 +0200
+--- a/fios.cpp	2026-07-21 18:27:24.755182100 +0200
++++ b/fios.cpp	2026-07-21 18:27:25.530626400 +0200
 @@ -110,7 +110,7 @@
  			s = strrchr(path, PATHSEPCHAR);
  			if (s != NULL) {
@@ -59,8 +59,8 @@ diff -ruN a/fios.cpp b/fios.cpp
  		unsigned char sepchar = _fios_path[(strlen(_fios_path) - 1)];
  
 diff -ruN a/fontcache.cpp b/fontcache.cpp
---- a/fontcache.cpp	2026-07-21 15:47:41.375408400 +0200
-+++ b/fontcache.cpp	2026-07-21 15:47:41.564735700 +0200
+--- a/fontcache.cpp	2026-07-21 18:27:24.775196000 +0200
++++ b/fontcache.cpp	2026-07-21 18:27:25.112761400 +0200
 @@ -22,6 +22,9 @@
  /** Semi-constant for the height of the different sizes of fonts. */
  int _font_height[FS_END];
@@ -119,8 +119,8 @@ diff -ruN a/fontcache.cpp b/fontcache.cpp
  }
  
 diff -ruN a/fontcache.h b/fontcache.h
---- a/fontcache.h	2026-07-21 15:47:41.353119200 +0200
-+++ b/fontcache.h	2026-07-21 15:47:41.809042100 +0200
+--- a/fontcache.h	2026-07-21 18:27:24.760195600 +0200
++++ b/fontcache.h	2026-07-21 18:27:25.372731000 +0200
 @@ -73,12 +73,23 @@
  }
  
@@ -147,8 +147,8 @@ diff -ruN a/fontcache.h b/fontcache.h
  
  #endif /* WITH_FREETYPE */
 diff -ruN a/genworld.cpp b/genworld.cpp
---- a/genworld.cpp	2026-07-21 15:47:41.335289400 +0200
-+++ b/genworld.cpp	2026-07-21 15:47:41.934300900 +0200
+--- a/genworld.cpp	2026-07-21 18:27:24.769195600 +0200
++++ b/genworld.cpp	2026-07-21 18:27:25.535624300 +0200
 @@ -97,6 +97,7 @@
  {
  	try {
@@ -273,9 +273,55 @@ diff -ruN a/genworld.cpp b/genworld.cpp
  		_genworld_mapgen_mutex->BeginCritical();
  		return;
  	}
+diff -ruN a/gfx.cpp b/gfx.cpp
+--- a/gfx.cpp	2026-07-21 18:27:24.837910700 +0200
++++ b/gfx.cpp	2026-07-21 18:27:25.528633500 +0200
+@@ -29,6 +29,11 @@
+ #include "table/sprites.h"
+ #include "table/control_codes.h"
+ 
++#ifdef __AMIGA__
++#include "video/amiga_ehb_data.h"
++extern byte _amiga_ehb_active; ///< spritecache.cpp - EHB 64-colour mode, latched at startup
++#endif
++
+ byte _dirkeys;        ///< 1 = left, 2 = up, 4 = right, 8 = down
+ bool _fullscreen;
+ CursorVars _cursor;
+@@ -252,11 +257,30 @@
+ 	if (colour == TC_INVALID) return;
+ 
+ 	if (colour & IS_PALETTE_COLOUR) {
++		/* Already a palette index the caller looked up in _colour_gradient. Under
++		 * EHB that table was built from recolour sprites whose values are in EHB
++		 * space (see spritecache.cpp), so this needs no translation - only the
++		 * hardcoded shadow index below does. */
+ 		_string_colourremap[1] = colour & ~IS_PALETTE_COLOUR;
+ 		_string_colourremap[2] = (_use_palette == PAL_DOS) ? 1 : 215;
++#ifdef __AMIGA__
++		if (_amiga_ehb_active) _string_colourremap[2] = _amiga_ehb_remap[_string_colourremap[2]];
++#endif
+ 	} else {
+ 		_string_colourremap[1] = _string_colourmap[_use_palette][colour].text;
+ 		_string_colourremap[2] = _string_colourmap[_use_palette][colour].shadow;
++#ifdef __AMIGA__
++		/* _string_colourmap (table/palettes.h) holds raw 256-colour indices and is
++		 * the single source of every TC_* text colour in the game. Nothing else
++		 * translates it, so without this hook all in-game text - which is most of
++		 * the text - would be drawn with EHB entries picked by the old index
++		 * numbers and come out arbitrarily wrong. This is the choke point: two
++		 * lookups here cover every string OpenTTD draws. */
++		if (_amiga_ehb_active) {
++			_string_colourremap[1] = _amiga_ehb_remap[_string_colourremap[1]];
++			_string_colourremap[2] = _amiga_ehb_remap[_string_colourremap[2]];
++		}
++#endif
+ 	}
+ 	_colour_remap_ptr = _string_colourremap;
+ }
 diff -ruN a/gfx_func.h b/gfx_func.h
---- a/gfx_func.h	2026-07-21 15:47:41.365409100 +0200
-+++ b/gfx_func.h	2026-07-21 15:47:41.933302200 +0200
+--- a/gfx_func.h	2026-07-21 18:27:24.778194400 +0200
++++ b/gfx_func.h	2026-07-21 18:27:25.535624300 +0200
 @@ -64,6 +64,14 @@
  extern DrawPixelInfo _screen;
  extern bool _screen_disable_anim;   ///< Disable palette animation (important for 32bpp-anim blitter during giant screenshot)
@@ -292,8 +338,8 @@ diff -ruN a/gfx_func.h b/gfx_func.h
  extern int _pal_count_dirty;
  extern int _num_resolutions;
 diff -ruN a/gfxinit.cpp b/gfxinit.cpp
---- a/gfxinit.cpp	2026-07-21 15:47:41.363409100 +0200
-+++ b/gfxinit.cpp	2026-07-21 15:47:41.929300000 +0200
+--- a/gfxinit.cpp	2026-07-21 18:27:24.754184800 +0200
++++ b/gfxinit.cpp	2026-07-21 18:27:25.531636500 +0200
 @@ -41,6 +41,10 @@
  	_landscape_spriteindexes_3,
  };
@@ -332,8 +378,8 @@ diff -ruN a/gfxinit.cpp b/gfxinit.cpp
  
  bool GraphicsSet::FillSetDetails(IniFile *ini, const char *path, const char *full_filename)
 diff -ruN a/intro_gui.cpp b/intro_gui.cpp
---- a/intro_gui.cpp	2026-07-21 15:47:41.377409300 +0200
-+++ b/intro_gui.cpp	2026-07-21 15:47:41.927788700 +0200
+--- a/intro_gui.cpp	2026-07-21 18:27:24.751182700 +0200
++++ b/intro_gui.cpp	2026-07-21 18:27:25.529624300 +0200
 @@ -61,6 +61,14 @@
  	SelectGameWindow(const WindowDesc *desc) : Window()
  	{
@@ -350,8 +396,8 @@ diff -ruN a/intro_gui.cpp b/intro_gui.cpp
  		this->SetLandscapeButtons();
  	}
 diff -ruN a/landscape.cpp b/landscape.cpp
---- a/landscape.cpp	2026-07-21 15:47:41.366409400 +0200
-+++ b/landscape.cpp	2026-07-21 15:47:41.925216400 +0200
+--- a/landscape.cpp	2026-07-21 18:27:24.824350400 +0200
++++ b/landscape.cpp	2026-07-21 18:27:25.525020600 +0200
 @@ -871,6 +871,8 @@
  	};
  	uint steps = (_settings_game.game_creation.landscape == LT_TROPIC) ? GLS_TROPIC : GLS_OTHER;
@@ -376,21 +422,22 @@ diff -ruN a/landscape.cpp b/landscape.cpp
  	if (_settings_game.game_creation.landscape == LT_TROPIC) CreateDesertOrRainForest();
  }
 diff -ruN a/lang/english.txt b/lang/english.txt
---- a/lang/english.txt	2026-07-21 15:47:40.956283300 +0200
-+++ b/lang/english.txt	2026-07-21 15:47:41.658393300 +0200
-@@ -1297,7 +1297,9 @@
+--- a/lang/english.txt	2026-07-21 18:27:24.861069400 +0200
++++ b/lang/english.txt	2026-07-21 18:27:25.221011400 +0200
+@@ -1297,7 +1297,10 @@
  STR_CONFIG_SETTING_LARGER_TOWNS_DISABLED                        :{LTBLUE}Proportion of towns that will become cities: {ORANGE}None
  STR_CONFIG_SETTING_CITY_SIZE_MULTIPLIER                         :{LTBLUE}Initial city size multiplier: {ORANGE}{STRING1}
  STR_CONFIG_SETTING_MODIFIED_ROAD_REBUILD                        :{LTBLUE}Remove absurd road-elements during the road construction: {ORANGE}{STRING1}
 +STR_CONFIG_SETTING_AMIGA_WB_BAR                                 :{LTBLUE}Workbench bar visible (allows flip to Workbench, costs game area): {ORANGE}{STRING1}
++STR_AMIGA_RESTART_FOR_MODE                                      :{WHITE}Screen mode saved. Quit and start OpenTTD again to use it - the graphics are prepared once, when the game starts.
  
 +STR_CONFIG_SETTING_AMIGA                                        :{ORANGE}Amiga
  STR_CONFIG_SETTING_GUI                                          :{ORANGE}Interface
  STR_CONFIG_SETTING_CONSTRUCTION                                 :{ORANGE}Construction
  STR_CONFIG_SETTING_VEHICLES                                     :{ORANGE}Vehicles
 diff -ruN a/main_gui.cpp b/main_gui.cpp
---- a/main_gui.cpp	2026-07-21 15:47:41.417252500 +0200
-+++ b/main_gui.cpp	2026-07-21 15:47:41.933302200 +0200
+--- a/main_gui.cpp	2026-07-21 18:27:24.918359800 +0200
++++ b/main_gui.cpp	2026-07-21 18:27:25.526556800 +0200
 @@ -30,6 +30,7 @@
  #include "toolbar_gui.h"
  #include "statusbar_gui.h"
@@ -448,8 +495,8 @@ diff -ruN a/main_gui.cpp b/main_gui.cpp
  
  #if defined(_DEBUG)
 diff -ruN a/network/core/os_abstraction.h b/network/core/os_abstraction.h
---- a/network/core/os_abstraction.h	2026-07-21 15:47:41.034041300 +0200
-+++ b/network/core/os_abstraction.h	2026-07-21 15:47:41.911901500 +0200
+--- a/network/core/os_abstraction.h	2026-07-21 18:27:24.790599500 +0200
++++ b/network/core/os_abstraction.h	2026-07-21 18:27:25.509621700 +0200
 @@ -158,7 +158,7 @@
  #		include <arpa/inet.h>
  #		include <net/if.h>
@@ -460,8 +507,8 @@ diff -ruN a/network/core/os_abstraction.h b/network/core/os_abstraction.h
  /* If for any reason ifaddrs.h does not exist on your system, comment out
   *   the following two lines and an alternative way will be used to fetch
 diff -ruN a/news_type.h b/news_type.h
---- a/news_type.h	2026-07-21 15:47:41.250309600 +0200
-+++ b/news_type.h	2026-07-21 15:47:41.702171300 +0200
+--- a/news_type.h	2026-07-21 18:27:24.664876300 +0200
++++ b/news_type.h	2026-07-21 18:27:25.265864000 +0200
 @@ -123,7 +123,7 @@
  		name(name),
  		age(age),
@@ -472,8 +519,8 @@ diff -ruN a/news_type.h b/news_type.h
  	{
  	}
 diff -ruN a/openttd.cpp b/openttd.cpp
---- a/openttd.cpp	2026-07-21 15:47:41.250309600 +0200
-+++ b/openttd.cpp	2026-07-21 15:47:41.932301900 +0200
+--- a/openttd.cpp	2026-07-21 18:27:24.665846400 +0200
++++ b/openttd.cpp	2026-07-21 18:27:25.533624700 +0200
 @@ -355,8 +355,13 @@
  	FioCloseAll();
  }
@@ -554,8 +601,8 @@ diff -ruN a/openttd.cpp b/openttd.cpp
  
  	WaitTillSaved();
 diff -ruN a/os/unix/crashlog_unix.cpp b/os/unix/crashlog_unix.cpp
---- a/os/unix/crashlog_unix.cpp	2026-07-21 15:47:41.048824000 +0200
-+++ b/os/unix/crashlog_unix.cpp	2026-07-21 15:47:41.823400400 +0200
+--- a/os/unix/crashlog_unix.cpp	2026-07-21 18:27:24.741280100 +0200
++++ b/os/unix/crashlog_unix.cpp	2026-07-21 18:27:25.386709800 +0200
 @@ -19,6 +19,10 @@
  #include <signal.h>
  #include <sys/utsname.h>
@@ -568,8 +615,8 @@ diff -ruN a/os/unix/crashlog_unix.cpp b/os/unix/crashlog_unix.cpp
  /* Execinfo (and thus making stacktraces) is a GNU extension */
  #	include <execinfo.h>
 diff -ruN a/os/unix/unix.cpp b/os/unix/unix.cpp
---- a/os/unix/unix.cpp	2026-07-21 15:47:41.050039000 +0200
-+++ b/os/unix/unix.cpp	2026-07-21 15:47:41.823400400 +0200
+--- a/os/unix/unix.cpp	2026-07-21 18:27:24.741280100 +0200
++++ b/os/unix/unix.cpp	2026-07-21 18:27:25.386709800 +0200
 @@ -44,6 +44,12 @@
  
  #ifdef __AMIGA__
@@ -703,8 +750,8 @@ diff -ruN a/os/unix/unix.cpp b/os/unix/unix.cpp
 +unsigned long __stack = 1024 * 1024; /* OpenTTD needs a large stack on AmigaOS */
 +#endif
 diff -ruN a/rail_cmd.cpp b/rail_cmd.cpp
---- a/rail_cmd.cpp	2026-07-21 15:47:41.089721500 +0200
-+++ b/rail_cmd.cpp	2026-07-21 15:47:41.927218200 +0200
+--- a/rail_cmd.cpp	2026-07-21 18:27:24.811759100 +0200
++++ b/rail_cmd.cpp	2026-07-21 18:27:25.528633500 +0200
 @@ -11,6 +11,7 @@
  
  #include "stdafx.h"
@@ -739,8 +786,8 @@ diff -ruN a/rail_cmd.cpp b/rail_cmd.cpp
  
  		if (ret.Failed()) {
 diff -ruN a/saveload/saveload.cpp b/saveload/saveload.cpp
---- a/saveload/saveload.cpp	2026-07-21 15:47:41.224147200 +0200
-+++ b/saveload/saveload.cpp	2026-07-21 15:47:41.598834200 +0200
+--- a/saveload/saveload.cpp	2026-07-21 18:27:24.598426800 +0200
++++ b/saveload/saveload.cpp	2026-07-21 18:27:25.147911400 +0200
 @@ -192,6 +192,9 @@
   * pretty ugly, and seriously interferes with any multithreaded approaches */
  static void NORETURN SlError(StringID string, const char *extra_msg = NULL)
@@ -836,8 +883,8 @@ diff -ruN a/saveload/saveload.cpp b/saveload/saveload.cpp
  
  		return SL_OK;
 diff -ruN a/settings.cpp b/settings.cpp
---- a/settings.cpp	2026-07-21 15:47:41.090730600 +0200
-+++ b/settings.cpp	2026-07-21 15:47:41.880512400 +0200
+--- a/settings.cpp	2026-07-21 18:27:24.841933200 +0200
++++ b/settings.cpp	2026-07-21 18:27:25.536623900 +0200
 @@ -697,6 +697,19 @@
  	return true;
  }
@@ -859,8 +906,8 @@ diff -ruN a/settings.cpp b/settings.cpp
  {
  	InvalidateWindowClassesData(WC_TOWN_VIEW, p1);
 diff -ruN a/settings_gui.cpp b/settings_gui.cpp
---- a/settings_gui.cpp	2026-07-21 15:47:40.857929500 +0200
-+++ b/settings_gui.cpp	2026-07-21 15:47:41.929300000 +0200
+--- a/settings_gui.cpp	2026-07-21 18:27:24.820830800 +0200
++++ b/settings_gui.cpp	2026-07-21 18:27:25.528100200 +0200
 @@ -88,10 +88,26 @@
  	return STR_UNDEFINED;
  }
@@ -925,9 +972,9 @@ diff -ruN a/settings_gui.cpp b/settings_gui.cpp
  	SettingEntry(&_settings_construction_page, STR_CONFIG_SETTING_CONSTRUCTION),
  	SettingEntry(&_settings_vehicles_page,     STR_CONFIG_SETTING_VEHICLES),
 diff -ruN a/settings_type.h b/settings_type.h
---- a/settings_type.h	2026-07-21 15:47:40.859929900 +0200
-+++ b/settings_type.h	2026-07-21 15:47:41.928301100 +0200
-@@ -392,11 +392,33 @@
+--- a/settings_type.h	2026-07-21 18:27:24.844932900 +0200
++++ b/settings_type.h	2026-07-21 18:27:25.524013900 +0200
+@@ -392,11 +392,38 @@
  	LocaleSettings       locale;             ///< settings related to used currency/unit system in the current game
  };
  
@@ -945,6 +992,11 @@ diff -ruN a/settings_type.h b/settings_type.h
 + * All future Amiga-only options belong in this struct. */
 +struct AmigaSettings {
 +	bool   wb_bar;                           ///< keep the system screen title bar visible (flip to Workbench); costs game area
++	bool   ehb;                              ///< EHB 64-colour graphics: sprites are reduced 256 -> 64 as they enter the sprite
++	                                         ///< cache and the screen carries the fixed EHB palette. Read ONCE, by the video
++	                                         ///< driver's Start(), because it decides the sprite cache's index space - so a
++	                                         ///< change only takes effect on the next run. Default off: the 256-colour AGA and
++	                                         ///< RTG paths stay exactly as they were unless the player asks for this.
 +	bool   rtg;                              ///< the chosen screen mode is a CyberGraphX/Picasso96 one, not AGA
 +	                                         ///< Not a user-facing switch: it is written by the video driver whenever a
 +	                                         ///< mode is opened, and exists only so a restart can tell the AGA 640x480
@@ -962,8 +1014,8 @@ diff -ruN a/settings_type.h b/settings_type.h
  
  /** The current settings for this game. */
 diff -ruN a/sound.cpp b/sound.cpp
---- a/sound.cpp	2026-07-21 15:47:40.868304000 +0200
-+++ b/sound.cpp	2026-07-21 15:47:41.926215600 +0200
+--- a/sound.cpp	2026-07-21 18:27:24.751182700 +0200
++++ b/sound.cpp	2026-07-21 18:27:25.527588800 +0200
 @@ -168,6 +168,9 @@
  	/* Empty sound? */
  	if (sound->rate == 0) return;
@@ -974,9 +1026,123 @@ diff -ruN a/sound.cpp b/sound.cpp
  	MixerChannel *mc = MxAllocateChannel();
  	if (mc == NULL) return;
  
+diff -ruN a/spritecache.cpp b/spritecache.cpp
+--- a/spritecache.cpp	2026-07-21 18:27:24.831593400 +0200
++++ b/spritecache.cpp	2026-07-21 18:27:25.525556400 +0200
+@@ -21,6 +21,24 @@
+ 
+ #include "table/sprites.h"
+ 
++#ifdef __AMIGA__
++/* This TU owns the one definition of the EHB tables; everyone else gets the
++ * extern declarations. See the comment in the generated header. */
++#define AMIGA_EHB_DATA_DEFINE
++#include "video/amiga_ehb_data.h"
++
++/**
++ * Amiga EHB 64-colour mode (the "amiga.ehb" setting), 0 = off.
++ *
++ * Set ONCE, by VideoDriver_Amiga::Start(), before any sprite is decoded, and
++ * never afterwards: it decides which INDEX SPACE the sprite cache is filled in.
++ * Flipping it while sprites are cached would leave half the cache in TTD's
++ * 256-colour space and half in EHB's 64, so the setting's proc only prints a
++ * "restart to apply" note. Same contract as the resolution and font settings.
++ */
++byte _amiga_ehb_active = 0;
++#endif /* __AMIGA__ */
++
+ /* Default of 4MB spritecache */
+ uint _sprite_cache_size = 4;
+ 
+@@ -206,6 +224,41 @@
+ 			FioReadBlock(dest, num);
+ 		}
+ 
++#ifdef __AMIGA__
++		if (_amiga_ehb_active) {
++			/* A recolour sprite is a 257-byte table that is read in TWO
++			 * different ways, and the EHB reduction has to keep both working.
++			 *
++			 * 1. The blitter, via _colour_remap_ptr = dest + 1, looks up
++			 *    remap[pixel]. Sprites are now stored in EHB index space, so
++			 *    "pixel" is 0..63 and slot 1+e must hold what slot
++			 *    1+rep(e) used to - hence the domain re-index through
++			 *    _amiga_ehb_rep. The reduction is lossy exactly here: several
++			 *    source indices collapse onto one EHB index and only the
++			 *    representative one's mapping survives. Company colours stay
++			 *    distinct (the 16 liveries land on different EHB entries), but
++			 *    an 8-shade livery gradient comes out as roughly 5-6 shades.
++			 *
++			 * 2. SetupColoursAndInitialWindow() (main_gui.cpp) memcpy's 8 bytes
++			 *    from dest + 0xC6 into _colour_gradient[], and those bytes are
++			 *    written STRAIGHT to the framebuffer by GfxFillRect and the
++			 *    widget bevels. They therefore need the range remapped into EHB
++			 *    space, not the domain re-indexed. Slots 0xC6..0xCD are >= 64,
++			 *    so the blitter never touches them and the two treatments do
++			 *    not collide: 1..64 is the blitter's window, 65..256 keeps its
++			 *    original domain and only has its values translated.
++			 */
++			byte tmp[RECOLOUR_SPRITE_SIZE];
++			memcpy(tmp, dest, RECOLOUR_SPRITE_SIZE);
++			for (int i = 0; i < 64; i++) {
++				dest[1 + i] = _amiga_ehb_remap[tmp[1 + _amiga_ehb_rep[i]]];
++			}
++			for (int i = 64; i < 256; i++) {
++				dest[1 + i] = _amiga_ehb_remap[tmp[1 + i]];
++			}
++		}
++#endif /* __AMIGA__ */
++
+ 		return sc->ptr;
+ 	}
+ 
+@@ -260,6 +313,43 @@
+ 		if (id == SPR_IMG_QUERY) usererror("Okay... something went horribly wrong. I couldn't load the fallback sprite. What should I do?");
+ 		return (void*)GetRawSprite(SPR_IMG_QUERY, ST_NORMAL);
+ 	}
++
++#ifdef __AMIGA__
++	/* THE one place the 256 -> 64 EHB reduction happens: once per sprite, on
++	 * the way into the cache, between the loader and the blitter's Encode().
++	 * Doing it at draw time instead would cost more per frame than the sixth
++	 * bitplane ever saves. Encode() reads only CommonPixel::m (see
++	 * 8bpp_optimized.cpp) and treats m == 0 as transparent; _amiga_ehb_remap[0]
++	 * is 0, so transparency survives.
++	 *
++	 * ST_NORMAL ONLY. Every SpriteType has been audited and this is the one
++	 * whose pixels are genuinely palette indices:
++	 *
++	 *   ST_NORMAL   palette indices -> remap. The art.
++	 *   ST_MAPGEN   returned above. width/height are MAP GENERATION dimensions
++	 *               and the bytes are height data read directly by
++	 *               landscape.cpp, never blitted. Remapping would alter terrain.
++	 *   ST_RECOLOUR returned above. A 257-byte lookup TABLE, not an image;
++	 *               handled separately and very differently in the 0xFF branch.
++	 *   ST_FONT     reaches here but must NOT be remapped. The loader clamps
++	 *               font pixels to 0/1/2 (spriteloader/grf.cpp:132 and :157,
++	 *               "min(*dest, 2u)"): 0 transparent, 1 glyph, 2 shadow. They
++	 *               are SELECTORS, not colours - the actual colour arrives at
++	 *               draw time via _string_colourremap[3] (gfx.cpp:79), which
++	 *               SetColourRemap() fills at exactly indices 1 and 2. Remapping
++	 *               sent 1 and 2 to EHB entry 38, so the blitter then read
++	 *               _string_colourremap[38] - 35 bytes PAST the end of a 3-byte
++	 *               static array - and every glyph in the game disappeared.
++	 *               That is why the test showed blank gold buttons.
++	 *   ST_INVALID  a pseudosprite; never decoded through this path at all.
++	 */
++	if (_amiga_ehb_active && sprite_type == ST_NORMAL) {
++		SpriteLoader::CommonPixel *p = sprite.data;
++		uint n = (uint)sprite.width * (uint)sprite.height;
++		for (uint i = 0; i < n; i++) p[i].m = _amiga_ehb_remap[p[i].m];
++	}
++#endif /* __AMIGA__ */
++
+ 	sc->ptr = BlitterFactoryBase::GetCurrentBlitter()->Encode(&sprite, &AllocSprite);
+ 
+ 	return sc->ptr;
 diff -ruN a/string_func.h b/string_func.h
---- a/string_func.h	2026-07-21 15:47:40.877495900 +0200
-+++ b/string_func.h	2026-07-21 15:47:41.572486200 +0200
+--- a/string_func.h	2026-07-21 18:27:24.618497700 +0200
++++ b/string_func.h	2026-07-21 18:27:25.119842700 +0200
 @@ -282,7 +282,10 @@
  #endif /* strndup is available */
  
@@ -990,8 +1156,8 @@ diff -ruN a/string_func.h b/string_func.h
  #else
  #	define DEFINE_STRCASESTR
 diff -ruN a/strings.cpp b/strings.cpp
---- a/strings.cpp	2026-07-21 15:47:41.093985800 +0200
-+++ b/strings.cpp	2026-07-21 15:47:41.931301100 +0200
+--- a/strings.cpp	2026-07-21 18:27:24.909187200 +0200
++++ b/strings.cpp	2026-07-21 18:27:25.532633500 +0200
 @@ -1242,9 +1242,25 @@
  	/* resolution size? */
  	if (IsInsideMM(ind, (SPECSTR_RESOLUTION_START - 0x70E4), (SPECSTR_RESOLUTION_END - 0x70E4) + 1)) {
@@ -1019,8 +1185,8 @@ diff -ruN a/strings.cpp b/strings.cpp
  	}
  
 diff -ruN a/table/settings.h b/table/settings.h
---- a/table/settings.h	2026-07-21 15:47:41.440235100 +0200
-+++ b/table/settings.h	2026-07-21 15:47:41.677186900 +0200
+--- a/table/settings.h	2026-07-21 18:27:24.527898900 +0200
++++ b/table/settings.h	2026-07-21 18:27:25.236889900 +0200
 @@ -36,6 +36,9 @@
  static bool ChangeDynamicEngines(int32 p1);
  static bool StationCatchmentChanged(int32 p1);
@@ -1049,7 +1215,7 @@ diff -ruN a/table/settings.h b/table/settings.h
  	 SDTC_BOOL(gui.threaded_saves,                       S,  0,  true,                        STR_NULL,                                       NULL),
  	SDTC_OMANY(gui.date_format_in_default_names,SLE_UINT8,S,MS, 0, 2, _savegame_date,         STR_CONFIG_SETTING_DATE_FORMAT_IN_SAVE_NAMES,   NULL),
  	 SDTC_BOOL(gui.vehicle_speed,                        S,  0,  true,                        STR_CONFIG_SETTING_VEHICLESPEED,                NULL),
-@@ -650,6 +653,21 @@
+@@ -650,6 +653,31 @@
  	 SDTC_VAR(gui.right_mouse_btn_emulation, SLE_UINT8, S, MS, 0, 0, 2, 0, STR_CONFIG_SETTING_RIGHT_MOUSE_BTN_EMU, NULL),
  #endif
  
@@ -1060,6 +1226,16 @@ diff -ruN a/table/settings.h b/table/settings.h
 +	 * Add future amiga.* settings here and to the Amiga page in
 +	 * settings_gui.cpp. */
 +	 SDTC_BOOL(amiga.wb_bar,                             S,  0, false,                        STR_CONFIG_SETTING_AMIGA_WB_BAR,                AmigaWbBarToggled),
++	 /* Written by the video driver, never by the player - exactly like amiga.rtg
++	  * below, and for the same reason. EHB used to be a checkbox on the Amiga
++	  * page; it is now a pair of OCS entries in Game Options -> Screen
++	  * resolution, so the checkbox is gone and STR_NULL keeps this out of the
++	  * settings GUI. What survives is the on-disk record of which backend the
++	  * chosen mode used, so the next run can find the same list entry again:
++	  * 320x256 is offered as AGA and as OCS, and the width/height pair in
++	  * openttd.cfg cannot tell those two apart. No proc, because nothing must
++	  * happen when it is loaded. */
++	 SDTC_BOOL(amiga.ehb,                                S,  0, false,                        STR_NULL,                                       NULL),
 +	 /* Written by the video driver, never by the player: STR_NULL keeps it out
 +	  * of the settings GUI, and it has no proc because nothing must happen when
 +	  * it is loaded - the driver reads it once while building the resolution
@@ -1072,8 +1248,8 @@ diff -ruN a/table/settings.h b/table/settings.h
  };
  
 diff -ruN a/tgp.cpp b/tgp.cpp
---- a/tgp.cpp	2026-07-21 15:47:40.888227800 +0200
-+++ b/tgp.cpp	2026-07-21 15:47:41.926215600 +0200
+--- a/tgp.cpp	2026-07-21 18:27:24.733170500 +0200
++++ b/tgp.cpp	2026-07-21 18:27:25.527588800 +0200
 @@ -669,6 +669,10 @@
  		if (water_tiles >= desired_water_tiles) break;
  	}
@@ -1204,23 +1380,515 @@ diff -ruN a/tgp.cpp b/tgp.cpp
  	FreeHeightMap();
  	GenerateWorldSetAbortCallback(NULL);
  }
+diff -ruN a/video/amiga_ehb_data.h b/video/amiga_ehb_data.h
+--- a/video/amiga_ehb_data.h	1970-01-01 01:00:00.000000000 +0100
++++ b/video/amiga_ehb_data.h	2026-07-21 18:27:25.104213100 +0200
+@@ -0,0 +1,83 @@
++/* Generated by tools/gen_ehb_data.py from the "sat20" EHB assets
++ * (saturation x1.2).  DO NOT EDIT BY HAND - re-run the generator.
++ *
++ * See docs/LORES-GRAPHICS-PLAN.md and the report accompanying the EHB work for
++ * what these tables mean and what the reduction costs.
++ *
++ * 7 of the 64 EHB entries have no pre-image in the 256-colour palette.
++ *
++ * Three translation units need these tables (spritecache.cpp applies the
++ * reduction, gfx.cpp remaps text colours, video/amiga_v.cpp loads the colour
++ * registers), so the header DECLARES them and exactly one TU defines them by
++ * doing
++ *     #define AMIGA_EHB_DATA_DEFINE
++ * before the include.  spritecache.cpp is that TU.  Emitting them as "static
++ * const" instead would put three copies of 512 bytes in the binary, and on this
++ * target every kilobyte is LoadSeg'd into RAM before the game starts.
++ */
++
++#ifndef AMIGA_EHB_DATA_H
++#define AMIGA_EHB_DATA_H
++
++/** TTD palette index -> EHB index (0..63).  Index 0 stays transparent. */
++extern const unsigned char _amiga_ehb_remap[256];
++
++/** EHB index -> representative TTD palette index mapping to it. */
++extern const unsigned char _amiga_ehb_rep[64];
++
++/** 64 x RGB8, loaded into colour registers 0..63. */
++extern const unsigned char _amiga_ehb_palette[64 * 3];
++
++#endif /* AMIGA_EHB_DATA_H */
++
++#ifdef AMIGA_EHB_DATA_DEFINE
++#ifndef AMIGA_EHB_DATA_DEFINED
++#define AMIGA_EHB_DATA_DEFINED
++
++const unsigned char _amiga_ehb_remap[256] = {
++	   0,   38,   38,   38,   37,   35,   34,   33,   33,    5,    3,    3,    4,    2,    2,    1,
++	  38,   37,   36,    6,    5,    5,    3,    4,   44,   44,   50,   46,   47,   18,   18,   22,
++	  44,   43,   45,   12,   47,   18,   22,    2,   39,   39,   41,    7,    7,   10,   10,   11,
++	  11,    2,   14,   15,   15,   44,   43,   45,   47,   18,   18,   16,   39,   42,   43,   12,
++	  10,   13,   13,   14,   15,   15,   40,   39,   42,   42,    7,    7,   12,   10,   11,   11,
++	  51,   51,   51,   52,   52,   19,   19,   19,   51,   51,   50,   48,   47,   18,   18,   16,
++	  51,   51,   48,   48,   47,   18,   22,   22,   40,   39,   44,   42,   43,   45,   12,   12,
++	  44,   42,   43,   12,   12,   10,   11,   11,   11,   13,   42,   42,   43,    7,   12,   30,
++	  55,   38,   60,   60,   36,   30,    3,    4,   59,   63,   27,   27,   27,   31,   31,   29,
++	  59,   59,   58,   27,   27,   26,   26,   25,   24,    4,   58,   57,   56,   23,    6,   25,
++	  24,   21,    7,    9,    9,   11,   11,    2,    2,    1,   63,   63,   27,   31,   31,   29,
++	  29,    4,   39,   39,   41,    7,    7,    9,    9,   10,   11,   11,   13,   13,   14,   15,
++	  11,   11,   13,   13,   13,    2,   59,   59,   58,   58,   27,   26,   26,   25,   19,   19,
++	  20,   20,   21,   21,    4,   24,   25,   40,    8,   56,   56,   23,   23,   23,   25,   25,
++	  24,    4,   21,   32,   32,   32,   32,   32,    9,   10,   11,   11,   11,   13,   13,    9,
++	   9,   32,   32,   32,   17,    5,   56,   23,   23,   23,   25,   25,   24,    4,   21,    1,
++};
++
++const unsigned char _amiga_ehb_rep[64] = {
++	   0,   15,   13,   10,  135,   21,   19,  162,  216,  184,  185,  118,  116,  195,   50,   52,
++	  95,  244,   94,  206,  209,  210,  103,  248,  152,  159,  150,  202,   28,  175,  133,  174,
++	 227,    7,    6,    5,   18,   17,   16,   71,  215,  180,   61,  114,   25,   55,   27,   28,
++	  91,   49,   90,   82,   84,   53,   54,  128,  156,  155,  200,  199,  130,   61,   62,  171,
++};
++
++const unsigned char _amiga_ehb_palette[64 * 3] = {
++	  0,   0,   0, 255, 255, 255, 221, 221, 221, 170, 170, 170,
++	204, 221, 238, 136, 153, 170, 102, 119, 153, 153,  51,  51,
++	 34,  34,  34, 255,  17,   0, 221,  85,  17, 238, 136,  85,
++	153, 102,  51, 255, 187,  34, 221, 204,  68, 255, 255, 136,
++	187, 204, 102, 204, 238,  85, 153, 170, 119,  85, 153,  34,
++	136, 238,  85, 221, 238, 238, 187, 204, 204,  34, 119, 136,
++	119, 204, 238, 102, 170, 204,  51, 136, 238,  51,  85, 204,
++	119, 136, 238, 187, 187, 204, 136, 136, 153, 170, 119, 238,
++	  0,   0,   0, 119, 119, 119, 102, 102, 102,  85,  85,  85,
++	102, 102, 119,  68,  68,  85,  51,  51,  68,  68,  17,  17,
++	 17,  17,  17, 119,   0,   0, 102,  34,   0, 119,  68,  34,
++	 68,  51,  17, 119,  85,  17, 102, 102,  34, 119, 119,  68,
++	 85, 102,  51, 102, 119,  34,  68,  85,  51,  34,  68,  17,
++	 68, 119,  34, 102, 119, 119,  85, 102, 102,  17,  51,  68,
++	 51, 102, 119,  51,  85, 102,  17,  68, 119,  17,  34, 102,
++	 51,  68, 119,  85,  85, 102,  68,  68,  68,  85,  51, 119,
++};
++
++#endif /* AMIGA_EHB_DATA_DEFINED */
++#endif /* AMIGA_EHB_DATA_DEFINE */
+diff -ruN a/video/c2p1x1_6_c5_bm_040.s b/video/c2p1x1_6_c5_bm_040.s
+--- a/video/c2p1x1_6_c5_bm_040.s	1970-01-01 01:00:00.000000000 +0100
++++ b/video/c2p1x1_6_c5_bm_040.s	2026-07-21 18:27:25.103218900 +0200
+@@ -0,0 +1,377 @@
++;
++; File:   c2p1x1_6_c5_bm_040.s
++; Author: Mikael Kalms <mikael@kalms.org>
++; Date:   17 April 2000
++; Title:  C2P - 1x1, 6bpl, BitMap output, 040+ optimized
++;
++; Description:
++;   Performs CPU-only C2P conversion
++;   Outputs to any BitMap (interlaced, large, ...)
++;   Position-independent (PC-relative) code
++;   68040+ optimized -- performs badly on 020/030
++;   No selfmodifying code used (relies on datacache instead)
++;   For best performance, align chunkybuffer on even 16byte boundary
++;     and make sure destination window begins on even 4byte boundary
++;
++; Restrictions:
++;   Chunky-buffer must be an even multiple of 32 pixels wide
++;   X-Offset must be set to an even multiple of 8
++;
++
++	include	graphics/gfx.i
++
++
++				rsreset
++C2P1X1_6_C5_BM_040_DELTA1	rs.l	1
++C2P1X1_6_C5_BM_040_DELTA2	rs.l	1
++C2P1X1_6_C5_BM_040_DELTA3	rs.l	1
++C2P1X1_6_C5_BM_040_DELTA4	rs.l	1
++C2P1X1_6_C5_BM_040_DELTA5	rs.l	1
++C2P1X1_6_C5_BM_040_DELTA6	rs.l	1
++C2P1X1_6_C5_BM_040_CHUNKYX	rs.w	1
++C2P1X1_6_C5_BM_040_CHUNKYY	rs.w	1
++C2P1X1_6_C5_BM_040_ROWMOD	rs.l	1
++C2P1X1_6_C5_BM_040_SIZEOF	rs.b	0
++
++
++	section	code,code
++
++; d0.w	chunkyx [chunky-pixels]
++; d1.w	chunkyy [chunky-pixels]
++; d2.w	offsx [screen-pixels]
++; d3.w	offsy [screen-pixels]
++; a0	chunkyscreen
++; a1	BitMap
++
++	XDEF	_c2p1x1_6_c5_bm_040
++	XDEF	c2p1x1_6_c5_bm_040
++_c2p1x1_6_c5_bm_040
++c2p1x1_6_c5_bm_040
++	movem.l	d2-d7/a2-a6,-(sp)
++	sub.l	#C2P1X1_6_C5_BM_040_SIZEOF,sp
++					; A few sanity checks
++	cmpi.b	#6,bm_Depth(a1)		; At least 6 valid bplptrs?
++	blo	.exit
++	move.w	d0,d4
++	move.w	d2,d5
++	andi.w	#$1f,d4			; Even 32-pixel width?
++	bne	.exit
++	andi.w	#$7,d5			; Even 8-pixel xoffset?
++	bne	.exit
++	moveq	#0,d4
++	move.w	bm_BytesPerRow(a1),d4
++
++	move.w	d0,C2P1X1_6_C5_BM_040_CHUNKYX(sp) ; Skip if 0 pixels to convert
++	beq	.exit
++	move.w	d1,C2P1X1_6_C5_BM_040_CHUNKYY(sp)
++	beq	.exit
++
++	and.l	#$ffff,d0
++	and.l	#$ffff,d2
++
++	mulu.w	d4,d3			; Offs to first pixel to draw in bpl
++	lsr.l	#3,d2
++	add.l	d2,d3
++
++	lsl.l	#3,d4			; Positive modulo?
++	sub.l	d0,d4
++	bmi	.exit
++
++	lsr.l	#3,d4
++	move.l	d4,C2P1X1_6_C5_BM_040_ROWMOD(sp) ; Modulo between two rows
++
++	move.l	a0,a2			; Ptr to end of line
++	add.w	C2P1X1_6_C5_BM_040_CHUNKYX(sp),a2
++
++	move.l	bm_Planes+1*4(a1),a3
++	sub.l	bm_Planes+2*4(a1),a3
++	move.l	a3,C2P1X1_6_C5_BM_040_DELTA1(sp)
++	move.l	bm_Planes+0*4(a1),a3
++	sub.l	bm_Planes+1*4(a1),a3
++	move.l	a3,C2P1X1_6_C5_BM_040_DELTA2(sp)
++	move.l	bm_Planes+5*4(a1),a3
++	sub.l	bm_Planes+0*4(a1),a3
++	addq.l	#4,a3
++	move.l	a3,C2P1X1_6_C5_BM_040_DELTA3(sp)
++	move.l	bm_Planes+4*4(a1),a3
++	sub.l	bm_Planes+5*4(a1),a3
++	move.l	a3,C2P1X1_6_C5_BM_040_DELTA4(sp)
++	move.l	bm_Planes+3*4(a1),a3
++	sub.l	bm_Planes+4*4(a1),a3
++	move.l	a3,C2P1X1_6_C5_BM_040_DELTA5(sp)
++	move.l	bm_Planes+2*4(a1),a3
++	sub.l	bm_Planes+3*4(a1),a3
++	move.l	a3,C2P1X1_6_C5_BM_040_DELTA6(sp)
++
++	move.l	bm_Planes+5*4(a1),a1
++	add.l	d3,a1
++
++	tst.b	32(a0)
++	move.l	(a0)+,d0
++	move.l	(a0)+,d1
++	move.l	(a0)+,d2
++	move.l	(a0)+,d3
++	tst.b	32(a0)
++	move.l	(a0)+,d4
++	move.l	(a0)+,d5
++	move.l	(a0)+,a5
++	move.l	(a0)+,a6
++
++	move.l	d1,d6			; Swap 4x1, part 1
++	move.l	d3,d7
++	lsr.l	#4,d6
++	lsr.l	#4,d7
++	eor.l	d0,d6
++	eor.l	d2,d7
++	and.l	#$0f0f0f0f,d6
++	and.l	#$0f0f0f0f,d7
++	eor.l	d6,d0
++	eor.l	d7,d2
++	lsl.l	#4,d6
++	lsl.l	#4,d7
++	eor.l	d6,d1
++	eor.l	d7,d3
++
++	exg	d2,a5
++	exg	d3,a6
++
++	move.l	d5,d6			; Swap 4x1, part 2
++	move.l	d3,d7
++	lsr.l	#4,d6
++	lsr.l	#4,d7
++	eor.l	d4,d6
++	eor.l	d2,d7
++	and.l	#$0f0f0f0f,d6
++	and.l	#$0f0f0f0f,d7
++	eor.l	d6,d4
++	eor.l	d7,d2
++	lsl.l	#4,d6
++	lsl.l	#4,d7
++	eor.l	d6,d5
++	eor.l	d7,d3
++
++	exg	a5,d1
++
++	move.w	d4,d6			; Swap 16x4, part 1
++	move.w	d2,d7
++	move.w	d0,d4
++	move.w	d1,d2
++	swap	d4
++	swap	d2
++	move.w	d4,d0
++	move.w	d2,d1
++	move.w	d6,d4
++	move.w	d7,d2
++
++	lsl.l	#2,d0			; Swap/Merge 2x4, part 1
++	lsl.l	#2,d1
++	or.l	d4,d0
++	or.l	d2,d1
++
++	move.l	d1,d6			; Swap 8x2, part 1
++	move.l	a5,d4			; Swap 16x4, part 2, interleaved
++	lsr.l	#8,d6
++	move.l	a6,d2
++
++	swap	d5
++	swap	d3
++	eor.l	d0,d6
++	eor.w	d4,d5
++	and.l	#$00ff00ff,d6
++	eor.w	d2,d3
++	eor.l	d6,d0
++	eor.w	d5,d4
++	lsl.l	#8,d6
++	eor.w	d3,d2
++	eor.l	d6,d1
++	eor.w	d4,d5
++
++	move.l	d1,d6			; Swap 1x2, part 1
++	eor.w	d2,d3			; Swap 16x4, part 2, interleaved
++	swap	d5
++	swap	d3
++	lsr.l	#1,d6
++
++	bra	.xstart
++.y
++.x
++	tst.b	32(a0)
++	move.l	(a0)+,d0
++	move.l	(a0)+,d1
++	move.l	(a0)+,d2
++	move.l	(a0)+,d3
++	tst.b	32(a0)
++	move.l	(a0)+,d4
++	move.l	(a0)+,d5
++	move.l	(a0)+,a5
++	move.l	(a0)+,a6
++
++	move.l	d6,(a1)
++
++	move.l	d1,d6			; Swap 4x1, part 1
++	move.l	d3,d7
++	lsr.l	#4,d6
++	lsr.l	#4,d7
++	eor.l	d0,d6
++	eor.l	d2,d7
++	and.l	#$0f0f0f0f,d6
++	and.l	#$0f0f0f0f,d7
++	eor.l	d6,d0
++	eor.l	d7,d2
++	lsl.l	#4,d6
++	lsl.l	#4,d7
++	eor.l	d6,d1
++	eor.l	d7,d3
++
++	exg	d2,a5
++	exg	d3,a6
++
++	move.l	d5,d6			; Swap 4x1, part 2
++	move.l	d3,d7
++	lsr.l	#4,d6
++	lsr.l	#4,d7
++	eor.l	d4,d6
++	add.l	C2P1X1_6_C5_BM_040_DELTA1(sp),a1
++	eor.l	d2,d7
++	and.l	#$0f0f0f0f,d6
++	and.l	#$0f0f0f0f,d7
++	eor.l	d6,d4
++	eor.l	d7,d2
++	move.l	a3,(a1)
++	lsl.l	#4,d6
++	lsl.l	#4,d7
++	eor.l	d6,d5
++	eor.l	d7,d3
++
++	exg	a5,d1
++
++	move.w	d4,d6			; Swap 16x4, part 1
++	move.w	d2,d7
++	move.w	d0,d4
++	move.w	d1,d2
++	swap	d4
++	swap	d2
++	move.w	d4,d0
++	move.w	d2,d1
++	move.w	d6,d4
++	move.w	d7,d2
++
++	lsl.l	#2,d0			; Swap/Merge 2x4, part 1
++	lsl.l	#2,d1
++	add.l	C2P1X1_6_C5_BM_040_DELTA2(sp),a1
++	or.l	d4,d0
++	or.l	d2,d1
++
++	move.l	d1,d6			; Swap 8x2, part 1
++	move.l	a5,d4			; Swap 16x4, part 2, interleaved
++	lsr.l	#8,d6
++	move.l	a6,d2
++	move.l	a4,(a1)
++
++	swap	d5
++	swap	d3
++	eor.l	d0,d6
++	eor.w	d4,d5
++	and.l	#$00ff00ff,d6
++	eor.w	d2,d3
++	eor.l	d6,d0
++	eor.w	d5,d4
++	lsl.l	#8,d6
++	eor.w	d3,d2
++	eor.l	d6,d1
++	eor.w	d4,d5
++
++	move.l	d1,d6			; Swap 1x2, part 1
++	eor.w	d2,d3			; Swap 16x4, part 2, interleaved
++	swap	d5
++	swap	d3
++	add.l	C2P1X1_6_C5_BM_040_DELTA3(sp),a1
++	lsr.l	#1,d6
++
++	cmp.l	a0,a2				; End of line passed?
++	bhs.s	.xstart
++
++	add.w	C2P1X1_6_C5_BM_040_CHUNKYX(sp),a2 ; Skip to end of next
++						  ; line
++	add.l	C2P1X1_6_C5_BM_040_ROWMOD(sp),a1  ; Skip to beginning of
++						  ; next line
++.xstart
++	eor.l	d0,d6
++	and.l	#$55555555,d6
++	eor.l	d6,d0
++	add.l	d6,d6
++	eor.l	d6,d1
++
++	move.l	d0,(a1)
++
++	move.l	d5,d6			; Swap/Merge 2x4, part 2
++	move.l	d3,d7
++	lsr.l	#2,d6
++	lsr.l	#2,d7
++	eor.l	d4,d6
++	eor.l	d2,d7
++	and.l	#$33333333,d6
++	and.l	#$33333333,d7
++	eor.l	d6,d4
++	eor.l	d7,d2
++	lsl.l	#2,d6
++	lsl.l	#2,d7
++	eor.l	d6,d5
++	eor.l	d7,d3
++
++	add.l	C2P1X1_6_C5_BM_040_DELTA4(sp),a1
++	move.l	d2,d6			; Swap 8x2, part 2
++	move.l	d3,d7
++	lsr.l	#8,d6
++	lsr.l	#8,d7
++	eor.l	d4,d6
++	eor.l	d5,d7
++	move.l	d1,(a1)
++	and.l	#$00ff00ff,d6
++	and.l	#$00ff00ff,d7
++	eor.l	d6,d4
++	eor.l	d7,d5
++	lsl.l	#8,d6
++	lsl.l	#8,d7
++	eor.l	d6,d2
++	eor.l	d7,d3
++
++	move.l	d2,d6			; Swap 1x2, part 2
++	move.l	d3,d7
++	lsr.l	#1,d6
++	lsr.l	#1,d7
++	add.l	C2P1X1_6_C5_BM_040_DELTA5(sp),a1
++	eor.l	d4,d6
++	eor.l	d5,d7
++	and.l	#$55555555,d6
++	and.l	#$55555555,d7
++	eor.l	d6,d4
++	eor.l	d7,d5
++	move.l	d4,(a1)
++	add.l	d6,d6
++	add.l	d7,d7
++	eor.l	d2,d6
++	eor.l	d7,d3
++
++	move.l	d5,a3
++	move.l	d3,a4
++	add.l	C2P1X1_6_C5_BM_040_DELTA6(sp),a1
++
++	cmp.l	a0,a2
++	bne	.x
++
++	subq.w	#1,C2P1X1_6_C5_BM_040_CHUNKYY(sp)
++	bne	.y
++
++	move.l	d6,(a1)
++	add.l	C2P1X1_6_C5_BM_040_DELTA1(sp),a1
++	move.l	a3,(a1)
++	add.l	C2P1X1_6_C5_BM_040_DELTA2(sp),a1
++	move.l	a4,(a1)
++
++.exit
++	add.l	#C2P1X1_6_C5_BM_040_SIZEOF,sp
++	movem.l	(sp)+,d2-d7/a2-a6
++.earlyexit
++	rts
++
 diff -ruN a/video/c2p_glue.s b/video/c2p_glue.s
 --- a/video/c2p_glue.s	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/c2p_glue.s	2026-07-21 15:47:41.562223000 +0200
-@@ -0,0 +1,42 @@
-+; C-callable wrapper around Mikael Kalms' dirty-rectangle c2p.
++++ b/video/c2p_glue.s	2026-07-21 18:27:25.110335100 +0200
+@@ -0,0 +1,91 @@
++; C-callable wrappers around Mikael Kalms' chunky-to-planar routines.
 +;
-+; c2p_rect takes all nine arguments in registers, including d2-d7 which the C
-+; ABI treats as callee-saved. It does save them itself - but only AFTER we have
-+; already loaded our arguments into them, so it would restore OUR values and
-+; destroy the caller's. Hence this wrapper saves them first.
++; TWO routines live here, one per screen depth the AGA path can open:
 +;
-+; Assemble with the vasm that ships with bebbo amiga-gcc:
-+;   vasmm68k_mot -Fhunk -m68040 -no-opt -o c2p_glue.o c2p_glue.s
++;   c2p_rect              8 bitplanes, special/c2p_rect.s. The only Kalms
++;                         routine that takes a chunky ROWMOD, so it converts a
++;                         sub-rectangle straight out of our full-width chunky
++;                         buffer with no intermediate copy.
++;
++;   c2p1x1_6_c5_bm_040    6 bitplanes (EHB), bitmap/c2p1x1_6_c5_bm_040.s. This
++;                         one has NO rowmod: it insists the chunky input be
++;                         contiguous and exactly chunkyx wide. amiga_gfx.c
++;                         therefore feeds it either the chunky buffer directly
++;                         (full-width rectangles, the common case) or a small
++;                         scratch band it has just copied the rectangle into.
++;                         That copy is deliberate: this is stock, released,
++;                         already-validated assembly, and paying one memcpy is
++;                         far cheaper than the risk of a hand-written 6-plane
++;                         rect routine. Both source files are verbatim upstream
++;                         copies - only these wrappers are ours.
++;
++; Both take all their arguments in registers, including d2-d7 which the C ABI
++; treats as callee-saved. Each routine does save them itself - but only AFTER we
++; have already loaded our arguments into them, so it would restore OUR values
++; and destroy the caller's. Hence these wrappers save them first.
++;
++; Assemble with the vasm that ships with bebbo amiga-gcc. The -I is needed by
++; c2p1x1_6_c5_bm_040.s, which includes graphics/gfx.i for the BitMap offsets:
++;   vasmm68k_mot -Fhunk -m68040 -no-opt \
++;                -I/opt/amiga/m68k-amigaos/ndk-include \
++;                -o c2p_glue.o c2p_glue.s
++; (this one command assembles all three .s files - the two below are included).
 +
 +	section	code,code
 +
 +	xdef	_c2p_rect_asm
++	xdef	_c2p6_bm_asm
 +
 +; void c2p_rect_asm(struct C2PArgs *a);
 +;   0  UWORD x        (multiple of 32)
@@ -1249,10 +1917,35 @@ diff -ruN a/video/c2p_glue.s b/video/c2p_glue.s
 +	movem.l	(sp)+,d2-d7/a2-a6
 +	rts
 +
++; void c2p6_bm_asm(struct C2P6Args *a);
++;   0  UWORD chunkyx  width  in pixels, MUST be a multiple of 32
++;   2  UWORD chunkyy  height in rows
++;   4  UWORD offsx    destination x in the BitMap, MUST be a multiple of 8
++;   6  UWORD offsy    destination y in the BitMap
++;   8  APTR  chunky   contiguous chunkyx * chunkyy chunky pixels
++;  12  APTR  bitmap   struct BitMap * with at least 6 planes
++;
++; Unlike c2p_rect this takes no rowmod, which is exactly why the caller must
++; hand it contiguous input - see the header comment at the top of this file.
++
++_c2p6_bm_asm:
++	movem.l	d2-d7/a2-a6,-(sp)
++	move.l	48(sp),a1		; 11 saved longs = 44, +4 return address
++	move.w	(a1),d0
++	move.w	2(a1),d1
++	move.w	4(a1),d2
++	move.w	6(a1),d3
++	move.l	8(a1),a0
++	move.l	12(a1),a1
++	jsr	c2p1x1_6_c5_bm_040
++	movem.l	(sp)+,d2-d7/a2-a6
++	rts
++
 +	include	"c2p_rect.s"
++	include	"c2p1x1_6_c5_bm_040.s"
 diff -ruN a/video/c2p_rect.s b/video/c2p_rect.s
 --- a/video/c2p_rect.s	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/c2p_rect.s	2026-07-21 15:47:41.561222700 +0200
++++ b/video/c2p_rect.s	2026-07-21 18:27:25.110335100 +0200
 @@ -0,0 +1,429 @@
 +
 +; C2P a rectangular area between equally-sized chunkybuffer and

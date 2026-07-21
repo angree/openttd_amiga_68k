@@ -43,15 +43,23 @@ typedef struct {
 
 /* Which display backend a screen runs on. Passed to amigagfx_open() and
  * reported back by amigagfx_backend() - which is what actually opened, and may
- * be AGA even when RTG was asked for (see the fallback note on amigagfx_open).
+ * differ from what was asked for (see the fallback notes on amigagfx_open).
  *
  *   AGA - planar Intuition screen, 8 bitplanes in one contiguous Chip RAM
  *         block, every dirty rectangle pushed through Kalms' chunky-to-planar.
+ *   EHB - planar Intuition screen in the chipset's Extra-Half-Brite mode: SIX
+ *         bitplanes, so a quarter less Chip RAM and a quarter less c2p work
+ *         than AGA, and it is a mode plain OCS/ECS machines have too. Colour
+ *         registers 32..63 are fixed by the hardware at half the intensity of
+ *         0..31, which is why the palette handed to amigagfx_set_ehb_palette()
+ *         must already obey that rule. A different c2p is used here - see the
+ *         contiguity note on amigagfx_blit.
  *   RTG - 8-bit CyberGraphX/Picasso96 screen. The chunky buffer IS the display
  *         format there, so the c2p disappears entirely and a blit becomes a
  *         per-row memcpy into the card's bitmap. No Chip RAM is used at all. */
 #define AMIGAGFX_BACKEND_AGA 0
 #define AMIGAGFX_BACKEND_RTG 1
+#define AMIGAGFX_BACKEND_EHB 2
 
 /* Is an 8-bit RTG mode of at least w x h available on this machine? Returns 0
  * when cybergraphics.library is missing (a plain AGA Amiga), when the library
@@ -66,16 +74,25 @@ int amigagfx_rtg_has_mode(int w, int h);
 /* AMIGAGFX_BACKEND_* of the screen currently open (AGA when none is). */
 int amigagfx_backend(void);
 
-/* Open a w x h, 256-colour screen on the requested backend. Returns 0 on
- * success, non-zero on failure.
+/* Open a w x h screen on the requested backend - 256 colours on AGA and RTG,
+ * 64 on EHB. Returns 0 on success, non-zero on failure.
  *
  * backend AMIGAGFX_BACKEND_RTG asks for a CyberGraphX/Picasso96 8-bit screen
  * and SILENTLY FALLS BACK to AGA if anything about it fails (no library, no
  * such mode, OpenScreen refused) - one log line says which and why, and the
  * game keeps running. amigagfx_backend() then reports AGA.
  *
- * On AGA w must be a multiple of 32 (the c2p works in 32-pixel columns); on
- * RTG there is no such constraint and the caller must not impose one.
+ * backend AMIGAGFX_BACKEND_EHB asks for a 6-bitplane Extra-Half-Brite screen
+ * and falls back the same way, to a normal 8-bitplane AGA screen, if the
+ * chipset or Intuition will not give one. That fallback is harmless rather
+ * than merely survivable: the caller has already reduced its sprites into the
+ * 64-entry EHB index space, and those indices display correctly on an 8-plane
+ * screen carrying the same 64 colours in registers 0..63. The player loses the
+ * memory and speed win, not the picture.
+ *
+ * On AGA and EHB w must be a multiple of 32 (both c2p routines work in
+ * 32-pixel columns); on RTG there is no such constraint and the caller must
+ * not impose one.
  *
  * show_bar non-zero keeps the SYSTEM screen title bar visible (the real
  * Intuition bar with the depth gadget, so the player can flip to Workbench
@@ -103,10 +120,24 @@ int amigagfx_pitch(void);
 /* rgb points at count*3 bytes. */
 void amigagfx_set_palette(const unsigned char *rgb, int first, int count);
 
-/* Push one dirty rectangle to the screen. On AGA x/width are snapped outwards
- * to the 32-pixel grid the c2p requires; on RTG they are used as given, because
- * that granularity is a c2p property and nothing else needs it. Clipping is
- * handled here on both backends. */
+/* Hand this file a private copy of the 64-entry EHB palette (64*3 bytes, the
+ * same table the caller loads with amigagfx_set_palette). Only the splash uses
+ * it, and only on an EHB screen, where an image carrying its own 256-colour
+ * palette cannot be shown as-is: there are 64 pens and half of them are not
+ * settable. Passed in rather than shared as a symbol so this file keeps its
+ * one hard rule - no dependency on anything of OpenTTD's. Safe to call before
+ * amigagfx_open(); ignored on AGA and RTG. */
+void amigagfx_set_ehb_palette(const unsigned char *rgb64);
+
+/* Push one dirty rectangle to the screen. On AGA and EHB x/width are snapped
+ * outwards to the 32-pixel grid the c2p requires; on RTG they are used as
+ * given, because that granularity is a c2p property and nothing else needs it.
+ * Clipping is handled here on all three backends.
+ *
+ * EHB additionally needs its chunky input CONTIGUOUS - the 6-plane routine
+ * takes no row modulo - so a rectangle narrower than the screen is copied into
+ * a small scratch band first. That is handled internally and callers see no
+ * difference; a full-width rectangle skips the copy entirely. */
 void amigagfx_blit(int x, int y, int w, int h);
 
 /* Milliseconds since program start; OpenTTD's main loop needs a ms clock. */
@@ -152,7 +183,15 @@ void AmigaMemProbe(const char *label);
  * below 400 lines, 2x nearest-neighbour otherwise. On any problem (missing
  * file, bad magic, does not fit) it logs one line and returns without drawing.
  * Leaves the chunky buffer cleared to index 0 and the palette black - the
- * caller must restore the game palette afterwards. */
+ * caller must restore the game palette afterwards.
+ *
+ * Works on whatever screen is open, which matters more than it sounds: the
+ * whole audience for the EHB mode is machines that cannot show an 8-bitplane
+ * screen at all, so a splash that assumed one would fail before the game even
+ * started. On an EHB screen the image is reduced to the 64 EHB pens through a
+ * nearest-colour match against the palette given to
+ * amigagfx_set_ehb_palette(), and the fade then scales THAT palette instead of
+ * the file's own - the screen mode is never changed to suit the picture. */
 void amigagfx_splash(const char *path);
 
 #ifdef __cplusplus

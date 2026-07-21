@@ -17,6 +17,10 @@
 # The complete diff of our changes to OpenTTD's own source. GPL v2 requires the
 # corresponding source for the binaries we ship, and native/ alone is not it.
 !/patches/
+# Generator for the EHB palette/remap tables compiled into the driver. It
+# asserts the hardware half-brite rule before writing, so the tables cannot
+# silently drift from what the chipset actually derives.
+!/tools/gen_ehb_data.py
 
 # Inside build/, only the scripts that actually build something.
 /build/*

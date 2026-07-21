@@ -17,8 +17,22 @@ scrolling.
 
 Resolution is selectable in Game Options and takes effect immediately:
 `320x256 AGA`, `352x272 AGA` (PAL lores, no interlace) and `640x480 AGA`
-(hires, interlaced), followed by the RTG modes if a graphics card is present.
-The interface font follows the resolution.
+(hires, interlaced); then `320x256 OCS` and `352x272 OCS`; then the RTG modes
+if a graphics card is present. The interface font follows the resolution.
+
+The **OCS** modes are Extra Half-Brite: 6 bitplanes, 64 colours, where the upper
+32 are forced by the hardware to be half-brightness copies of the lower 32. That
+buys three things at once — a quarter less chunky-to-planar work, half the Chip
+RAM for the bitmap, and, because EHB exists on OCS and ECS as well as AGA, the
+possibility of running on an A500 or A600. Sprites are reduced to the 64-colour
+palette once when they are loaded, not per frame.
+
+They are lores only, and that is a hardware fact rather than an omission: the
+sixth bitplane *is* the half-brite control, and OCS/ECS cannot fetch six planes
+at hires bandwidth. A "640x480 OCS" entry would simply be refused.
+
+Changing between AGA, OCS and RTG needs a restart — the choice is saved
+immediately and the game says so on screen.
 They are labelled AGA because a Picasso96/RTG backend is planned and will add
 its own modes to the same list.
 

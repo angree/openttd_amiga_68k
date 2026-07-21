@@ -54,7 +54,7 @@ import os
 from PIL import Image, ImageDraw
 
 CREDIT_TEXT     = "port by Grzegorz Korycki"
-DEFAULT_VERSION = "v0.4.1"
+DEFAULT_VERSION = "v0.7.0"
 CORNER_RADIUS   = 8     # px, rounded-corner radius on the picture
 GAP             = 6     # px between picture and credit line
 BOTTOM_PAD      = 2     # px below the credit line

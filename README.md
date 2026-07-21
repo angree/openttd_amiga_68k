@@ -27,10 +27,29 @@ have, and they are not interlaced, so the display is steadier as well. On an 030
 lores is the only configuration with a chance of being playable at all — and
 even then, generate a small map.
 
+## Sound
+
+Sound effects work, played straight through Paula. There is no software mixer:
+each effect is handed to one of the four hardware audio channels and DMA plays
+it, so once a sound starts the CPU does nothing at all. Volume and panning are
+the hardware's own registers rather than arithmetic on samples.
+
+The conversion turns out to be almost free. OpenSFX ships at 44.1 kHz 16-bit,
+and Paula wants 8-bit and tops out around 28.6 kHz on PAL — so the target rate
+is 22.05 kHz, which is exactly half. Resampling is therefore "take every other
+sample" and the depth change is a shift, done once per effect and then cached in
+Chip RAM. No interpolation, no lookup tables, no per-sample CPU cost.
+
+The cost of this approach is that there are only four channels, so a fifth
+simultaneous sound is dropped rather than mixed. In practice that is rarely
+noticeable, and it buys a sound system that is essentially free on a 68030.
+
+Enable it with `-s amiga` (and `-s null` for silence). **Music is not
+implemented yet.**
+
 ## What does not
 
-- **No sound.** OpenSFX is recognised as a sound set, but there is no AHI
-  driver yet, so the game runs with `-s null`.
+- **No music.**
 - **No networking** in this build.
 - **No RTG.** AGA only, and no ECS/OCS — those top out at 32 colours where the
   game needs 256. RTG is the more interesting of the two to add, and the driver

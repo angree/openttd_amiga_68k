@@ -43,6 +43,7 @@
 /native/zlibtest
 /native/zsrc_*
 /native/z_*
+/native/paulatest
 
 # Emulator disk images, ROMs, game data, build output
 *.hdf

@@ -14,6 +14,9 @@
 !/native/
 !/build/
 !/screenshots/
+# The complete diff of our changes to OpenTTD's own source. GPL v2 requires the
+# corresponding source for the binaries we ship, and native/ alone is not it.
+!/patches/
 
 # Inside build/, only the scripts that actually build something.
 /build/*

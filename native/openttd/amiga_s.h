@@ -28,6 +28,10 @@ public:
 
 	/* virtual */ void Stop();
 
+	/* Reaps finished Paula writes once per game tick (also in menu mode)
+	 * and emits the capped diagnostic snapshots. */
+	/* virtual */ void MainLoop();
+
 	/* virtual */ const char *GetName() const { return "amiga"; }
 };
 

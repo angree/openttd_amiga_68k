@@ -1,0 +1,1348 @@
+diff -ruN a/debug.cpp b/debug.cpp
+--- a/debug.cpp	2026-07-21 10:46:10.703508300 +0200
++++ b/debug.cpp	2026-07-21 10:46:11.222503900 +0200
+@@ -86,7 +86,7 @@
+ 		_sntprintf(tbuf, sizeof(tbuf), _T("%s"), OTTD2FS(dbg));
+ 		NKDbgPrintfW(_T("dbg: [%s] %s\n"), tbuf, OTTD2FS(buf));
+ #else
+-		fprintf(stderr, "%sdbg: [%s] %s\n", GetLogPrefix(), dbg, buf);
++		fprintf(stdout, "%sdbg: [%s] %s\n", GetLogPrefix(), dbg, buf); fflush(stdout);
+ #endif
+ 		IConsoleDebug(dbg, buf);
+ 	} else {
+diff -ruN a/fileio.cpp b/fileio.cpp
+--- a/fileio.cpp	2026-07-21 10:46:10.607506100 +0200
++++ b/fileio.cpp	2026-07-21 10:46:11.218503500 +0200
+@@ -22,11 +22,13 @@
+ #include <Path.h>
+ #include <storage/FindDirectory.h>
+ #else
+-#if defined(OPENBSD) || defined(DOS)
++#if defined(OPENBSD) || defined(DOS) || defined(__AMIGA__)
+ #include <unistd.h>
+ #endif
++#if !defined(__AMIGA__)
+ #include <pwd.h>
+ #endif
++#endif
+ #include <sys/stat.h>
+ #include <algorithm>
+ 
+@@ -431,7 +433,7 @@
+ 	CreateDirectory(OTTD2FS(name), NULL);
+ #elif defined(OS2) && !defined(__INNOTEK_LIBC__)
+ 	mkdir(OTTD2FS(name));
+-#elif defined(__MORPHOS__) || defined(__AMIGAOS__)
++#elif defined(__MORPHOS__) || defined(__AMIGAOS__) || defined(__AMIGA__)
+ 	char buf[MAX_PATH];
+ 	ttd_strlcpy(buf, name, MAX_PATH);
+ 
+diff -ruN a/fios.cpp b/fios.cpp
+--- a/fios.cpp	2026-07-21 10:46:10.764507300 +0200
++++ b/fios.cpp	2026-07-21 10:46:11.219504400 +0200
+@@ -110,7 +110,7 @@
+ 			s = strrchr(path, PATHSEPCHAR);
+ 			if (s != NULL) {
+ 				s[1] = '\0'; // go up a directory
+-#if defined(__MORPHOS__) || defined(__AMIGAOS__)
++#if defined(__MORPHOS__) || defined(__AMIGAOS__) || defined(__AMIGA__)
+ 			/* On MorphOS or AmigaOS paths look like: "Volume:directory/subdirectory" */
+ 			} else if ((s = strrchr(path, ':')) != NULL) {
+ 				s[1] = '\0';
+@@ -149,7 +149,7 @@
+ 	/* Don't append the extension if it is already there */
+ 	period = strrchr(name, '.');
+ 	if (period != NULL && strcasecmp(period, extension) == 0) extension = "";
+-#if  defined(__MORPHOS__) || defined(__AMIGAOS__)
++#if  defined(__MORPHOS__) || defined(__AMIGAOS__) || defined(__AMIGA__)
+ 	if (_fios_path != NULL) {
+ 		unsigned char sepchar = _fios_path[(strlen(_fios_path) - 1)];
+ 
+diff -ruN a/fontcache.cpp b/fontcache.cpp
+--- a/fontcache.cpp	2026-07-21 10:46:10.770508300 +0200
++++ b/fontcache.cpp	2026-07-21 10:46:10.862502600 +0200
+@@ -22,6 +22,9 @@
+ /** Semi-constant for the height of the different sizes of fonts. */
+ int _font_height[FS_END];
+ 
++/** Lores interface font: set before the font tables are built. */
++bool _amiga_small_font = false;
++
+ #ifdef WITH_FREETYPE
+ #include <ft2build.h>
+ #include FT_FREETYPE_H
+@@ -1041,7 +1044,15 @@
+ 	if (face == NULL || (key >= SCC_SPRITE_START && key <= SCC_SPRITE_END)) {
+ 		SpriteID sprite = GetUnicodeGlyph(size, key);
+ 		if (sprite == 0) sprite = GetUnicodeGlyph(size, '?');
++#ifdef AMIGA_SMALL_UI_FONT
++		/* AMIGA_SMALL_UI_FONT spacing: FS_NORMAL now draws with the small
++		 * sprites, which are designed with a following spacing pixel. The
++		 * stock expression only adds it when size != FS_NORMAL, so without
++		 * this the glyphs touch and the text turns into a smear. */
++		return SpriteExists(sprite) ? GetSprite(sprite, ST_FONT)->width + 1 : 0;
++#else
+ 		return SpriteExists(sprite) ? GetSprite(sprite, ST_FONT)->width + (size != FS_NORMAL) : 0;
++#endif
+ 	}
+ 
+ 	glyph = GetGlyphPtr(size, key);
+@@ -1060,8 +1071,16 @@
+ void ResetFontSizes()
+ {
+ 	_font_height[FS_SMALL]  =  6;
+-	_font_height[FS_NORMAL] = 10;
+-	_font_height[FS_LARGE]  = 18;
++	if (_amiga_small_font) {
++		/* Lores: give the normal font the small metrics and demote large to
++		 * the old normal. Window widths derive from font metrics, so the whole
++		 * interface narrows with it. */
++		_font_height[FS_NORMAL] =  6;
++		_font_height[FS_LARGE]  = 10;
++	} else {
++		_font_height[FS_NORMAL] = 10;
++		_font_height[FS_LARGE]  = 18;
++	}
+ }
+ 
+ /* Sprite based glyph mapping */
+@@ -1076,9 +1095,9 @@
+ {
+ 	switch (size) {
+ 		default: NOT_REACHED();
+-		case FS_NORMAL: return SPR_ASCII_SPACE;
++		case FS_NORMAL: return _amiga_small_font ? SPR_ASCII_SPACE_SMALL : SPR_ASCII_SPACE;
+ 		case FS_SMALL:  return SPR_ASCII_SPACE_SMALL;
+-		case FS_LARGE:  return SPR_ASCII_SPACE_BIG;
++		case FS_LARGE:  return _amiga_small_font ? SPR_ASCII_SPACE : SPR_ASCII_SPACE_BIG;
+ 	}
+ }
+ 
+diff -ruN a/fontcache.h b/fontcache.h
+--- a/fontcache.h	2026-07-21 10:46:10.707506700 +0200
++++ b/fontcache.h	2026-07-21 10:46:11.110506100 +0200
+@@ -73,12 +73,23 @@
+ }
+ 
+ 
++/** True when the interface should use the small sprite font (lores modes). */
++extern bool _amiga_small_font;
++
+ /** Get the width of a glyph */
+ static inline uint GetGlyphWidth(FontSize size, uint32 key)
+ {
+ 	SpriteID sprite = GetUnicodeGlyph(size, key);
+ 	if (sprite == 0) sprite = GetUnicodeGlyph(size, '?');
+-	return SpriteExists(sprite) ? GetSprite(sprite, ST_FONT)->width + (size != FS_NORMAL) : 0;
++	/* The small sprites are drawn assuming a following spacing pixel; the
++	 * stock expression only adds it for sizes other than FS_NORMAL, so when
++	 * FS_NORMAL is redirected to them every glyph would touch the next.
++	 * NOTE: this inline version in the header is what a non-FreeType build
++	 * actually compiles - the copy in fontcache.cpp sits inside
++	 * #ifdef WITH_FREETYPE and is dead code here. */
++	return SpriteExists(sprite)
++	       ? GetSprite(sprite, ST_FONT)->width + (_amiga_small_font ? 1 : (size != FS_NORMAL))
++	       : 0;
+ }
+ 
+ #endif /* WITH_FREETYPE */
+diff -ruN a/genworld.cpp b/genworld.cpp
+--- a/genworld.cpp	2026-07-21 10:46:10.700507000 +0200
++++ b/genworld.cpp	2026-07-21 10:46:11.217503500 +0200
+@@ -97,6 +97,7 @@
+ {
+ 	try {
+ 		_generating_world = true;
++		fprintf(stdout, "gw: _GenerateWorld start, mode=%d size=%ux%u\n", _gw.mode, MapSizeX(), MapSizeY()); fflush(stdout);
+ 		_genworld_mapgen_mutex->BeginCritical();
+ 		if (_network_dedicated) DEBUG(net, 0, "Generating map, please wait...");
+ 		/* Set the Random() seed to generation_seed so we produce the same map with the same seed */
+@@ -107,6 +108,7 @@
+ 
+ 		IncreaseGeneratingWorldProgress(GWP_MAP_INIT);
+ 		/* Must start economy early because of the costs. */
++		fprintf(stdout, "gw: StartupEconomy\n"); fflush(stdout);
+ 		StartupEconomy();
+ 
+ 		/* Don't generate landscape items when in the scenario editor. */
+@@ -125,17 +127,24 @@
+ 			ConvertGroundTilesIntoWaterTiles();
+ 			IncreaseGeneratingWorldProgress(GWP_UNMOVABLE);
+ 		} else {
++			fprintf(stdout, "gw: GenerateLandscape enter\n"); fflush(stdout);
+ 			GenerateLandscape(_gw.mode);
++			fprintf(stdout, "gw: GenerateClearTile\n"); fflush(stdout);
+ 			GenerateClearTile();
+ 
+ 			/* only generate towns, tree and industries in newgame mode. */
+ 			if (_game_mode != GM_EDITOR) {
++				fprintf(stdout, "gw: GenerateTowns\n"); fflush(stdout);
+ 				if (!GenerateTowns(_settings_game.economy.town_layout)) {
++					fprintf(stdout, "gw: GenerateTowns FAILED -> abort\n"); fflush(stdout);
+ 					HandleGeneratingWorldAbortion();
+ 					return;
+ 				}
++				fprintf(stdout, "gw: GenerateIndustries\n"); fflush(stdout);
+ 				GenerateIndustries();
++				fprintf(stdout, "gw: GenerateUnmovables\n"); fflush(stdout);
+ 				GenerateUnmovables();
++				fprintf(stdout, "gw: GenerateTrees\n"); fflush(stdout);
+ 				GenerateTrees();
+ 			}
+ 		}
+@@ -144,10 +153,13 @@
+ 
+ 		/* These are probably pointless when inside the scenario editor. */
+ 		SetGeneratingWorldProgress(GWP_GAME_INIT, 3);
++		fprintf(stdout, "gw: StartupCompanies\n"); fflush(stdout);
+ 		StartupCompanies();
+ 		IncreaseGeneratingWorldProgress(GWP_GAME_INIT);
++		fprintf(stdout, "gw: StartupEngines\n"); fflush(stdout);
+ 		StartupEngines();
+ 		IncreaseGeneratingWorldProgress(GWP_GAME_INIT);
++		fprintf(stdout, "gw: StartupDisasters\n"); fflush(stdout);
+ 		StartupDisasters();
+ 		_generating_world = false;
+ 
+@@ -155,6 +167,7 @@
+ 		if (_gw.mode != GWM_EMPTY) {
+ 			uint i;
+ 
++			fprintf(stdout, "gw: RunTileLoop x0x500\n"); fflush(stdout);
+ 			SetGeneratingWorldProgress(GWP_RUNTILELOOP, 0x500);
+ 			for (i = 0; i < 0x500; i++) {
+ 				RunTileLoop();
+@@ -162,14 +175,17 @@
+ 			}
+ 		}
+ 
++		fprintf(stdout, "gw: tile loop done\n"); fflush(stdout);
+ 		ResetObjectToPlace();
+ 		_local_company = _gw.lc;
+ 
+ 		SetGeneratingWorldProgress(GWP_GAME_START, 1);
+ 		/* Call any callback */
++		fprintf(stdout, "gw: callback proc=%p\n", (void*)_gw.proc); fflush(stdout);
+ 		if (_gw.proc != NULL) _gw.proc();
+ 		IncreaseGeneratingWorldProgress(GWP_GAME_START);
+ 
++		fprintf(stdout, "gw: CleanupGeneration\n"); fflush(stdout);
+ 		CleanupGeneration();
+ 		_genworld_mapgen_mutex->EndCritical();
+ 
+@@ -183,7 +199,9 @@
+ 			snprintf(name, lengthof(name), "dmp_cmds_%08x_%08x.sav", _settings_game.game_creation.generation_seed, _date);
+ 			SaveOrLoad(name, SL_SAVE, AUTOSAVE_DIR);
+ 		}
++		fprintf(stdout, "gw: _GenerateWorld COMPLETE\n"); fflush(stdout);
+ 	} catch (...) {
++		fprintf(stdout, "gw: EXCEPTION caught in _GenerateWorld - rethrowing\n"); fflush(stdout);
+ 		_generating_world = false;
+ 		_genworld_mapgen_mutex->EndCritical();
+ 		throw;
+diff -ruN a/gfx_func.h b/gfx_func.h
+--- a/gfx_func.h	2026-07-21 10:46:10.566505100 +0200
++++ b/gfx_func.h	2026-07-21 10:46:11.223504400 +0200
+@@ -64,6 +64,14 @@
+ extern DrawPixelInfo _screen;
+ extern bool _screen_disable_anim;   ///< Disable palette animation (important for 32bpp-anim blitter during giant screenshot)
+ 
++/* Amiga port: lores/hires split for LAYOUT purposes. Screens shorter than
++ * this (our 320x256 and 352x272 modes) get layout tweaks so the intro menu
++ * window and the title-screen logo both fit; taller screens (640x480,
++ * 640x512) keep the stock layout untouched. Note the video driver's own
++ * small-font switch uses a WIDTH test instead (WantSmallFont(w): w < 400,
++ * src/video/amiga_v.cpp); for our four modes both tests always agree. */
++static const int LORES_LAYOUT_HEIGHT = 360;
++
+ extern int _pal_first_dirty;
+ extern int _pal_count_dirty;
+ extern int _num_resolutions;
+diff -ruN a/intro_gui.cpp b/intro_gui.cpp
+--- a/intro_gui.cpp	2026-07-21 10:46:10.572504500 +0200
++++ b/intro_gui.cpp	2026-07-21 10:46:11.218503500 +0200
+@@ -61,6 +61,14 @@
+ 	SelectGameWindow(const WindowDesc *desc) : Window()
+ 	{
+ 		this->InitNested(desc);
++		/* Amiga port: on lores screens (< LORES_LAYOUT_HEIGHT px high) the
++		 * vertically-centred select-game window overlaps the title logo, so
++		 * shift it 24 px down; the logo is drawn 48 px higher there (see
++		 * MainWindow::OnPaint in main_gui.cpp). Hires layout is unchanged. */
++		if (_screen.height < LORES_LAYOUT_HEIGHT) {
++			this->top += 24;
++			this->SetDirty();
++		}
+ 		this->LowerWidget(_settings_newgame.game_creation.landscape + SGI_TEMPERATE_LANDSCAPE);
+ 		this->SetLandscapeButtons();
+ 	}
+diff -ruN a/landscape.cpp b/landscape.cpp
+--- a/landscape.cpp	2026-07-21 10:46:10.573503600 +0200
++++ b/landscape.cpp	2026-07-21 10:46:11.215503500 +0200
+@@ -871,6 +871,8 @@
+ 	};
+ 	uint steps = (_settings_game.game_creation.landscape == LT_TROPIC) ? GLS_TROPIC : GLS_OTHER;
+ 
++	fprintf(stdout, "ls: GenerateLandscape mode=%d generator=%d landscape=%d\n", mode, _settings_game.game_creation.land_generator, _settings_game.game_creation.landscape); fflush(stdout);
++
+ 	if (mode == GWM_HEIGHTMAP) {
+ 		SetGeneratingWorldProgress(GWP_LANDSCAPE, steps + GLS_HEIGHTMAP);
+ 		LoadHeightmap(_file_to_saveload.name);
+@@ -930,10 +932,13 @@
+ 
+ 	/* Do not call IncreaseGeneratingWorldProgress() before FixSlopes(),
+ 	 * it allows screen redraw. Drawing of broken slopes crashes the game */
++	fprintf(stdout, "ls: FixSlopes enter\n"); fflush(stdout);
+ 	FixSlopes();
+ 	IncreaseGeneratingWorldProgress(GWP_LANDSCAPE);
++	fprintf(stdout, "ls: ConvertGroundTilesIntoWaterTiles enter\n"); fflush(stdout);
+ 	ConvertGroundTilesIntoWaterTiles();
+ 	IncreaseGeneratingWorldProgress(GWP_LANDSCAPE);
++	fprintf(stdout, "ls: GenerateLandscape tail done\n"); fflush(stdout);
+ 
+ 	if (_settings_game.game_creation.landscape == LT_TROPIC) CreateDesertOrRainForest();
+ }
+diff -ruN a/main_gui.cpp b/main_gui.cpp
+--- a/main_gui.cpp	2026-07-21 10:46:10.694506700 +0200
++++ b/main_gui.cpp	2026-07-21 10:46:11.222503900 +0200
+@@ -30,6 +30,7 @@
+ #include "toolbar_gui.h"
+ #include "statusbar_gui.h"
+ #include "tilehighlight_func.h"
++#include "gfx_func.h"
+ 
+ #include "network/network.h"
+ #include "network/network_func.h"
+@@ -226,9 +227,14 @@
+ 				name_width += GetSpriteSize(title_sprites[i]).width;
+ 			}
+ 			int off_x = (this->width - name_width) / 2;
++			/* Amiga port: on lores screens (< LORES_LAYOUT_HEIGHT px high)
++			 * draw the logo 48 px higher (y 50 -> 2) so it clears the
++			 * select-game window, which is shifted 24 px down there (see
++			 * intro_gui.cpp). Hires keeps the stock y = 50. */
++			int off_y = (_screen.height < LORES_LAYOUT_HEIGHT) ? 50 - 48 : 50;
+ 
+ 			for (uint i = 0; i < lengthof(title_sprites); i++) {
+-				DrawSprite(title_sprites[i], PAL_NONE, off_x, 50);
++				DrawSprite(title_sprites[i], PAL_NONE, off_x, off_y);
+ 				off_x += GetSpriteSize(title_sprites[i]).width + LETTER_SPACING;
+ 			}
+ 		}
+@@ -261,6 +267,20 @@
+ 			return ES_HANDLED;
+ 		}
+ 
++		/* Amiga port: handle DELETE before the GM_MENU early return below, so
++		 * it also works in the intro menu. DELETE is the only keyboard way to
++		 * close windows, and after e.g. a resolution change a window (Game
++		 * Options) can end up unreachable - without this it could never be
++		 * closed from the menu. Every other key keeps its menu behaviour. */
++		if (keycode == WKC_DELETE) {
++			DeleteNonVitalWindows();
++			return ES_HANDLED;
++		}
++		if (keycode == (WKC_DELETE | WKC_SHIFT)) {
++			DeleteAllNonVitalWindows();
++			return ES_HANDLED;
++		}
++
+ 		if (_game_mode == GM_MENU) return ES_NOT_HANDLED;
+ 
+ 		switch (keycode) {
+@@ -275,8 +295,8 @@
+ 			}
+ 
+ 			case WKC_ESC: ResetObjectToPlace(); break;
+-			case WKC_DELETE: DeleteNonVitalWindows(); break;
+-			case WKC_DELETE | WKC_SHIFT: DeleteAllNonVitalWindows(); break;
++			/* WKC_DELETE / WKC_DELETE|WKC_SHIFT are handled above the GM_MENU
++			 * early return, so they work in the intro menu too. */
+ 			case 'R' | WKC_CTRL: MarkWholeScreenDirty(); break;
+ 
+ #if defined(_DEBUG)
+diff -ruN a/network/core/os_abstraction.h b/network/core/os_abstraction.h
+--- a/network/core/os_abstraction.h	2026-07-21 10:46:10.781503600 +0200
++++ b/network/core/os_abstraction.h	2026-07-21 10:46:11.202504800 +0200
+@@ -158,7 +158,7 @@
+ #		include <arpa/inet.h>
+ #		include <net/if.h>
+ /* According to glibc/NEWS, <ifaddrs.h> appeared in glibc-2.3. */
+-#		if !defined(__sgi__) && !defined(SUNOS) && !defined(__MORPHOS__) && !defined(__BEOS__) && !defined(__HAIKU__) && !defined(__INNOTEK_LIBC__) \
++#		if !defined(__sgi__) && !defined(SUNOS) && !defined(__MORPHOS__) && !defined(__AMIGA__) && !defined(__BEOS__) && !defined(__HAIKU__) && !defined(__INNOTEK_LIBC__) \
+ 		   && !(defined(__GLIBC__) && (__GLIBC__ <= 2) && (__GLIBC_MINOR__ <= 2)) && !defined(__dietlibc__) && !defined(HPUX)
+ /* If for any reason ifaddrs.h does not exist on your system, comment out
+  *   the following two lines and an alternative way will be used to fetch
+diff -ruN a/news_type.h b/news_type.h
+--- a/news_type.h	2026-07-21 10:46:10.406537400 +0200
++++ b/news_type.h	2026-07-21 10:46:11.005503700 +0200
+@@ -123,7 +123,7 @@
+ 		name(name),
+ 		age(age),
+ 		sound(sound),
+-		display(ND_FULL),
++		display(ND_OFF),   // Amiga: status-bar reminder only - newspapers force full redraws
+ 		description(description)
+ 	{
+ 	}
+diff -ruN a/os/unix/crashlog_unix.cpp b/os/unix/crashlog_unix.cpp
+--- a/os/unix/crashlog_unix.cpp	2026-07-21 10:46:10.508537300 +0200
++++ b/os/unix/crashlog_unix.cpp	2026-07-21 10:46:11.121502900 +0200
+@@ -19,6 +19,10 @@
+ #include <signal.h>
+ #include <sys/utsname.h>
+ 
++#if defined(__AMIGA__)
++#define strsignal(sig) "unknown" /* libnix has no strsignal() */
++#endif
++
+ #if defined(__GLIBC__)
+ /* Execinfo (and thus making stacktraces) is a GNU extension */
+ #	include <execinfo.h>
+diff -ruN a/os/unix/unix.cpp b/os/unix/unix.cpp
+--- a/os/unix/unix.cpp	2026-07-21 10:46:10.508537300 +0200
++++ b/os/unix/unix.cpp	2026-07-21 10:46:11.121502900 +0200
+@@ -44,6 +44,12 @@
+ 
+ #ifdef __AMIGA__
+ #warning add stack symbol to avoid that user needs to set stack manually (tokai)
++#include <exec/types.h>
++#include <exec/io.h>
++#include <exec/ports.h>
++#include <devices/timer.h>
++#include <dos/dos.h>
++#include <proto/exec.h>
+ // ULONG __stack =
+ #endif
+ 
+@@ -220,6 +226,9 @@
+ void ShowInfo(const char *str)
+ {
+ 	fprintf(stderr, "%s\n", str);
++	/* AMIGA: stderr is not redirectable by the AmigaDOS 3.1 shell; mirror to stdout */
++	fprintf(stdout, "INFO: %s\n", str);
++	fflush(stdout);
+ }
+ 
+ #if !defined(__APPLE__)
+@@ -231,9 +240,34 @@
+ 	} else {
+ 		fprintf(stderr, "Error: %s\n", buf);
+ 	}
++	/* AMIGA: stderr is invisible; mirror to stdout so the message reaches ottd.log */
++	fprintf(stdout, "FATAL-ERROR-BOX: %s\n", buf);
++	fflush(stdout);
+ }
+ #endif
+ 
++/* AMIGA: make std::terminate() (uncaught C++ exception, failed unwind, pure virtual
++ * call, ...) tell us it happened - the default handler prints to invisible stderr. */
++#include <exception>
++#include <typeinfo>
++#include <cxxabi.h>
++static void NORETURN AmigaTerminateHandler()
++{
++	fprintf(stdout, "FATAL: std::terminate() called - uncaught C++ exception or broken unwind\n");
++	/* Identify what was thrown: bad_alloc (out of memory) looks very different
++	 * from SlError's std::exception, and both are plausible here. */
++	std::type_info *t = abi::__cxa_current_exception_type();
++	if (t != NULL) {
++		int status = 0;
++		char *dem = abi::__cxa_demangle(t->name(), NULL, NULL, &status);
++		fprintf(stdout, "FATAL: in-flight exception type = '%s'\n", (status == 0 && dem != NULL) ? dem : t->name());
++	} else {
++		fprintf(stdout, "FATAL: no in-flight exception -> terminate from failed unwind / pure virtual call\n");
++	}
++	fflush(stdout);
++	abort();
++}
++
+ #ifdef WITH_COCOA
+ void cocoaSetupAutoreleasePool();
+ void cocoaReleaseAutoreleasePool();
+@@ -252,6 +286,7 @@
+ 	}
+ #endif
+ 	CrashLog::InitialiseCrashLog();
++	std::set_terminate(AmigaTerminateHandler);
+ 
+ 	SetRandomSeed(time(NULL));
+ 
+@@ -279,6 +314,7 @@
+ #ifdef __AMIGA__
+ /* usleep() implementation */
+ #	include <devices/timer.h>
++#	include <proto/dos.h>	/* Delay(): CSleep uses it instead of the never-opened timer.device */
+ #	include <dos/dos.h>
+ 
+ 	extern struct Device      *TimerBase    = NULL;
+@@ -294,21 +330,44 @@
+ 		snooze(milliseconds * 1000);
+ 	#elif defined(__AMIGA__)
+ 	{
+-		ULONG signals;
+-		ULONG TimerSigBit = 1 << TimerPort->mp_SigBit;
+-
+-		/* send IORequest */
+-		TimerRequest->tr_node.io_Command = TR_ADDREQUEST;
+-		TimerRequest->tr_time.tv_secs    = (milliseconds * 1000) / 1000000;
+-		TimerRequest->tr_time.tv_micro   = (milliseconds * 1000) % 1000000;
+-		SendIO((struct IORequest *)TimerRequest);
+-
+-		if (!((signals = Wait(TimerSigBit | SIGBREAKF_CTRL_C)) & TimerSigBit) ) {
+-			AbortIO((struct IORequest *)TimerRequest);
+-		}
+-		WaitIO((struct IORequest *)TimerRequest);
++		/* OpenTTD's own Amiga CSleep drove timer.device through TimerPort /
++		 * TimerRequest - but nothing in this build ever opens them, and they are
++		 * declared NULL a few lines above, so the very first call dereferenced a
++		 * NULL pointer and died with a privilege violation (#80000008) on the
++		 * first main-loop iteration. dos.library Delay() needs no setup at all.
++		 * Its unit is 1/50 s, so sub-20 ms sleeps become one tick; that is fine,
++		 * OpenTTD only calls this to yield the CPU while idle. */
++		LONG ticks = milliseconds / 20;
++		Delay(ticks > 0 ? ticks : 1);
+ 	}
+ 	#else
+ 		usleep(milliseconds * 1000);
+ 	#endif
+ }
++
++
++#if defined(__AMIGA__)
++/* newlib syscall stubs not provided by libnix on AmigaOS */
++#include <sys/time.h>
++#include <errno.h>
++#include <proto/dos.h>
++extern "C" int _gettimeofday(struct timeval *tv, void *tz)
++{
++	(void)tz;
++	if (tv != 0) {
++		struct DateStamp ds;
++		DateStamp(&ds);
++		tv->tv_sec  = (long)ds.ds_Days * 86400L + (long)ds.ds_Minute * 60L + (long)ds.ds_Tick / 50L;
++		tv->tv_usec = ((long)ds.ds_Tick % 50L) * 20000L;
++	}
++	return 0;
++}
++extern "C" int _link(const char *a, const char *b)
++{
++	(void)a; (void)b; errno = ENOSYS; return -1;
++}
++#endif /* __AMIGA__ */
++
++#if defined(__AMIGA__)
++unsigned long __stack = 1024 * 1024; /* OpenTTD needs a large stack on AmigaOS */
++#endif
+diff -ruN a/rail_cmd.cpp b/rail_cmd.cpp
+--- a/rail_cmd.cpp	2026-07-21 10:46:10.410503600 +0200
++++ b/rail_cmd.cpp	2026-07-21 10:46:11.217503500 +0200
+@@ -11,6 +11,7 @@
+ 
+ #include "stdafx.h"
+ #include "cmd_helper.h"
++#include "debug.h"
+ #include "landscape.h"
+ #include "viewport_func.h"
+ #include "command_func.h"
+@@ -761,7 +762,24 @@
+ 
+ 	if (flags & DC_EXEC) SndPlayTileFx(SND_20_SPLAT_2, tile);
+ 
++	/* Amiga port, belt-and-braces: this loop's only exit is tile == end_tile
++	 * (or a build failure breaking out). ValidateAutoDrag above is the sole
++	 * guard against a drag angle that can never reach end_tile - and a hard
++	 * hang finishing a rail drag at a wrong angle has been observed on this
++	 * toolchain (rail_cmd.o is now forced to -O0 on the theory that the guard
++	 * was miscompiled at -O1). Bound the iterations: no legitimate drag can
++	 * visit more than MapSize() tiles, so past that the walk has run away.
++	 * An error message loses nothing; a hang loses the player's game. If the
++	 * DEBUG line below ever fires, the -O0 theory was wrong and the real bug
++	 * is still alive. */
++	uint32 iterations = 0;
++
+ 	for (;;) {
++		if (++iterations > MapSize()) {
++			DEBUG(misc, 0, "rail drag loop bounded after %u steps: tile 0x%X never reached end 0x%X (trackdir %d)",
++			      (unsigned)iterations, (unsigned)tile, (unsigned)end_tile, (int)trackdir);
++			return CMD_ERROR;
++		}
+ 		ret = DoCommand(tile, railtype, TrackdirToTrack(trackdir), flags, remove ? CMD_REMOVE_SINGLE_RAIL : CMD_BUILD_SINGLE_RAIL);
+ 
+ 		if (ret.Failed()) {
+diff -ruN a/saveload/saveload.cpp b/saveload/saveload.cpp
+--- a/saveload/saveload.cpp	2026-07-21 10:46:10.596505700 +0200
++++ b/saveload/saveload.cpp	2026-07-21 10:46:10.899507000 +0200
+@@ -192,6 +192,9 @@
+  * pretty ugly, and seriously interferes with any multithreaded approaches */
+ static void NORETURN SlError(StringID string, const char *extra_msg = NULL)
+ {
++	/* AMIGA diag: record the error BEFORE throwing, in case unwinding dies */
++	fprintf(stdout, "sl: SlError str=0x%X extra='%s' action=%d\n", string, extra_msg == NULL ? "(null)" : extra_msg, _sl.action);
++	fflush(stdout);
+ 	_sl.error_str = string;
+ 	free(_sl.extra_msg);
+ 	_sl.extra_msg = (extra_msg == NULL) ? NULL : strdup(extra_msg);
+@@ -1738,6 +1741,7 @@
+ /** Set the error message from outside of the actual loading/saving of the game (AfterLoadGame and friends) */
+ void SetSaveLoadError(StringID str)
+ {
++	fprintf(stdout, "sl: SetSaveLoadError str=0x%X\n", str); fflush(stdout);
+ 	_sl.error_str = str;
+ }
+ 
+@@ -1769,12 +1773,15 @@
+ 	try {
+ 		byte compression;
+ 		const SaveLoadFormat *fmt = GetSavegameFormat(_savegame_format, &compression);
++		fprintf(stdout, "sl: SaveFileToDisk fmt='%s' compression=%d fh=%p\n", fmt->name, compression, (void*)_sl.fh); fflush(stdout);
+ 
+ 		/* We have written our stuff to memory, now write it to file! */
+ 		uint32 hdr[2] = { fmt->tag, TO_BE32(SAVEGAME_VERSION << 16) };
+ 		if (fwrite(hdr, sizeof(hdr), 1, _sl.fh) != 1) SlError(STR_GAME_SAVELOAD_ERROR_FILE_NOT_WRITEABLE);
++		fprintf(stdout, "sl: header written\n"); fflush(stdout);
+ 
+ 		if (!fmt->init_write(compression)) SlError(STR_GAME_SAVELOAD_ERROR_BROKEN_INTERNAL_ERROR, "cannot initialize compressor");
++		fprintf(stdout, "sl: init_write ok, blocks=%d count=%d\n", (int)_memory_savegame.Length(), (int)_ts.count); fflush(stdout);
+ 
+ 		{
+ 			uint i;
+@@ -1790,11 +1797,13 @@
+ 			_sl.buf = _memory_savegame[i];
+ 			fmt->writer(_ts.count % MEMORY_CHUNK_SIZE);
+ 		}
++		fprintf(stdout, "sl: blocks written\n"); fflush(stdout);
+ 
+ 		fmt->uninit_write();
+ 		if (_ts.count != _sl.offs_base) SlErrorCorrupt("Unexpected size of chunk");
+ 		UnInitMem();
+ 		fclose(_sl.fh);
++		fprintf(stdout, "sl: save file closed OK\n"); fflush(stdout);
+ 
+ 		if (threaded) SetAsyncSaveFinish(SaveFileDone);
+ 
+@@ -1843,6 +1852,8 @@
+ {
+ 	uint32 hdr[2];
+ 
++	fprintf(stdout, "sl: SaveOrLoad('%s', mode=%d, sb=%d, threaded=%d)\n", filename, mode, (int)sb, threaded ? 1 : 0); fflush(stdout);
++
+ 	/* An instance of saving is already active, so don't go saving again */
+ 	if (_ts.saveinprogress && mode == SL_SAVE) {
+ 		/* if not an autosave, but a user action, show error message */
+@@ -1888,6 +1899,8 @@
+ 		if (_sl.fh == NULL && mode == SL_LOAD) _sl.fh = FioFOpenFile(filename, "rb", SAVE_DIR);
+ 		if (_sl.fh == NULL && mode == SL_LOAD) _sl.fh = FioFOpenFile(filename, "rb", BASE_DIR);
+ 
++		fprintf(stdout, "sl: file handle=%p\n", (void*)_sl.fh); fflush(stdout);
++
+ 		if (_sl.fh == NULL) {
+ 			SlError(mode == SL_SAVE ? STR_GAME_SAVELOAD_ERROR_FILE_NOT_WRITEABLE : STR_GAME_SAVELOAD_ERROR_FILE_NOT_READABLE);
+ 		}
+@@ -2018,7 +2031,9 @@
+ 				ClearGRFConfigList(&_grfconfig);
+ 			}
+ 
++			fprintf(stdout, "sl: SlLoadChunks enter\n"); fflush(stdout);
+ 			SlLoadChunks();
++			fprintf(stdout, "sl: SlLoadChunks done\n"); fflush(stdout);
+ 			SlFixPointers();
+ 			fmt->uninit_read();
+ 			fclose(_sl.fh);
+@@ -2027,14 +2042,17 @@
+ 
+ 			_savegame_type = SGT_OTTD;
+ 
++			fprintf(stdout, "sl: AfterLoadGame enter\n"); fflush(stdout);
+ 			/* After loading fix up savegame for any internal changes that
+ 			 * might've occured since then. If it fails, load back the old game */
+ 			if (!AfterLoadGame()) {
+ 				GamelogStopAction();
++				fprintf(stdout, "sl: AfterLoadGame FAILED -> SL_REINIT\n"); fflush(stdout);
+ 				return SL_REINIT;
+ 			}
+ 
+ 			GamelogStopAction();
++			fprintf(stdout, "sl: AfterLoadGame done - load complete\n"); fflush(stdout);
+ 		}
+ 
+ 		return SL_OK;
+diff -ruN a/sound.cpp b/sound.cpp
+--- a/sound.cpp	2026-07-21 10:46:10.425504200 +0200
++++ b/sound.cpp	2026-07-21 10:46:11.217503500 +0200
+@@ -168,6 +168,9 @@
+ 	/* Empty sound? */
+ 	if (sound->rate == 0) return;
+ 
++	/* Amiga: tell the Paula mixer which effect this is (ambient-channel cap). */
++	extern void MxSetNextSoundID(int id);
++	MxSetNextSoundID(sound_id);
+ 	MixerChannel *mc = MxAllocateChannel();
+ 	if (mc == NULL) return;
+ 
+diff -ruN a/string_func.h b/string_func.h
+--- a/string_func.h	2026-07-21 10:46:10.575503200 +0200
++++ b/string_func.h	2026-07-21 10:46:10.871543400 +0200
+@@ -282,7 +282,10 @@
+ #endif /* strndup is available */
+ 
+ /* strcasestr is available for _GNU_SOURCE, BSD and some Apple */
+-#if defined(_GNU_SOURCE) || (defined(__BSD_VISIBLE) && __BSD_VISIBLE) || (defined(__APPLE__) && (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE))) || defined(_NETBSD_SOURCE)
++#if defined(__AMIGA__)
++#	define DEFINE_STRCASESTR
++char *strcasestr(const char *haystack, const char *needle);
++#elif defined(_GNU_SOURCE) || (defined(__BSD_VISIBLE) && __BSD_VISIBLE) || (defined(__APPLE__) && (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE))) || defined(_NETBSD_SOURCE)
+ #	undef DEFINE_STRCASESTR
+ #else
+ #	define DEFINE_STRCASESTR
+diff -ruN a/strings.cpp b/strings.cpp
+--- a/strings.cpp	2026-07-21 10:46:10.431538800 +0200
++++ b/strings.cpp	2026-07-21 10:46:11.223504400 +0200
+@@ -1242,8 +1242,13 @@
+ 	/* resolution size? */
+ 	if (IsInsideMM(ind, (SPECSTR_RESOLUTION_START - 0x70E4), (SPECSTR_RESOLUTION_END - 0x70E4) + 1)) {
+ 		int i = ind - (SPECSTR_RESOLUTION_START - 0x70E4);
++		/* " AGA" so the fixed chipset modes stay identifiable once a
++		 * Picasso96/RTG backend adds its own modes to this same list.
++		 * This is the single formatter behind SPECSTR_RESOLUTION_*, so it
++		 * covers both the closed dropdown label (settings_gui.cpp SetDParam)
++		 * and the open dropdown list (BuildDynamicDropdown). */
+ 		buff += seprintf(
+-			buff, last, "%ux%u", _resolutions[i].width, _resolutions[i].height
++			buff, last, "%ux%u AGA", _resolutions[i].width, _resolutions[i].height
+ 		);
+ 		return buff;
+ 	}
+diff -ruN a/table/settings.h b/table/settings.h
+--- a/table/settings.h	2026-07-21 10:46:10.537506800 +0200
++++ b/table/settings.h	2026-07-21 10:46:10.965507100 +0200
+@@ -317,7 +317,7 @@
+ 	    SDT_OMANY(GameSettings, game_creation.landscape,  SLE_UINT8,                     0, 0, 0, 3, _climates, STR_NULL, NULL, ConvertLandscape),
+ 	      SDT_VAR(GameSettings, game_creation.snow_line,  SLE_UINT8,                     0, 0, DEF_SNOWLINE_HEIGHT * TILE_HEIGHT, MIN_SNOWLINE_HEIGHT * TILE_HEIGHT, MAX_SNOWLINE_HEIGHT * TILE_HEIGHT, 0, STR_NULL, NULL),
+ 	 SDT_CONDNULL(                                                1,  0, 22),
+- SDTC_CONDOMANY(              gui.autosave,             SLE_UINT8, 23, SL_MAX_VERSION, S, 0, 1, 4, _autosave_interval, STR_NULL, NULL),
++ SDTC_CONDOMANY(              gui.autosave,             SLE_UINT8, 23, SL_MAX_VERSION, S, 0, 4, 4, _autosave_interval, STR_NULL, NULL),
+ 	    SDT_OMANY(GameSettings, vehicle.road_side,        SLE_UINT8,                     0, 0, 1, 1, _roadsides, STR_NULL, NULL, NULL),
+ 	    SDT_END()
+ };
+@@ -540,7 +540,7 @@
+ 
+ 	/***************************************************************************/
+ 	/* Unsaved setting variables. */
+-	SDTC_OMANY(gui.autosave,                  SLE_UINT8, S,  0, 1, 4, _autosave_interval,     STR_NULL,                                       NULL),
++	SDTC_OMANY(gui.autosave,                  SLE_UINT8, S,  0, 4, 4, _autosave_interval,     STR_NULL,                                       NULL),
+ 	 SDTC_BOOL(gui.threaded_saves,                       S,  0,  true,                        STR_NULL,                                       NULL),
+ 	SDTC_OMANY(gui.date_format_in_default_names,SLE_UINT8,S,MS, 0, 2, _savegame_date,         STR_CONFIG_SETTING_DATE_FORMAT_IN_SAVE_NAMES,   NULL),
+ 	 SDTC_BOOL(gui.vehicle_speed,                        S,  0,  true,                        STR_CONFIG_SETTING_VEHICLESPEED,                NULL),
+diff -ruN a/tgp.cpp b/tgp.cpp
+--- a/tgp.cpp	2026-07-21 10:46:10.773505700 +0200
++++ b/tgp.cpp	2026-07-21 10:46:11.216503400 +0200
+@@ -669,6 +669,10 @@
+ 		if (water_tiles >= desired_water_tiles) break;
+ 	}
+ 
++	/* AMIGA: if the loop ran to the end, h_water_level == h_max and the
++	 * transform below would divide by zero. Guard defensively. */
++	if (h_max <= h_water_level) h_water_level = h_max - 1;
++
+ 	/* We now have the proper water level value.
+ 	 * Transform the height map into new (normalized) height map:
+ 	 *   values from range: h_min..h_water_level will become negative so it will be clamped to 0
+@@ -716,6 +720,14 @@
+ 	double max_x;
+ 	double max_y;
+ 
++	/* AMIGA: the four border-fill loops below are additionally bounded by the
++	 * map size. max_x/max_y come from double arithmetic; when the libgcc
++	 * __floatsidf/__floatunsidf return-convention bug (result in fp0, caller
++	 * reads d0/d1) fed them garbage, the unbounded loops froze the machine and
++	 * the descending ones wrapped past zero into out-of-bounds writes. With the
++	 * bounds a broken value now costs at most an imperfect coastline instead of
++	 * a hang; for correct inputs the behaviour is identical. */
++
+ 	/* Lower to sea level */
+ 	for (y = 0; y <= _height_map.size_y; y++) {
+ 		if (HasBit(water_borders, BORDER_NE)) {
+@@ -723,7 +735,7 @@
+ 			max_x = abs((perlin_coast_noise_2D(_height_map.size_y - y, y, 0.9, 53) + 0.25) * 5 + (perlin_coast_noise_2D(y, y, 0.35, 179) + 1) * 12);
+ 			max_x = max((smallest_size * smallest_size / 16) + max_x, (smallest_size * smallest_size / 16) + margin - max_x);
+ 			if (smallest_size < 8 && max_x > 5) max_x /= 1.5;
+-			for (x = 0; x < max_x; x++) {
++			for (x = 0; x < max_x && x <= _height_map.size_x; x++) {
+ 				_height_map.height(x, y) = 0;
+ 			}
+ 		}
+@@ -733,7 +745,7 @@
+ 			max_x = abs((perlin_coast_noise_2D(_height_map.size_y - y, y, 0.85, 101) + 0.3) * 6 + (perlin_coast_noise_2D(y, y, 0.45,  67) + 0.75) * 8);
+ 			max_x = max((smallest_size * smallest_size / 16) + max_x, (smallest_size * smallest_size / 16) + margin - max_x);
+ 			if (smallest_size < 8 && max_x > 5) max_x /= 1.5;
+-			for (x = _height_map.size_x; x > (_height_map.size_x - 1 - max_x); x--) {
++			for (x = _height_map.size_x; x > (_height_map.size_x - 1 - max_x) && x <= _height_map.size_x; x--) {
+ 				_height_map.height(x, y) = 0;
+ 			}
+ 		}
+@@ -746,7 +758,7 @@
+ 			max_y = abs((perlin_coast_noise_2D(x, _height_map.size_y / 2, 0.9, 167) + 0.4) * 5 + (perlin_coast_noise_2D(x, _height_map.size_y / 3, 0.4, 211) + 0.7) * 9);
+ 			max_y = max((smallest_size * smallest_size / 16) + max_y, (smallest_size * smallest_size / 16) + margin - max_y);
+ 			if (smallest_size < 8 && max_y > 5) max_y /= 1.5;
+-			for (y = 0; y < max_y; y++) {
++			for (y = 0; y < max_y && y <= _height_map.size_y; y++) {
+ 				_height_map.height(x, y) = 0;
+ 			}
+ 		}
+@@ -756,7 +768,7 @@
+ 			max_y = abs((perlin_coast_noise_2D(x, _height_map.size_y / 3, 0.85, 71) + 0.25) * 6 + (perlin_coast_noise_2D(x, _height_map.size_y / 3, 0.35, 193) + 0.75) * 12);
+ 			max_y = max((smallest_size * smallest_size / 16) + max_y, (smallest_size * smallest_size / 16) + margin - max_y);
+ 			if (smallest_size < 8 && max_y > 5) max_y /= 1.5;
+-			for (y = _height_map.size_y; y > (_height_map.size_y - 1 - max_y); y--) {
++			for (y = _height_map.size_y; y > (_height_map.size_y - 1 - max_y) && y <= _height_map.size_y; y--) {
+ 				_height_map.height(x, y) = 0;
+ 			}
+ 		}
+@@ -951,13 +963,20 @@
+ static double perlin_coast_noise_2D(const double x, const double y, const double p, const int prime)
+ {
+ 	double total = 0.0;
++	double amplitude = 1.0;   /* p^0 */
+ 	int i;
+ 
+ 	for (i = 0; i < 6; i++) {
+ 		const double frequency = (double)(1 << i);
+-		const double amplitude = pow(p, (double)i);
+ 
+ 		total += interpolated_noise((x * frequency) / 64.0, (y * frequency) / 64.0, prime) * amplitude;
++
++		/* Was pow(p, (double)i). The exponent is just the loop counter, so
++		 * carrying the running product is identical, cheaper, and avoids the
++		 * only libm call on this path - pow() is miscompiled in this
++		 * toolchain's soft-float build, which matters if we ever want to run
++		 * without an FPU. */
++		amplitude *= p;
+ 	}
+ 
+ 	return total;
+@@ -987,14 +1006,28 @@
+ {
+ 	uint x, y;
+ 
+-	if (!AllocHeightMap()) return;
++	/* AMIGA canary: one line per new game verifying int->double conversion at
++	 * runtime. libgcc's __floatsidf/__floatunsidf return in fp0 while
++	 * -msoft-float call sites read d0/d1 (garbage -> machine-freezing hang in
++	 * terrain gen); replaced by integer-only versions in fp_conv.c. volatile so
++	 * it cannot be constant-folded - a folded check proves nothing. If this
++	 * ever prints anything but 123.000000, that linkage is broken again. */
++	{
++		volatile uint u123 = 123;
++		fprintf(stdout, "fp: (double)(uint)123=%.6f (expect 123.000000)\n", (double)u123); fflush(stdout);
++	}
++
++	if (!AllocHeightMap()) { fprintf(stdout, "tgp: AllocHeightMap FAILED\n"); fflush(stdout); return; }
++	fprintf(stdout, "tgp: heightmap %u x %u allocated\n", _height_map.size_x, _height_map.size_y); fflush(stdout);
+ 	GenerateWorldSetAbortCallback(FreeHeightMap);
+ 
+ 	HeightMapGenerate();
++	fprintf(stdout, "tgp: HeightMapGenerate done\n"); fflush(stdout);
+ 
+ 	IncreaseGeneratingWorldProgress(GWP_LANDSCAPE);
+ 
+ 	HeightMapNormalize();
++	fprintf(stdout, "tgp: HeightMapNormalize done\n"); fflush(stdout);
+ 
+ 	IncreaseGeneratingWorldProgress(GWP_LANDSCAPE);
+ 
+@@ -1016,6 +1049,15 @@
+ 
+ 	IncreaseGeneratingWorldProgress(GWP_LANDSCAPE);
+ 
++	/* AMIGA diag: checksum the resulting terrain so runs are comparable */
++	{
++		uint32 sum = 0;
++		for (y = 0; y < _height_map.size_y; y++) {
++			for (x = 0; x < _height_map.size_x; x++) sum = sum * 31 + TileHeight(TileXY(x, y));
++		}
++		fprintf(stdout, "tgp: terrain checksum=0x%08X\n", sum); fflush(stdout);
++	}
++
+ 	FreeHeightMap();
+ 	GenerateWorldSetAbortCallback(NULL);
+ }
+diff -ruN a/video/c2p_glue.s b/video/c2p_glue.s
+--- a/video/c2p_glue.s	1970-01-01 01:00:00.000000000 +0100
++++ b/video/c2p_glue.s	2026-07-21 10:46:10.860541500 +0200
+@@ -0,0 +1,42 @@
++; C-callable wrapper around Mikael Kalms' dirty-rectangle c2p.
++;
++; c2p_rect takes all nine arguments in registers, including d2-d7 which the C
++; ABI treats as callee-saved. It does save them itself - but only AFTER we have
++; already loaded our arguments into them, so it would restore OUR values and
++; destroy the caller's. Hence this wrapper saves them first.
++;
++; Assemble with the vasm that ships with bebbo amiga-gcc:
++;   vasmm68k_mot -Fhunk -m68040 -no-opt -o c2p_glue.o c2p_glue.s
++
++	section	code,code
++
++	xdef	_c2p_rect_asm
++
++; void c2p_rect_asm(struct C2PArgs *a);
++;   0  UWORD x        (multiple of 32)
++;   2  UWORD y
++;   4  UWORD w        (multiple of 32)
++;   6  UWORD h
++;   8  UWORD cmod     chunky buffer stride in bytes
++;  10  UWORD bmod     bitplane BytesPerRow
++;  12  ULONG bplsize  bytes per bitplane (distance between planes)
++;  16  APTR  chunky   BASE of the chunky buffer (routine adds x/y itself)
++;  20  APTR  bpl      BASE of plane 0 (planes must be contiguous, bplsize apart)
++
++_c2p_rect_asm:
++	movem.l	d2-d7/a2-a6,-(sp)
++	move.l	48(sp),a1		; 11 saved longs = 44, +4 return address
++	move.w	(a1),d0
++	move.w	2(a1),d1
++	move.w	4(a1),d2
++	move.w	6(a1),d3
++	move.w	8(a1),d4
++	move.w	10(a1),d5
++	move.l	12(a1),d6
++	move.l	16(a1),a0
++	move.l	20(a1),a1
++	jsr	c2p_rect
++	movem.l	(sp)+,d2-d7/a2-a6
++	rts
++
++	include	"c2p_rect.s"
+diff -ruN a/video/c2p_rect.s b/video/c2p_rect.s
+--- a/video/c2p_rect.s	1970-01-01 01:00:00.000000000 +0100
++++ b/video/c2p_rect.s	2026-07-21 10:46:10.859546200 +0200
+@@ -0,0 +1,429 @@
++
++; C2P a rectangular area between equally-sized chunkybuffer and
++; destination bitplanes
++;
++; This routine might look a bit odd and inflexible; that is entirely correct,
++; its purpose is to allow "dirty rectangles" updating of the chipbuffer
++; (that is, only c2p changed parts of screen), for example in a windowing
++; system or a 2d game which has mainly static backgrounds
++;
++; Optimized for 040+
++; By Mikael Kalms, although strongly influenced by Aki's and Azure's
++;  040+ routines
++
++	section	code,code
++
++; d0.w	x [multiple of 32]
++; d1.w	y
++; d2.w	width [multiple of 32]
++; d3.w	height
++; d4.w	chunky rowmod
++; d5.w	bpl rowmod
++; d6.l	bplsize
++; a0	chunky, upper-left corner of rect
++; a1	bitplanes, upper-left corner of rect
++
++; No error checking is performed!
++
++		rsreset
++c2p_chunkyrowmod rs.w	1
++c2p_chunkymod	rs.w	1
++c2p_bplmod	rs.w	1
++c2p_ycount	rs.w	1
++c2p_stacksize	rs.b	0
++
++c2p_rect
++	movem.l	d2-d7/a2-a6,-(sp)
++	subq.l	#c2p_stacksize,sp
++	move.w	d1,d7
++	andi.l	#$ffff,d0
++	mulu.w	d4,d1
++	mulu.w	d5,d7
++	add.l	d0,d1
++	move.w	d4,c2p_chunkyrowmod(sp)
++	lsr.l	#3,d0
++	add.l	d1,a0
++	sub.w	d2,d4
++	add.l	d0,d7
++	move.l	a0,a4
++	add.l	d7,a1
++	add.w	d2,a4
++	move.l	d6,a3
++	lsr.w	#3,d2
++	move.w	d4,c2p_chunkymod(sp)
++	sub.w	d2,d5
++	lea	(a1,a3.l*8),a1
++	move.w	d5,c2p_bplmod(sp)
++	sub.l	a3,a1
++	move.w	d3,c2p_ycount(sp)
++
++	move.l	(a0)+,d0
++	move.l	(a0)+,d1
++	move.l	(a0)+,d2
++	move.l	(a0)+,d3
++	move.l	(a0)+,d4
++	move.l	(a0)+,d5
++	move.l	(a0)+,d6
++	move.l	(a0)+,a2
++
++	swap	d4
++	swap	d5
++	eor.w	d0,d4
++	eor.w	d1,d5
++	eor.w	d4,d0
++	eor.w	d5,d1
++	eor.w	d0,d4
++	eor.w	d1,d5
++	swap	d4
++	swap	d5
++
++	move.l	d4,d7
++	lsr.l	#2,d7
++	eor.l	d0,d7
++	and.l	#$33333333,d7
++	eor.l	d7,d0
++	lsl.l	#2,d7
++	eor.l	d7,d4
++	move.l	d5,d7
++	lsr.l	#2,d7
++	eor.l	d1,d7
++	and.l	#$33333333,d7
++	eor.l	d7,d1
++	lsl.l	#2,d7
++	eor.l	d7,d5
++
++	exg	d5,a2
++
++	swap	d6
++	swap	d5
++	eor.w	d2,d6
++	eor.w	d3,d5
++	eor.w	d6,d2
++	eor.w	d5,d3
++	eor.w	d2,d6
++	eor.w	d3,d5
++	swap	d6
++	swap	d5
++
++	move.l	d6,d7
++	lsr.l	#2,d7
++	eor.l	d2,d7
++	and.l	#$33333333,d7
++	eor.l	d7,d2
++	lsl.l	#2,d7
++	eor.l	d7,d6
++	move.l	d5,d7
++	lsr.l	#2,d7
++	eor.l	d3,d7
++	and.l	#$33333333,d7
++	eor.l	d7,d3
++	lsl.l	#2,d7
++	eor.l	d7,d5
++
++	move.l	d1,d7
++	lsr.l	#4,d7
++	eor.l	d0,d7
++	and.l	#$0f0f0f0f,d7
++	eor.l	d7,d0
++	lsl.l	#4,d7
++	eor.l	d7,d1
++	move.l	d3,d7
++	lsr.l	#4,d7
++	eor.l	d2,d7
++	and.l	#$0f0f0f0f,d7
++	eor.l	d7,d2
++	lsl.l	#4,d7
++	eor.l	d7,d3
++	bra	.start
++.row
++	move.l	(a0)+,d0
++	move.l	(a0)+,d1
++	move.l	(a0)+,d2
++	move.l	(a0)+,d3
++	move.l	(a0)+,d4
++	move.l	(a0)+,d5
++	move.l	(a0)+,d6
++	tst.l	(a0)
++
++	move.l	d7,(a1)
++	swap	d4
++	swap	d5
++	sub.l	a3,a1
++	eor.w	d0,d4
++	eor.w	d1,d5
++	eor.w	d4,d0
++	eor.w	d5,d1
++	eor.w	d0,d4
++	eor.w	d1,d5
++	swap	d4
++	swap	d5
++
++	move.l	d4,d7
++	lsr.l	#2,d7
++	eor.l	d0,d7
++	and.l	#$33333333,d7
++	eor.l	d7,d0
++	lsl.l	#2,d7
++	eor.l	d7,d4
++	move.l	d5,d7
++	lsr.l	#2,d7
++	move.l	a2,(a1)
++	eor.l	d1,d7
++	sub.l	a3,a1
++	and.l	#$33333333,d7
++	eor.l	d7,d1
++	lsl.l	#2,d7
++	eor.l	d7,d5
++	move.l	d5,a2
++	move.l	(a0)+,d5
++
++	swap	d6
++	swap	d5
++	eor.w	d2,d6
++	eor.w	d3,d5
++	eor.w	d6,d2
++	eor.w	d5,d3
++	eor.w	d2,d6
++	eor.w	d3,d5
++	swap	d6
++	swap	d5
++
++	move.l	d6,d7
++	lsr.l	#2,d7
++	eor.l	d2,d7
++	move.l	a5,(a1)
++	and.l	#$33333333,d7
++	sub.l	a3,a1
++	eor.l	d7,d2
++	lsl.l	#2,d7
++	eor.l	d7,d6
++	move.l	d5,d7
++	lsr.l	#2,d7
++	eor.l	d3,d7
++	and.l	#$33333333,d7
++	eor.l	d7,d3
++	lsl.l	#2,d7
++	eor.l	d7,d5
++
++	move.l	d1,d7
++	lsr.l	#4,d7
++	eor.l	d0,d7
++	and.l	#$0f0f0f0f,d7
++	eor.l	d7,d0
++	lsl.l	#4,d7
++	eor.l	d7,d1
++	move.l	d3,d7
++	move.l	a6,(a1)+
++	lsr.l	#4,d7
++	lea	(a1,a3.l*8),a1
++	eor.l	d2,d7
++	sub.l	a3,a1
++	and.l	#$0f0f0f0f,d7
++	eor.l	d7,d2
++	lsl.l	#4,d7
++	eor.l	d7,d3
++
++	add.w	c2p_bplmod(sp),a1
++	bra	.start
++.x
++	move.l	(a0)+,d0
++	move.l	(a0)+,d1
++	move.l	(a0)+,d2
++	move.l	(a0)+,d3
++	move.l	(a0)+,d4
++	move.l	(a0)+,d5
++	move.l	(a0)+,d6
++	tst.l	(a0)
++
++	move.l	d7,(a1)
++	swap	d4
++	swap	d5
++	sub.l	a3,a1
++	eor.w	d0,d4
++	eor.w	d1,d5
++	eor.w	d4,d0
++	eor.w	d5,d1
++	eor.w	d0,d4
++	eor.w	d1,d5
++	swap	d4
++	swap	d5
++
++	move.l	d4,d7
++	lsr.l	#2,d7
++	eor.l	d0,d7
++	and.l	#$33333333,d7
++	eor.l	d7,d0
++	lsl.l	#2,d7
++	eor.l	d7,d4
++	move.l	d5,d7
++	lsr.l	#2,d7
++	move.l	a2,(a1)
++	eor.l	d1,d7
++	sub.l	a3,a1
++	and.l	#$33333333,d7
++	eor.l	d7,d1
++	lsl.l	#2,d7
++	eor.l	d7,d5
++	move.l	d5,a2
++	move.l	(a0)+,d5
++
++	swap	d6
++	swap	d5
++	eor.w	d2,d6
++	eor.w	d3,d5
++	eor.w	d6,d2
++	eor.w	d5,d3
++	eor.w	d2,d6
++	eor.w	d3,d5
++	swap	d6
++	swap	d5
++
++	move.l	d6,d7
++	lsr.l	#2,d7
++	eor.l	d2,d7
++	move.l	a5,(a1)
++	and.l	#$33333333,d7
++	sub.l	a3,a1
++	eor.l	d7,d2
++	lsl.l	#2,d7
++	eor.l	d7,d6
++	move.l	d5,d7
++	lsr.l	#2,d7
++	eor.l	d3,d7
++	and.l	#$33333333,d7
++	eor.l	d7,d3
++	lsl.l	#2,d7
++	eor.l	d7,d5
++
++	move.l	d1,d7
++	lsr.l	#4,d7
++	eor.l	d0,d7
++	and.l	#$0f0f0f0f,d7
++	eor.l	d7,d0
++	lsl.l	#4,d7
++	eor.l	d7,d1
++	move.l	d3,d7
++	move.l	a6,(a1)+
++	lsr.l	#4,d7
++	lea	(a1,a3.l*8),a1
++	eor.l	d2,d7
++	sub.l	a3,a1
++	and.l	#$0f0f0f0f,d7
++	eor.l	d7,d2
++	lsl.l	#4,d7
++	eor.l	d7,d3
++.start
++	move.l	d2,d7
++	lsr.l	#8,d7
++	eor.l	d0,d7
++	and.l	#$00ff00ff,d7
++	eor.l	d7,d0
++	lsl.l	#8,d7
++	eor.l	d7,d2
++	move.l	d2,d7
++	lsr.l	#1,d7
++	eor.l	d0,d7
++	and.l	#$55555555,d7
++	eor.l	d7,d0
++	move.l	d0,(a1)
++	add.l	d7,d7
++	sub.l	a3,a1
++	eor.l	d7,d2
++; d0,d2 done				; d0 = bpl7, d2 = bpl6
++	move.l	a2,d0
++
++	move.l	d0,d7
++	lsr.l	#4,d7
++	eor.l	d4,d7
++	and.l	#$0f0f0f0f,d7
++	eor.l	d7,d4
++	lsl.l	#4,d7
++	eor.l	d7,d0
++	move.l	d5,d7
++	lsr.l	#4,d7
++	eor.l	d6,d7
++	and.l	#$0f0f0f0f,d7
++	eor.l	d7,d6
++	lsl.l	#4,d7
++	eor.l	d7,d5
++
++	move.l	d6,d7
++	move.l	d2,(a1)
++	lsr.l	#8,d7
++	sub.l	a3,a1
++	eor.l	d4,d7
++	and.l	#$00ff00ff,d7
++	eor.l	d7,d4
++	lsl.l	#8,d7
++	eor.l	d7,d6
++	move.l	d6,d7
++	lsr.l	#1,d7
++	eor.l	d4,d7
++	and.l	#$55555555,d7
++	eor.l	d7,d4
++	add.l	d7,d7
++	eor.l	d7,d6
++; d4,d6 done				; d4 = bpl5, d6 = bpl4
++
++	move.l	d3,d7
++	lsr.l	#8,d7
++	eor.l	d1,d7
++	move.l	d4,(a1)
++	and.l	#$00ff00ff,d7
++	sub.l	a3,a1
++	eor.l	d7,d1
++	lsl.l	#8,d7
++	eor.l	d7,d3
++	move.l	d3,d7
++	lsr.l	#1,d7
++	eor.l	d1,d7
++	and.l	#$55555555,d7
++	eor.l	d7,d1
++	add.l	d7,d7
++	eor.l	d7,d3
++; d1,d3 done				; d1 = bpl3, d3 = bpl2
++
++	move.l	d5,d7
++	lsr.l	#8,d7
++	eor.l	d0,d7
++	and.l	#$00ff00ff,d7
++	eor.l	d7,d0
++	lsl.l	#8,d7
++	move.l	d6,(a1)
++	eor.l	d7,d5
++	sub.l	a3,a1
++	move.l	d5,d7
++	lsr.l	#1,d7
++	eor.l	d0,d7
++	and.l	#$55555555,d7
++	eor.l	d7,d0
++	add.l	d7,d7
++	eor.l	d7,d5
++; d0,d5 done				; d0 = bpl1, d5 = bpl0
++	move.l	d1,d7
++	move.l	d3,a2
++	move.l	d0,a5
++	move.l	d5,a6
++
++	cmp.l	a0,a4
++	bne	.x
++
++	add.w	c2p_chunkymod(sp),a0
++	add.w	c2p_chunkyrowmod(sp),a4
++
++	subq.w	#1,c2p_ycount(sp)
++	bne	.row
++
++	move.l	d7,(a1)
++	sub.l	a3,a1
++	move.l	a2,(a1)
++	sub.l	a3,a1
++	move.l	a5,(a1)
++	sub.l	a3,a1
++	move.l	a6,(a1)+
++	lea	(a1,a3.l*8),a1
++	sub.l	a3,a1
++
++	addq.l	#c2p_stacksize,sp
++	movem.l	(sp)+,d2-d7/a2-a6
++	rts

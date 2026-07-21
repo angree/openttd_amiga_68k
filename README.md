@@ -1,4 +1,4 @@
-# OpenTTD for AmigaOS 68k (AGA)
+# OpenTTD for AmigaOS 68k (AGA/P96)
 
 A native port of OpenTTD 1.0.5 to classic AmigaOS 3.x on 68k, with its own video
 driver written against Intuition and graphics.library. No SDL, and no RTG card
@@ -50,14 +50,10 @@ implemented yet.**
 
 ## What does not
 
-- **No music.**
 - **No networking** in this build.
-- **No RTG.** AGA only, and no ECS/OCS — those top out at 32 colours where the
-  game needs 256. RTG is the more interesting of the two to add, and the driver
-  is structured so it can be.
-- Memory use is high: roughly 11 MB with the default 4 MB sprite cache and an
-  unstripped binary. Half-size graphics and a smaller cache are the planned way
-  down to an 8 MB machine.
+- AGA/RTG, and no ECS/OCS
+- Memory use is high: 24MB total memory required. Half-size graphics and a
+  smaller cache are the planned.
 
 ## Requirements
 
@@ -86,13 +82,6 @@ implemented yet.**
   does on 8 + 16, leaving about 10 MB free. The executable alone occupies
   4.6 MB once loaded, and the sprite cache another 4 MB.
 
-  Stripping the binary would not help, which is worth stating because it looks
-  like it should: measuring the hunk table shows only 0.4 MB of the 5 MB file
-  is symbols and debug information, and AmigaDOS never makes that resident.
-  (`m68k-amigaos-strip` also produces an executable that halts the CPU on load,
-  most likely because `--strip-all` removes the relocation records `LoadSeg()`
-  has to apply.) The real weight is code, so the way down is removing code -
-  the AI scripting VM is the obvious candidate.
 - AmigaOS 3.0 or 3.1, ~30 MB free disk space.
 
 Nothing from the original Transport Tycoon Deluxe is needed. The release archive

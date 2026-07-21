@@ -15,7 +15,13 @@ never changes:
   - the four corners of the picture are rounded off (radius 8, anti-aliased
     against black, so the blend fades with the rest of the palette);
   - a credit line is rendered under the picture using OpenTTD's own normal
-    UI font, taken from the real glyph sprites in the OpenGFX base set.
+    UI font, taken from the real glyph sprites in the OpenGFX base set;
+  - the port version is stamped into the top-right corner of the picture,
+    same font, inset far enough that the rounded corner cannot clip it.
+    (This was once drawn at runtime by the C side; it overran the chunky
+    buffer and corrupted memory. Never move it back there - it is baked
+    into the pixel data here precisely so the running game's memory is
+    never touched.)
 
 The font comes straight out of ogfx1_base.grf (GRF container v2). In the
 base graphics set, sprite 2 is SPR_ASCII_SPACE (src/table/sprites.h), so
@@ -34,20 +40,28 @@ Layout (all integers big-endian):
     then      : pixels   width * height bytes of palette indices
 
 Usage: python3 make-splash.py [input.png] [output.dat] [ogfx1_base.grf]
+                              [--version vX.Y.Z]
+
+    --version sets the port version stamped into the picture's top-right
+    corner (default: v0.4.1). Cutting a release means passing the new
+    value, e.g.  python3 make-splash.py --version v0.5.0
 """
 
+import argparse
 import struct
-import sys
 import os
 
 from PIL import Image, ImageDraw
 
-CREDIT_TEXT   = "port by Grzegorz Korycki"
-CORNER_RADIUS = 8       # px, rounded-corner radius on the picture
-GAP           = 6       # px between picture and credit line
-BOTTOM_PAD    = 2       # px below the credit line
-TEXT_RGB      = (255, 255, 255)  # glyph value 1: the text itself
-SHADOW_RGB    = (48, 48, 48)     # glyph value 2: the glyph shadow pixels
+CREDIT_TEXT     = "port by Grzegorz Korycki"
+DEFAULT_VERSION = "v0.4.1"
+CORNER_RADIUS   = 8     # px, rounded-corner radius on the picture
+GAP             = 6     # px between picture and credit line
+BOTTOM_PAD      = 2     # px below the credit line
+VERSION_INSET_X = 8     # px from the picture's right edge to the version text
+VERSION_INSET_Y = 4     # px from the picture's top edge to the version text box
+TEXT_RGB        = (255, 255, 255)  # glyph value 1: the text itself
+SHADOW_RGB      = (48, 48, 48)     # glyph value 2: the glyph shadow pixels
 
 
 # --------------------------------------------------------------------------
@@ -201,17 +215,23 @@ def round_corners(img, radius):
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
-    src = sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "..", "amiga_openttd2.png")
-    dst = sys.argv[2] if len(sys.argv) > 2 else os.path.join(here, "..", "splash.dat")
-    grf = sys.argv[3] if len(sys.argv) > 3 else os.path.join(
-        here, "..", "OpenTTD", "baseset", "opengfx", "ogfx1_base.grf")
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("src", nargs="?", default=os.path.join(here, "..", "amiga_openttd2.png"))
+    ap.add_argument("dst", nargs="?", default=os.path.join(here, "..", "splash.dat"))
+    ap.add_argument("grf", nargs="?", default=os.path.join(
+        here, "..", "OpenTTD", "baseset", "opengfx", "ogfx1_base.grf"))
+    ap.add_argument("--version", default=DEFAULT_VERSION,
+                    help="port version stamped top-right in the picture (default %(default)s)")
+    args = ap.parse_args()
+    src, dst, grf = args.src, args.dst, args.grf
 
     img = Image.open(src).convert("RGB")
     img = round_corners(img, CORNER_RADIUS)
     iw, ih = img.size
 
-    glyphs = load_font_glyphs(grf, CREDIT_TEXT)
+    glyphs = load_font_glyphs(grf, CREDIT_TEXT + args.version)
     tw, th, text = render_text(CREDIT_TEXT, glyphs)
+    vw, vh, vtext = render_text(args.version, glyphs)
 
     W = max(iw, tw)
     H = ih + GAP + th + BOTTOM_PAD
@@ -247,6 +267,20 @@ def main():
             if v:
                 canvas[(ty0 + y) * W + tx0 + x] = text_ix if v == 1 else shadow_ix
 
+    # Version stamp, top-right INSIDE the picture. The inset keeps it clear
+    # of the radius-8 rounded corner: its rightmost pixel is CORNER_RADIUS
+    # away from the picture edge, so it never touches the corner arc. Baked
+    # into the pixel data on purpose - drawing this at runtime once overran
+    # the chunky buffer and corrupted game memory.
+    vx0 = ix0 + iw - VERSION_INSET_X - vw
+    vy0 = VERSION_INSET_Y
+    assert vx0 >= ix0 and vy0 + vh <= ih, "version text does not fit the picture"
+    for y in range(vh):
+        for x in range(vw):
+            v = vtext[y * vw + x]
+            if v:
+                canvas[(vy0 + y) * W + vx0 + x] = text_ix if v == 1 else shadow_ix
+
     out = bytearray()
     out += struct.pack(">4sHHHH", b"ASPL", W, H, ncolours, 0)
     out += bytes((0, 0, 0))                       # index 0: pure black
@@ -258,8 +292,10 @@ def main():
     with open(dst, "wb") as f:
         f.write(out)
 
-    print("wrote %s: %dx%d, %d colours, %d bytes (picture %dx%d, text %dx%d)"
-          % (dst, W, H, ncolours, len(out), iw, ih, tw, th))
+    print("wrote %s: %dx%d, %d colours, %d bytes (picture %dx%d, credit %dx%d, "
+          "version %r %dx%d at %d,%d)"
+          % (dst, W, H, ncolours, len(out), iw, ih, tw, th,
+             args.version, vw, vh, vx0, vy0))
 
 
 if __name__ == "__main__":

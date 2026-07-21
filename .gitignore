@@ -30,9 +30,16 @@
 # this toolchain miscompiles at -O1 down to -O0 and refuses to degrade the video
 # driver. Building without it silently produces a broken game, so it has to ship.
 !/build/build-with-ice-retry.sh
-!/build/build-release-softfloat.sh
+# build-nofpu.sh switches a configured tree to -mcpu=68020 -msoft-float, which
+# is what removes the FPU requirement. It replaces build-release-softfloat.sh,
+# whose -m68040 -msoft-float never actually reached the libraries.
+!/build/build-nofpu.sh
 !/build/tgp-remove-pow.py
 !/build/make-splash.py
+# Standalone probe that proves whether printf traps on an FPU-less CPU. It logs
+# through dos.library only, so the log survives even when printf itself dies.
+!/build/probe/
+!/build/probe/t_printf.c
 
 # The splash screen: source image and its generator. The generated splash.dat is
 # re-allowed at the end of this file - it has to come after the "*.dat" rule.

@@ -29,21 +29,40 @@ call does not catch it, because unwinding phase 1 never finds the handler.
 **Build the whole tree at `-O1`.** Where a file trips the cc1plus ICE, fall back
 to `-O0`, never `-O2`.
 
-### 2. `-m68040` does not mean hardware FPU
+### 2. The float ABI must be consistent — and `-m68040` cannot make it so
 
-You must pass **`-mhard-float`** explicitly. Without it GCC emits soft-float, and
-its double routines are broken — identically at `-O0`, `-O1` and `-O2`, which is
-why dropping the optimisation level never helps. `native/fptest.c`:
+**This section previously told you to pass `-mhard-float`. That was the wrong
+conclusion drawn from a real symptom. Do not do it.** The build uses
+**`-mcpu=68020 -msoft-float`**, and that is what removes the FPU requirement.
+
+The trap: bebbo's driver maps `-m68040` onto the **68020+68881 multilib**,
+because a 68040 has an FPU built in, and **`-msoft-float` does not undo that**.
+So `-m68040 -msoft-float` gives you a hybrid — your code compiled to the
+soft-float ABI, the C library taken from the hard-FPU multilib. That mismatch is
+what produced the famous garbage:
 
 ```
 pow(0.7,1) = 0.490000   (want 0.7)
 pow(0.7,3) = 0.000000   (want 0.343)
 ```
 
-`sin()` and the basic operators were fine; `pow()` and double-to-string were
-garbage. This broke two things that looked unrelated: map generation hung
-(`tgp.cpp` calls `pow()` in its inner loop) and savegames written by that binary
-were permanently corrupt — they load, then fail `AfterLoadGame()`.
+It was never "soft-float is broken". It was two halves disagreeing about where a
+double is returned — the same fault as the `__floatunsidf`-returns-in-`fp0` bug
+that `src/fp_conv.c` works around. Forcing everything hard-float made the halves
+agree, which is why it appeared to fix things; it also made an FPU mandatory.
+
+`-mcpu=68020 -msoft-float` selects `.../libnix/lib/libm020/` (no `881`), where
+every library object really is soft-float, so the halves agree the other way and
+no FPU is needed at all.
+
+**`-print-multi-directory` reports `.` for every one of these and is
+useless here.** The only trustworthy check is the link trace:
+
+```
+m68k-amigaos-g++ <flags> ... -Wl,-t | grep libm881
+```
+
+If `libm881` shows up, the binary needs an FPU — whatever the flags claim.
 
 Only terrain generation needs floating point. The simulation is integer-only by
 design, because OpenTTD keeps multiplayer deterministic across platforms.
@@ -65,7 +84,7 @@ The fault is in the library, not the caller. Cross-testing settles it: caller
 codes and the ABI both sides agree on.
 
 ```
-m68k-amigaos-gcc -O0 -m68040 -mhard-float -noixemul -I. -c adler32.c compress.c \
+m68k-amigaos-gcc -O0 -mcpu=68020 -msoft-float -noixemul -I. -c adler32.c compress.c \
   crc32.c deflate.c gzclose.c gzlib.c gzread.c gzwrite.c infback.c inffast.c \
   inflate.c inftrees.c trees.c uncompr.c zutil.c
 m68k-amigaos-ar rcs libz.a *.o && m68k-amigaos-ranlib libz.a
@@ -112,10 +131,15 @@ the individual pass responsible.
   --without-png --without-freetype --without-fontconfig \
   --without-icu --without-lzo2 \
   --without-sdl --without-allegro --without-iconv \
-  CFLAGS="-m68040 -mhard-float -noixemul -DUNIX" \
-  CXXFLAGS="-m68040 -mhard-float -noixemul -std=gnu++98 -DUNIX" \
-  LDFLAGS="-noixemul -m68040 -mhard-float"
+  CFLAGS="-mcpu=68020 -msoft-float -noixemul -DUNIX" \
+  CXXFLAGS="-mcpu=68020 -msoft-float -noixemul -std=gnu++98 -DUNIX" \
+  LDFLAGS="-noixemul -mcpu=68020 -msoft-float"
 ```
+
+To switch an already-configured tree instead of reconfiguring it, use
+`build/build-nofpu.sh` — it rewrites the generated Makefile, rebuilds zlib and
+the hand-built objects with the matching ABI, and refuses to continue if
+`-m68040` survives anywhere.
 
 Then fix up `objs/release/Makefile`: optimisation to `-O1` in `CFLAGS` and
 `LDFLAGS`, `-fpermissive` on `CXXFLAGS`, and add the prebuilt `amiga_gfx.o` and

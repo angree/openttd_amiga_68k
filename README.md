@@ -71,19 +71,27 @@ implemented yet.**
 
 ## Requirements
 
-- **68030 with an FPU, minimum. 68040/40 recommended, 68060/50 for full speed.**
-  Tested working on an 030+FPU and on an 040; at stock 030 clock speeds it is
-  slow. The chunky-to-planar converter is the 68040 one, which is part of why —
-  a blitter-assisted variant for 020/030 is the obvious next step.
-- **An FPU is required.** No 68LC040, no 68EC030, and a bare 020 will not do.
-  This is worth explaining, because the binary is built `-msoft-float` and that
-  sounds like it should not need one: in this toolchain the double-precision
-  routines are thin stubs into `mathieeedoubbas.library`, and the stubs
-  themselves execute FPU instructions. So the float ABI is soft, but the
-  runtime is not. Only map generation uses floating point at all — the
+- **68020 minimum. No FPU needed.** 68040/40 recommended, 68060/50 for full
+  speed. Tested on a bare 68020 and on a 68030 with no coprocessor, as well as
+  on an 040. At stock 030 clock speeds it is slow — the chunky-to-planar
+  converter is the 68040 one, which is part of why; a blitter-assisted variant
+  for 020/030 is the obvious next step.
+
+  **The FPU requirement is gone as of 0.7.0**, and the cause was not where
+  anyone was looking. It was never the maths — it was `printf`. libnix routes
+  the whole printf family through one function, and in the 68881 build of the
+  library GCC hoists two double constants and an FPU register save into that
+  function's *prologue*, so they execute on every call whatever the format
+  string. A single `snprintf("%d")` while building the startup paths was enough
+  to take down an FPU-less machine before it could log a line.
+
+  The reason it survived earlier "soft-float" builds is that `-msoft-float` was
+  never reaching the libraries: this toolchain maps `-m68040` onto the
+  68020+68881 multilib, and `-msoft-float` does not undo it. Building with
+  `-mcpu=68020 -msoft-float` picks a genuinely soft-float library set and the
+  problem disappears. Only map generation uses floating point at all — the
   simulation is integer-only by design, because OpenTTD keeps multiplayer
-  deterministic across platforms — which is exactly where an FPU-less machine
-  fails.
+  deterministic across platforms.
 - **AGA**, or a Picasso96 / CyberGraphX RTG card. A1200, A4000 or CD32 for the
   AGA path.
 

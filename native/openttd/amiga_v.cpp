@@ -32,26 +32,78 @@
 #include "../core/random_func.hpp"
 #include "../fontcache.h"
 #include "../settings_func.h" /* SaveToConfig - see ChangeResolution */
+#include "../settings_type.h" /* _settings_client.amiga.wb_bar */
 #include "amiga_v.h"
 #include "amiga_gfx.h"
 
 /**
  * The modes offered in Game Options -> Screen resolution.
  *
- * Widths are all multiples of 32 because Kalms' c2p converts 32-pixel columns;
- * 368, the other common PAL overscan width, is not and would be rejected.
+ * AGA widths are all multiples of 32 because Kalms' c2p converts 32-pixel
+ * columns; 368, the other common PAL overscan width, is not and would be
+ * rejected. That constraint is a c2p property and is NOT applied to RTG.
  *
  *   320x256  plain PAL lores, no interlace - no flicker
  *   352x272  PAL lores with overscan: same mode, bigger window
  *   640x480  PAL hires interlaced - the readable, default choice
- *   640x512  full PAL hires interlaced
+ *
+ * 640x512 is gone: it is 640x480 with 32 more lines, at a real cost (it was the
+ * most expensive mode to convert), and 640x480 covers the same ground.
+ *
+ * A 640x256 entry was tried and REMOVED. As a real resolution it is 2.5:1, and
+ * the game laid out in it is badly stretched - the aspect ratio must not be
+ * sacrificed for conversion speed. The idea worth keeping from it is a
+ * different one: render at a normal ratio and put alternate lines on a hires
+ * NON-interlaced screen, where a pixel is twice as tall, so the picture keeps
+ * its proportions. That is a blit-side trick, not a resolution, and it is
+ * deliberately not implemented here.
  */
-static const Dimension _amiga_resolutions[] = {
+static const Dimension _amiga_aga_resolutions[] = {
 	{ 320, 256 },
 	{ 352, 272 },
 	{ 640, 480 },
-	{ 640, 512 },
 };
+
+/**
+ * RTG (CyberGraphX / Picasso96) candidates, offered BELOW the AGA modes and
+ * only when the machine actually has an 8-bit RTG mode of that size - so an
+ * AGA-only Amiga sees exactly the list it saw before RTG support existed.
+ *
+ * 8bpp only, deliberately: OpenTTD's blitter produces 8-bit chunky, which on an
+ * 8-bit RTG screen is already the display format. Any deeper mode would put a
+ * per-pixel conversion back in, which is the very thing RTG is here to remove.
+ *
+ * Nothing below 400x300: the small sizes exist for AGA, where they buy a real
+ * reduction in chunky-to-planar work. On RTG there is no conversion to reduce,
+ * so a tiny mode buys nothing and only costs visible map.
+ */
+static const Dimension _amiga_rtg_resolutions[] = {
+	{  400, 300 },
+	{  512, 384 },
+	{  640, 480 },
+	{  800, 600 },
+	{ 1024, 768 },
+};
+
+/** SPECSTR_RESOLUTION_END - SPECSTR_RESOLUTION_START + 1: the hard ceiling on
+ * how many entries the resolution dropdown can address. */
+#define AMIGA_MAX_RESOLUTIONS 32
+
+/**
+ * Which backend each entry of _resolutions[] belongs to, kept strictly parallel
+ * to it.
+ *
+ * This exists because _resolutions[] carries nothing but a width and a height,
+ * while ChangeResInGame() and GetCurRes() identify a mode BY those two numbers -
+ * and 640x480 is offered on both backends, so the pair is genuinely ambiguous on
+ * an RTG machine. The dropdown index is not ambiguous, so the index is what is
+ * tracked: settings_gui.cpp hands it to AmigaSetResolutionIndex() before calling
+ * ChangeResInGame(), and asks AmigaGetResolutionIndex() for the entry to show as
+ * current instead of searching by size.
+ */
+static bool _amiga_res_rtg[AMIGA_MAX_RESOLUTIONS];
+static int  _amiga_cur_res;       ///< index of the mode currently on screen
+static int  _amiga_pending_res;   ///< index the player just picked, -1 if none
 
 
 /**
@@ -300,21 +352,48 @@ static void DrawSurfaceToScreen()
 	ResetDirty();
 }
 
-static bool CreateMainSurface(uint w, uint h)
+/** SCREEN size of the currently open screen (the size in the resolution list),
+ * as opposed to _screen.width/height, which is the GAME AREA - smaller by the
+ * system title bar when amiga.wb_bar is on. Kept so both the wb_bar toggle and
+ * ChangeResolution can reopen/persist by screen size without shrinking it by
+ * one bar height per reopen. Zero until the driver has started. */
+static uint _amiga_scr_w, _amiga_scr_h;
+
+static bool CreateMainSurface(uint w, uint h, bool want_rtg)
 {
-	/* The c2p converts 32 pixels at a time, so the width must be a multiple
-	 * of 32. Round up rather than fail; 640 and 800 already qualify. */
-	w = (w + 31) & ~31;
+	/* The c2p converts 32 pixels at a time, so an AGA width must be a multiple
+	 * of 32. Round up rather than fail; 640 and 800 already qualify. RTG has no
+	 * such constraint - nothing there works in 32-pixel columns - so its widths
+	 * are passed through exactly as offered. */
+	if (!want_rtg) w = (w + 31) & ~31;
 
 	amigagfx_close();
-	int err = amigagfx_open((int)w, (int)h);
+	/* amiga.wb_bar: keep the real Intuition screen title bar (depth gadget,
+	 * flip to Workbench) visible. Read at open time; the toggle proc reopens
+	 * the screen through this very function, like a resolution change. */
+	int err = amigagfx_open((int)w, (int)h, _settings_client.amiga.wb_bar ? 1 : 0,
+	                        want_rtg ? AMIGAGFX_BACKEND_RTG : AMIGAGFX_BACKEND_AGA);
 	if (err != 0) {
 		DEBUG(driver, 0, "amiga: could not open a %dx%d 256-colour screen (error %d)", w, h, err);
 		return false;
 	}
 
+	/* amigagfx_open falls back to AGA silently when RTG is unavailable, so ask
+	 * what actually opened rather than assuming we got what we asked for. */
+	bool got_rtg = (amigagfx_backend() == AMIGAGFX_BACKEND_RTG);
+	if (want_rtg && !got_rtg) {
+		amigagfx_log("RTG requested but AGA opened - see the reason logged above");
+	}
+	_settings_client.amiga.rtg = got_rtg;
+
+	_amiga_scr_w = w;
+	_amiga_scr_h = h;
+
+	/* The game area is what the driver reports: with the bar visible it is
+	 * shorter than the screen, and every downstream consumer - the chunky
+	 * buffer, dirty rects, c2p, window layout - must live within it. */
 	_screen.width   = w;
-	_screen.height  = h;
+	_screen.height  = amigagfx_game_height();
 	_screen.pitch   = amigagfx_pitch();
 	_screen.dst_ptr = amigagfx_chunky();
 
@@ -330,7 +409,9 @@ static bool CreateMainSurface(uint w, uint h)
 	UpdatePalette(0, 256);
 	GameSizeChanged();
 
-	DEBUG(driver, 1, "amiga: %dx%d, 8 bitplanes, Kalms c2p", w, h);
+	DEBUG(driver, 1, "amiga: %dx%d, %s", w, h,
+	      got_rtg ? "8bpp RTG, chunky straight to the card"
+	              : "8 bitplanes, Kalms c2p");
 	return true;
 }
 
@@ -509,10 +590,68 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 		}
 	}
 
-	/* Offer the Amiga modes in Game Options -> Screen resolution. */
+	/* Offer the Amiga modes in Game Options -> Screen resolution: every AGA
+	 * mode first, then the RTG modes this machine can actually display. The
+	 * order is what the player sees, and AGA-before-RTG keeps the fixed-chipset
+	 * modes - the ones every Amiga has - at the top of the list. */
 	_num_resolutions = 0;
-	for (uint i = 0; i < lengthof(_amiga_resolutions) && _num_resolutions < lengthof(_resolutions); i++) {
-		_resolutions[_num_resolutions++] = _amiga_resolutions[i];
+	uint max_res = lengthof(_resolutions);
+	if (max_res > AMIGA_MAX_RESOLUTIONS) max_res = AMIGA_MAX_RESOLUTIONS;
+
+	for (uint i = 0; i < lengthof(_amiga_aga_resolutions) && _num_resolutions < max_res; i++) {
+		_amiga_res_rtg[_num_resolutions] = false;
+		_resolutions[_num_resolutions++] = _amiga_aga_resolutions[i];
+	}
+
+	/* Probed one size at a time rather than "is there a card": a board with
+	 * little display memory, or a Picasso96 setup with only a few modes
+	 * configured, genuinely may have 640x480 and not 1024x768. Offering a mode
+	 * that cannot open would put the player one click away from a screen that
+	 * silently falls back to AGA. */
+	uint rtg_offered = 0;
+	for (uint i = 0; i < lengthof(_amiga_rtg_resolutions) && _num_resolutions < max_res; i++) {
+		if (!amigagfx_rtg_has_mode((int)_amiga_rtg_resolutions[i].width,
+		                           (int)_amiga_rtg_resolutions[i].height)) continue;
+		_amiga_res_rtg[_num_resolutions] = true;
+		_resolutions[_num_resolutions++] = _amiga_rtg_resolutions[i];
+		rtg_offered++;
+	}
+	{
+		char b[96];
+		snprintf(b, sizeof(b), "resolution list: %d AGA + %u RTG mode(s)",
+		         (int)lengthof(_amiga_aga_resolutions), rtg_offered);
+		amigagfx_log(b);
+	}
+
+	/* Which entry is the saved one? _cur_resolution alone cannot say - 640x480
+	 * exists on both backends - so the persisted amiga.rtg flag breaks the tie.
+	 * Falling back to entry 0 keeps a config written by an older build, or one
+	 * naming a mode this machine no longer offers, from selecting nothing. */
+	_amiga_cur_res = 0;
+	_amiga_pending_res = -1;
+	for (uint i = 0; i < _num_resolutions; i++) {
+		if (_resolutions[i].width  != _cur_resolution.width)  continue;
+		if (_resolutions[i].height != _cur_resolution.height) continue;
+		if (_amiga_res_rtg[i] != _settings_client.amiga.rtg)  continue;
+		_amiga_cur_res = (int)i;
+		break;
+	}
+
+	/* Snap to the entry we just settled on. openttd.cfg can easily name a size
+	 * that is not in the list - it holds one written by an older build (640x512
+	 * has just been retired), one saved on a machine that had RTG modes this one
+	 * does not, or one off by a title-bar height. Opening that size anyway would
+	 * put a screen on the display that no dropdown entry describes, while the
+	 * dropdown confidently showed entry 0 as current. Open what we report. */
+	if (_cur_resolution.width  != _resolutions[_amiga_cur_res].width ||
+	    _cur_resolution.height != _resolutions[_amiga_cur_res].height) {
+		char b[112];
+		snprintf(b, sizeof(b), "saved resolution %ux%u is not offered - using %ux%u%s",
+		         _cur_resolution.width, _cur_resolution.height,
+		         _resolutions[_amiga_cur_res].width, _resolutions[_amiga_cur_res].height,
+		         _amiga_res_rtg[_amiga_cur_res] ? " RTG" : " AGA");
+		amigagfx_log(b);
+		_cur_resolution = _resolutions[_amiga_cur_res];
 	}
 
 	/* The font tables are built once, just after this, so the choice has to be
@@ -520,7 +659,8 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 	 * leaves the font as it was - hence the restart note in ChangeResolution. */
 	_amiga_small_font = WantSmallFont(_cur_resolution.width);
 
-	if (!CreateMainSurface(_cur_resolution.width, _cur_resolution.height)) {
+	if (!CreateMainSurface(_cur_resolution.width, _cur_resolution.height,
+	                       _amiga_res_rtg[_amiga_cur_res])) {
 		return "Could not open the Amiga screen";
 	}
 
@@ -724,15 +864,39 @@ bool VideoDriver_Amiga::ChangeResolution(int w, int h)
 		amigagfx_log(b);
 	}
 
-	if (!CreateMainSurface(w, h)) {
+	/* Resolve the backend. Normally the dropdown has just told us the exact
+	 * entry (AmigaSetResolutionIndex), which is the only unambiguous answer -
+	 * 640x480 appears once as AGA and once as RTG. Anything else that calls
+	 * ChangeResolution (the console, a future caller) supplies only a size, so
+	 * fall back to a search by size, preferring an entry on the backend already
+	 * running, and finally to whatever is on screen now. */
+	int index = _amiga_pending_res;
+	_amiga_pending_res = -1;
+	if (index < 0 || index >= (int)_num_resolutions) {
+		index = _amiga_cur_res;
+		for (uint i = 0; i < _num_resolutions; i++) {
+			if ((int)_resolutions[i].width != w || (int)_resolutions[i].height != h) continue;
+			index = (int)i;
+			if (_amiga_res_rtg[i] == (amigagfx_backend() == AMIGAGFX_BACKEND_RTG)) break;
+		}
+	}
+
+	if (!CreateMainSurface(w, h, _amiga_res_rtg[index])) {
 		amigagfx_log("ChangeResolution FAILED - screen not reopened");
 		return false;
 	}
+	/* Only now is the entry live; if the open had failed the old one still is.
+	 * Note CreateMainSurface has already corrected amiga.rtg if RTG was asked
+	 * for and AGA came back, so the persisted flag matches what is on screen. */
+	_amiga_cur_res = index;
 
 	/* Store what was actually opened, not what was asked for: the width is
-	 * rounded up to the 32-pixel grid the c2p requires. */
+	 * rounded up to the 32-pixel grid the c2p requires. The height must be
+	 * the SCREEN height, not _screen.height: with the Workbench bar visible
+	 * the game area is shorter, and persisting that would shrink the screen
+	 * by one bar height on every restart. */
 	_cur_resolution.width  = _screen.width;
-	_cur_resolution.height = _screen.height;
+	_cur_resolution.height = _amiga_scr_h;
 
 	/* Persist the choice right away. Upstream writes openttd.cfg only on a
 	 * clean game exit (the sole SaveToConfig() call site, openttd.cpp), but an
@@ -749,6 +913,74 @@ bool VideoDriver_Amiga::ChangeResolution(int w, int h)
 		             : "hires: restart for the normal interface font");
 	}
 	return true;
+}
+
+/**
+ * The "amiga.wb_bar" setting was toggled (called from the setting's proc in
+ * settings.cpp - which must not know any Amiga types, hence this plain
+ * function rather than anything driver-shaped). The flag is read when the
+ * screen is opened, so apply it exactly like a resolution change: tear the
+ * screen down and reopen it at the same SCREEN size; CreateMainSurface then
+ * derives the new game area from what Intuition reports.
+ */
+void AmigaWorkbenchBarChanged()
+{
+	/* The console can flip settings before/without a video driver; nothing to
+	 * reopen then - the value is simply picked up when the screen opens. */
+	if (_amiga_scr_w == 0) return;
+
+	{
+		char b[96];
+		snprintf(b, sizeof(b), "wb_bar now %d - reopening %ux%u screen",
+		         _settings_client.amiga.wb_bar ? 1 : 0, _amiga_scr_w, _amiga_scr_h);
+		amigagfx_log(b);
+	}
+
+	/* Same backend as the screen being replaced - a bar toggle must not quietly
+	 * move the player between AGA and RTG. */
+	if (!CreateMainSurface(_amiga_scr_w, _amiga_scr_h, _amiga_res_rtg[_amiga_cur_res])) {
+		amigagfx_log("wb_bar toggle FAILED - screen not reopened");
+		return;
+	}
+
+	/* Same reasoning as ChangeResolution: an Amiga user resets the machine
+	 * instead of quitting cleanly, so persist the choice right away. */
+	SaveToConfig();
+}
+
+/* ---- resolution-list hooks called from generic code ----------------------
+ *
+ * Three tiny functions, declared with a local "extern" at each call site the
+ * way AmigaWorkbenchBarChanged() already is, so no generic header has to learn
+ * about the Amiga. They exist for one reason: _resolutions[] holds only a width
+ * and a height, and 640x480 is offered on both AGA and RTG, so a size is not an
+ * identity. The dropdown INDEX is, and these carry it across.
+ */
+
+/** settings_gui.cpp, OnDropdownSelect: the entry the player just picked, told
+ * to us before ChangeResInGame() so ChangeResolution() knows which backend the
+ * chosen 640x480 means. */
+void AmigaSetResolutionIndex(int index)
+{
+	_amiga_pending_res = (index >= 0 && index < (int)_num_resolutions) ? index : -1;
+}
+
+/** settings_gui.cpp, GetCurRes(): the entry actually on screen. Upstream finds
+ * this by searching _resolutions[] for a size match, which on an RTG machine
+ * always returns the AGA 640x480 and would mislabel an RTG screen. */
+int AmigaGetResolutionIndex()
+{
+	return _amiga_cur_res;
+}
+
+/** strings.cpp, the SPECSTR_RESOLUTION_* formatter: the backend suffix for one
+ * entry. This is the single formatter behind both the closed dropdown label and
+ * the open dropdown list, so every place a mode is named gets the same answer
+ * and AGA and RTG modes are never mistaken for one another. */
+const char *AmigaResolutionSuffix(int index)
+{
+	if (index < 0 || index >= (int)_num_resolutions) return "";
+	return _amiga_res_rtg[index] ? " RTG" : " AGA";
 }
 
 bool VideoDriver_Amiga::ToggleFullscreen(bool fullscreen)

@@ -36,9 +36,26 @@
  * SetBankSource() MallocT's the sample buffer and passes it to
  * MxSetChannelRawSrc; from then on it belongs to the mixer (the original
  * frees it with free() lazily in MxAllocateChannel). Nothing touches the
- * buffer after MxSetChannelRawSrc returns, so we convert it into our Chip
- * RAM copy and free() it before returning. The Chip RAM copy is ours and is
- * freed lazily when the slot is next reused - by then playback is long over.
+ * buffer after MxSetChannelRawSrc returns, so we convert (or cache-hit)
+ * and free() it before returning - EVERY path through MxSetChannelRawSrc
+ * frees mem exactly once, hit or miss, so OpenTTD's transient 128-250 KB
+ * per-play buffer never leaks.
+ *
+ * SAMPLE CACHE (Chip RAM, LRU, budgeted): OpenTTD re-reads every effect
+ * from opensfx.cat on disk on EVERY play (seek + FioReadBlock of
+ * 128-250 KB + a 60k-125k iteration conversion loop, synchronously in the
+ * game loop) - a visible stutter on a 68030. We therefore keep the
+ * CONVERTED 8-bit Chip RAM samples in a small cache keyed by SoundID (the
+ * MxSetNextSoundID hook provides the key). Budget SND_CACHE_BUDGET bytes;
+ * least-recently-used entries are evicted when it would be exceeded.
+ * SAFETY RULE: an entry is pin-counted by every mixer slot that references
+ * it, from MxSetChannelRawSrc until that slot is next reused - and a slot
+ * is only reused after AmigaAudio_ChannelIdle() confirmed its CMD_WRITE
+ * completed. Eviction skips pinned entries, so Paula DMA can never read
+ * freed Chip RAM (no memory protection: that would corrupt something far
+ * away and fail much later). Sounds without an ID, or that do not fit the
+ * budget, fall back to a slot-owned buffer freed lazily on slot reuse,
+ * exactly the pre-cache behaviour.
  *
  * VOLUME (verified in sound.cpp of 1.0.5): MxSetChannelVolume receives
  *     left  = volume * 8 * (16 - panning)
@@ -90,8 +107,20 @@ static const int MAX_AMBIENT_CHANNELS = 2;
 
 static bool _paula_active = false;
 
+/* One cached converted sample. chip == NULL means the slot is free. */
+struct SndCacheEntry {
+	int snd_id;        ///< cache key (SoundID), -1 while free
+	int8 *chip;        ///< converted 8-bit sample in Chip RAM, owned HERE
+	uint32 len;        ///< even byte count for Paula
+	uint32 period;     ///< Paula period register value
+	uint32 last_use;   ///< LRU stamp from _snd_cache_tick
+	int pins;          ///< mixer slots referencing this entry; never evict > 0
+};
+
 struct MixerChannel {
-	int8 *chip;        ///< converted 8-bit sample in Chip RAM, owned here
+	int8 *chip;        ///< converted 8-bit sample in Chip RAM; owned here
+	                   ///< ONLY when cache == NULL, else owned by the cache
+	SndCacheEntry *cache; ///< cache entry chip points into, NULL = slot-owned
 	uint32 chip_len;   ///< even byte count handed to Paula
 	uint32 period;     ///< Paula period register value
 	uint vol_left;     ///< as passed by sound.cpp, 0..~32768
@@ -106,6 +135,18 @@ struct MixerChannel {
 };
 
 static MixerChannel _mx[AMIGA_AUDIO_CHANNELS];
+
+/* ---- converted-sample cache -------------------------------------------- */
+
+/* Chip RAM the cache may hold. Chip is scarce (AGA bitplanes live there),
+ * so this is deliberately small; the largest single effect is ~125 KB. */
+static const uint32 SND_CACHE_BUDGET = 384 * 1024;
+/* TTD has 73 sound effects; 32 slots is plenty for what the budget holds. */
+static const int SND_CACHE_SLOTS = 32;
+
+static SndCacheEntry _snd_cache[SND_CACHE_SLOTS];
+static uint32 _snd_cache_bytes = 0;   ///< sum of len over live entries
+static uint32 _snd_cache_tick = 0;    ///< LRU clock, bumped per lookup/insert
 
 /* Set by the 2-line hook in sound.cpp just before MxAllocateChannel(). */
 static int _next_sound_id = -1;
@@ -125,6 +166,10 @@ static uint _cnt_ambfull = 0;   /* activate: ambient cap hit */
 static uint _cnt_reg0 = 0;      /* activate: volume register was 0 */
 static uint _cnt_reap = 0;      /* completed writes collected */
 static uint _cnt_ml = 0;        /* MainLoop ticks (proves it runs in menu) */
+static uint _cnt_cache_hit = 0;   /* played straight from the cache */
+static uint _cnt_cache_miss = 0;  /* had an ID but was not cached yet */
+static uint _cnt_cache_skip = 0;  /* converted but not adopted (no ID / no room) */
+static uint _cnt_cache_evict = 0; /* entries freed to respect the budget */
 static uint _log_req_lines = 0;
 static uint _log_snap_lines = 0;
 
@@ -181,6 +226,99 @@ void MxSetNextSoundID(int id)
 	_next_sound_id = id;
 }
 
+/* ---- cache helpers ------------------------------------------------------ */
+
+static SndCacheEntry *SndCacheFind(int id)
+{
+	if (id < 0) return NULL;
+	for (int i = 0; i < SND_CACHE_SLOTS; i++) {
+		if (_snd_cache[i].chip != NULL && _snd_cache[i].snd_id == id) return &_snd_cache[i];
+	}
+	return NULL;
+}
+
+/** Free the least-recently-used UNPINNED entry. Pinned entries are still
+ * referenced by a mixer slot (possibly being read by Paula DMA right now)
+ * and must never be freed. Returns the now-free slot, NULL if all pinned. */
+static SndCacheEntry *SndCacheEvictOne()
+{
+	SndCacheEntry *victim = NULL;
+	for (int i = 0; i < SND_CACHE_SLOTS; i++) {
+		SndCacheEntry *e = &_snd_cache[i];
+		if (e->chip == NULL || e->pins > 0) continue;
+		if (victim == NULL || e->last_use < victim->last_use) victim = e;
+	}
+	if (victim == NULL) return NULL;
+	AmigaAudio_FreeSample(victim->chip);
+	_snd_cache_bytes -= victim->len;
+	victim->chip = NULL;
+	victim->snd_id = -1;
+	victim->len = 0;
+	_cnt_cache_evict++;
+	return victim;
+}
+
+/** Evict LRU entries until 'need' more bytes fit the budget. */
+static bool SndCacheMakeRoom(uint32 need)
+{
+	if (need > SND_CACHE_BUDGET) return false;
+	while (_snd_cache_bytes + need > SND_CACHE_BUDGET) {
+		if (SndCacheEvictOne() == NULL) return false;   /* all pinned */
+	}
+	return true;
+}
+
+/** Drop every unpinned entry - used when Chip RAM itself runs out: a live
+ * allocation for the game must win over cached copies. */
+static void SndCacheFlushUnpinned()
+{
+	while (SndCacheEvictOne() != NULL) {}
+}
+
+/** Adopt the freshly converted, slot-owned sample of mc into the cache.
+ * On success the cache owns mc->chip and the slot holds a pin; on failure
+ * the slot simply keeps owning it (pre-cache behaviour). */
+static void SndCacheAdopt(MixerChannel *mc)
+{
+	if (mc->snd_id < 0 || !SndCacheMakeRoom(mc->chip_len)) {
+		_cnt_cache_skip++;
+		return;
+	}
+	SndCacheEntry *e = NULL;
+	for (int i = 0; i < SND_CACHE_SLOTS; i++) {
+		if (_snd_cache[i].chip == NULL) { e = &_snd_cache[i]; break; }
+	}
+	if (e == NULL) e = SndCacheEvictOne();   /* bytes fit but no slot: make one */
+	if (e == NULL) {
+		_cnt_cache_skip++;
+		return;
+	}
+	e->snd_id = mc->snd_id;
+	e->chip = mc->chip;
+	e->len = mc->chip_len;
+	e->period = mc->period;
+	e->last_use = ++_snd_cache_tick;
+	e->pins = 1;              /* this slot's reference */
+	_snd_cache_bytes += e->len;
+	mc->cache = e;
+}
+
+/** Release a slot's reference to its sample: unpin a cached entry (the
+ * cache keeps the memory) or free a slot-owned buffer. Only ever called
+ * when the slot is not playing (hw < 0, CMD_WRITE confirmed complete) or
+ * after AmigaAudio_Close() aborted all DMA. */
+static void ReleaseSlotSample(MixerChannel *mc)
+{
+	if (mc->cache != NULL) {
+		if (mc->cache->pins > 0) mc->cache->pins--;
+		mc->cache = NULL;
+		mc->chip = NULL;   /* memory stays with the cache */
+	} else {
+		AmigaAudio_FreeSample(mc->chip);
+		mc->chip = NULL;
+	}
+}
+
 static int ChannelsInUse()
 {
 	int n = 0;
@@ -213,10 +351,12 @@ MixerChannel *MxAllocateChannel()
 	for (int i = 0; i < AMIGA_AUDIO_CHANNELS; i++) {
 		MixerChannel *mc = &_mx[i];
 		if (mc->hw >= 0) continue;   /* still playing */
-		/* Lazy free of the previous effect's Chip RAM copy, mirroring the
-		 * original mixer's lazy free() of mc->memory in this same spot. */
-		AmigaAudio_FreeSample(mc->chip);
-		mc->chip = NULL;
+		/* Lazy release of the previous effect's sample, mirroring the
+		 * original mixer's lazy free() of mc->memory in this same spot:
+		 * unpins a cached entry (making it evictable), frees an uncached
+		 * one. hw < 0 proves the Paula write completed, so no DMA can
+		 * still be reading it. */
+		ReleaseSlotSample(mc);
 		mc->chip_len = 0;
 		mc->period = 0;
 		mc->vol_left = mc->vol_right = 0;
@@ -250,6 +390,23 @@ void MxSetChannelRawSrc(MixerChannel *mc, int8 *mem, size_t size, uint rate, boo
 	mc->dbg_bits = is16bit ? 16 : 8;
 	mc->dbg_insamples = n;
 
+	/* Cache hit: reuse the already-converted Chip RAM sample. mem is still
+	 * OpenTTD's transient per-play buffer and is still freed - only the
+	 * conversion and the Chip RAM allocation are skipped. */
+	SndCacheEntry *ce = SndCacheFind(mc->snd_id);
+	if (ce != NULL) {
+		_cnt_cache_hit++;
+		ce->last_use = ++_snd_cache_tick;
+		ce->pins++;              /* released when this slot is next reused */
+		mc->cache = ce;
+		mc->chip = ce->chip;
+		mc->chip_len = ce->len;
+		mc->period = ce->period;
+		free(mem);
+		return;
+	}
+	if (mc->snd_id >= 0) _cnt_cache_miss++;
+
 	/* Halve the rate (= take every 2^k-th sample) until Paula can do it.
 	 * The rate comes from this sample's WAV header - never assumed. */
 	uint32 step = 1;
@@ -275,6 +432,12 @@ void MxSetChannelRawSrc(MixerChannel *mc, int8 *mem, size_t size, uint rate, boo
 
 	mc->chip = (int8 *)AmigaAudio_AllocSample(out);
 	if (mc->chip == NULL) {
+		/* Chip RAM exhausted: the cache must yield to a live sound.
+		 * Drop every unpinned cached sample and retry once. */
+		SndCacheFlushUnpinned();
+		mc->chip = (int8 *)AmigaAudio_AllocSample(out);
+	}
+	if (mc->chip == NULL) {
 		_cnt_convfail++;
 		if (_log_req_lines < AMIGA_SND_REQLOG) {
 			_log_req_lines++;
@@ -297,6 +460,10 @@ void MxSetChannelRawSrc(MixerChannel *mc, int8 *mem, size_t size, uint rate, boo
 	mc->period = PAL_CLOCK / r;
 
 	free(mem);
+
+	/* Keep the converted copy for the next play of this sound. On failure
+	 * the slot keeps owning mc->chip and frees it lazily, as before. */
+	SndCacheAdopt(mc);
 }
 
 void MxSetChannelVolume(MixerChannel *mc, uint left, uint right)
@@ -409,18 +576,29 @@ const char *SoundDriver_Amiga::Start(const char * const *parm)
 {
 	for (int i = 0; i < AMIGA_AUDIO_CHANNELS; i++) {
 		_mx[i].chip = NULL;
+		_mx[i].cache = NULL;
 		_mx[i].chip_len = 0;
 		_mx[i].hw = -1;
 		_mx[i].snd_id = -1;
 		_mx[i].ambient = false;
 	}
+	for (int i = 0; i < SND_CACHE_SLOTS; i++) {
+		_snd_cache[i].snd_id = -1;
+		_snd_cache[i].chip = NULL;
+		_snd_cache[i].len = 0;
+		_snd_cache[i].period = 0;
+		_snd_cache[i].last_use = 0;
+		_snd_cache[i].pins = 0;
+	}
+	_snd_cache_bytes = 0;
+	_snd_cache_tick = 0;
 	_paula_active = (AmigaAudio_Open() != 0);
 
 	remove(AMIGA_SND_LOG);   /* fresh log per run */
-	SndLog("AMIGA-PAULA-SOUND-v2 %s",
+	SndLog("AMIGA-PAULA-SOUND-v3-SNDCACHE %s",
 			_paula_active ? "Paula: 4 channels allocated" : "Paula UNAVAILABLE - running silent");
 
-	DEBUG(driver, 1, "amiga_s: AMIGA-PAULA-SOUND-v2 %s",
+	DEBUG(driver, 1, "amiga_s: AMIGA-PAULA-SOUND-v3-SNDCACHE %s",
 			_paula_active ? "(4 Paula channels allocated)" : "(audio.device unavailable, running silent)");
 	/* NEVER report failure: in 1.0.5 an explicitly selected driver whose
 	 * Start returns an error is a fatal usererror(). Degrade to silence. */
@@ -438,23 +616,43 @@ void SoundDriver_Amiga::MainLoop()
 	_cnt_ml++;
 	if ((_cnt_ml & 1023) == 0 && _log_snap_lines < AMIGA_SND_SNAPLOG) {
 		_log_snap_lines++;
-		SndLog("S ml=%u req=%u play=%u noslot=%u nochan=%u ambfull=%u reg0=%u conv=%u reap=%u use=%d",
+		SndLog("S ml=%u req=%u play=%u noslot=%u nochan=%u ambfull=%u reg0=%u conv=%u reap=%u use=%d $h=%u $m=%u $%uK",
 				_cnt_ml, _cnt_req, _cnt_play, _cnt_noslot, _cnt_nochan,
-				_cnt_ambfull, _cnt_reg0, _cnt_convfail, _cnt_reap, ChannelsInUse());
+				_cnt_ambfull, _cnt_reg0, _cnt_convfail, _cnt_reap, ChannelsInUse(),
+				_cnt_cache_hit, _cnt_cache_miss, _snd_cache_bytes >> 10);
 	}
 }
 
 void SoundDriver_Amiga::Stop()
 {
+	int entries = 0;
+	for (int i = 0; i < SND_CACHE_SLOTS; i++) {
+		if (_snd_cache[i].chip != NULL) entries++;
+	}
 	SndLog("F req=%u play=%u noslot=%u nochan=%u ambfull=%u reg0=%u conv=%u reap=%u ml=%u use=%d",
 			_cnt_req, _cnt_play, _cnt_noslot, _cnt_nochan, _cnt_ambfull,
 			_cnt_reg0, _cnt_convfail, _cnt_reap, _cnt_ml, ChannelsInUse());
+	/* The one-shot cache summary (the "log once, not per play" line). */
+	SndLog("C cache hit=%u miss=%u skip=%u evict=%u held=%uK/%uK entries=%d",
+			_cnt_cache_hit, _cnt_cache_miss, _cnt_cache_skip, _cnt_cache_evict,
+			_snd_cache_bytes >> 10, SND_CACHE_BUDGET >> 10, entries);
 
 	_paula_active = false;
 	AmigaAudio_Close();   /* aborts anything still playing, frees channels */
+	/* All DMA is stopped now, so freeing is safe. Release the slots first
+	 * (unpins cached entries, frees slot-owned buffers)... */
 	for (int i = 0; i < AMIGA_AUDIO_CHANNELS; i++) {
-		AmigaAudio_FreeSample(_mx[i].chip);
-		_mx[i].chip = NULL;
+		ReleaseSlotSample(&_mx[i]);
 		_mx[i].hw = -1;
 	}
+	/* ...then free every cache entry. Everything is unpinned by now, but
+	 * free unconditionally anyway: this is shutdown, nothing may leak. */
+	for (int i = 0; i < SND_CACHE_SLOTS; i++) {
+		AmigaAudio_FreeSample(_snd_cache[i].chip);
+		_snd_cache[i].chip = NULL;
+		_snd_cache[i].snd_id = -1;
+		_snd_cache[i].len = 0;
+		_snd_cache[i].pins = 0;
+	}
+	_snd_cache_bytes = 0;
 }

@@ -1,6 +1,6 @@
 diff -ruN a/debug.cpp b/debug.cpp
---- a/debug.cpp	2026-07-21 10:46:10.703508300 +0200
-+++ b/debug.cpp	2026-07-21 10:46:11.222503900 +0200
+--- a/debug.cpp	2026-07-21 15:47:41.362411500 +0200
++++ b/debug.cpp	2026-07-21 15:47:41.932301900 +0200
 @@ -86,7 +86,7 @@
  		_sntprintf(tbuf, sizeof(tbuf), _T("%s"), OTTD2FS(dbg));
  		NKDbgPrintfW(_T("dbg: [%s] %s\n"), tbuf, OTTD2FS(buf));
@@ -11,8 +11,8 @@ diff -ruN a/debug.cpp b/debug.cpp
  		IConsoleDebug(dbg, buf);
  	} else {
 diff -ruN a/fileio.cpp b/fileio.cpp
---- a/fileio.cpp	2026-07-21 10:46:10.607506100 +0200
-+++ b/fileio.cpp	2026-07-21 10:46:11.218503500 +0200
+--- a/fileio.cpp	2026-07-21 15:47:41.240523800 +0200
++++ b/fileio.cpp	2026-07-21 15:47:41.927788700 +0200
 @@ -22,11 +22,13 @@
  #include <Path.h>
  #include <storage/FindDirectory.h>
@@ -38,8 +38,8 @@ diff -ruN a/fileio.cpp b/fileio.cpp
  	ttd_strlcpy(buf, name, MAX_PATH);
  
 diff -ruN a/fios.cpp b/fios.cpp
---- a/fios.cpp	2026-07-21 10:46:10.764507300 +0200
-+++ b/fios.cpp	2026-07-21 10:46:11.219504400 +0200
+--- a/fios.cpp	2026-07-21 15:47:41.457830200 +0200
++++ b/fios.cpp	2026-07-21 15:47:41.929300000 +0200
 @@ -110,7 +110,7 @@
  			s = strrchr(path, PATHSEPCHAR);
  			if (s != NULL) {
@@ -59,8 +59,8 @@ diff -ruN a/fios.cpp b/fios.cpp
  		unsigned char sepchar = _fios_path[(strlen(_fios_path) - 1)];
  
 diff -ruN a/fontcache.cpp b/fontcache.cpp
---- a/fontcache.cpp	2026-07-21 10:46:10.770508300 +0200
-+++ b/fontcache.cpp	2026-07-21 10:46:10.862502600 +0200
+--- a/fontcache.cpp	2026-07-21 15:47:41.375408400 +0200
++++ b/fontcache.cpp	2026-07-21 15:47:41.564735700 +0200
 @@ -22,6 +22,9 @@
  /** Semi-constant for the height of the different sizes of fonts. */
  int _font_height[FS_END];
@@ -119,8 +119,8 @@ diff -ruN a/fontcache.cpp b/fontcache.cpp
  }
  
 diff -ruN a/fontcache.h b/fontcache.h
---- a/fontcache.h	2026-07-21 10:46:10.707506700 +0200
-+++ b/fontcache.h	2026-07-21 10:46:11.110506100 +0200
+--- a/fontcache.h	2026-07-21 15:47:41.353119200 +0200
++++ b/fontcache.h	2026-07-21 15:47:41.809042100 +0200
 @@ -73,12 +73,23 @@
  }
  
@@ -147,8 +147,8 @@ diff -ruN a/fontcache.h b/fontcache.h
  
  #endif /* WITH_FREETYPE */
 diff -ruN a/genworld.cpp b/genworld.cpp
---- a/genworld.cpp	2026-07-21 10:46:10.700507000 +0200
-+++ b/genworld.cpp	2026-07-21 10:46:11.217503500 +0200
+--- a/genworld.cpp	2026-07-21 15:47:41.335289400 +0200
++++ b/genworld.cpp	2026-07-21 15:47:41.934300900 +0200
 @@ -97,6 +97,7 @@
  {
  	try {
@@ -240,9 +240,42 @@ diff -ruN a/genworld.cpp b/genworld.cpp
  		_generating_world = false;
  		_genworld_mapgen_mutex->EndCritical();
  		throw;
+@@ -271,9 +289,14 @@
+  * @param size_y The Y-size of the map.
+  * @param reset_settings Whether to reset the game configuration (used for restart)
+  */
++/* AMIGA: startup free-memory probe, implemented in video/amiga_gfx.c
++ * (AvailMem needs Amiga headers, which must never be included from C++). */
++extern "C" void AmigaMemProbe(const char *label);
++
+ void GenerateWorld(GenWorldMode mode, uint size_x, uint size_y, bool reset_settings)
+ {
+ 	if (_gw.active) return;
++	AmigaMemProbe("genworld:begin");
+ 	_gw.mode   = mode;
+ 	_gw.size_x = size_x;
+ 	_gw.size_y = size_y;
+@@ -293,6 +316,7 @@
+ 	SetDate(ConvertYMDToDate(_settings_game.game_creation.starting_year, 0, 1));
+ 
+ 	InitializeGame(_gw.size_x, _gw.size_y, false, reset_settings);
++	AmigaMemProbe("genworld:post-InitGame");
+ 	PrepareGenerateWorldProgress();
+ 
+ 	/* Load the right landscape stuff */
+@@ -317,7 +341,9 @@
+ 		DEBUG(misc, 1, "Cannot create genworld thread, reverting to single-threaded mode");
+ 		_gw.threaded = false;
+ 		_genworld_mapgen_mutex->EndCritical();
++		AmigaMemProbe("genworld:pre-generate");
+ 		_GenerateWorld(NULL);
++		AmigaMemProbe("genworld:post-generate");
+ 		_genworld_mapgen_mutex->BeginCritical();
+ 		return;
+ 	}
 diff -ruN a/gfx_func.h b/gfx_func.h
---- a/gfx_func.h	2026-07-21 10:46:10.566505100 +0200
-+++ b/gfx_func.h	2026-07-21 10:46:11.223504400 +0200
+--- a/gfx_func.h	2026-07-21 15:47:41.365409100 +0200
++++ b/gfx_func.h	2026-07-21 15:47:41.933302200 +0200
 @@ -64,6 +64,14 @@
  extern DrawPixelInfo _screen;
  extern bool _screen_disable_anim;   ///< Disable palette animation (important for 32bpp-anim blitter during giant screenshot)
@@ -258,9 +291,49 @@ diff -ruN a/gfx_func.h b/gfx_func.h
  extern int _pal_first_dirty;
  extern int _pal_count_dirty;
  extern int _num_resolutions;
+diff -ruN a/gfxinit.cpp b/gfxinit.cpp
+--- a/gfxinit.cpp	2026-07-21 15:47:41.363409100 +0200
++++ b/gfxinit.cpp	2026-07-21 15:47:41.929300000 +0200
+@@ -41,6 +41,10 @@
+ 	_landscape_spriteindexes_3,
+ };
+ 
++/* AMIGA: startup free-memory probe, implemented in video/amiga_gfx.c
++ * (AvailMem needs Amiga headers, which must never be included from C++). */
++extern "C" void AmigaMemProbe(const char *label);
++
+ static uint LoadGrfFile(const char *filename, uint load_index, int file_index)
+ {
+ 	uint load_index_org = load_index;
+@@ -186,7 +190,9 @@
+ 	master->next = top;
+ 	_grfconfig = master;
+ 
++	AmigaMemProbe("gfx:pre-LoadNewGRF");
+ 	LoadNewGRF(SPR_NEWGRFS_BASE, i);
++	AmigaMemProbe("gfx:post-LoadNewGRF");
+ 
+ 	/* Free and remove the top element. */
+ 	ClearGRFConfig(&master);
+@@ -198,11 +204,15 @@
+ {
+ 	DEBUG(sprite, 2, "Loading sprite set %d", _settings_game.game_creation.landscape);
+ 
++	AmigaMemProbe("gfx:LoadSprites-begin");
+ 	GfxInitSpriteMem();
++	AmigaMemProbe("gfx:post-InitSpriteMem");
+ 	LoadSpriteTables();
++	AmigaMemProbe("gfx:post-LoadSpriteTables");
+ 	GfxInitPalettes();
+ 
+ 	UpdateCursorSize();
++	AmigaMemProbe("gfx:LoadSprites-end");
+ }
+ 
+ bool GraphicsSet::FillSetDetails(IniFile *ini, const char *path, const char *full_filename)
 diff -ruN a/intro_gui.cpp b/intro_gui.cpp
---- a/intro_gui.cpp	2026-07-21 10:46:10.572504500 +0200
-+++ b/intro_gui.cpp	2026-07-21 10:46:11.218503500 +0200
+--- a/intro_gui.cpp	2026-07-21 15:47:41.377409300 +0200
++++ b/intro_gui.cpp	2026-07-21 15:47:41.927788700 +0200
 @@ -61,6 +61,14 @@
  	SelectGameWindow(const WindowDesc *desc) : Window()
  	{
@@ -277,8 +350,8 @@ diff -ruN a/intro_gui.cpp b/intro_gui.cpp
  		this->SetLandscapeButtons();
  	}
 diff -ruN a/landscape.cpp b/landscape.cpp
---- a/landscape.cpp	2026-07-21 10:46:10.573503600 +0200
-+++ b/landscape.cpp	2026-07-21 10:46:11.215503500 +0200
+--- a/landscape.cpp	2026-07-21 15:47:41.366409400 +0200
++++ b/landscape.cpp	2026-07-21 15:47:41.925216400 +0200
 @@ -871,6 +871,8 @@
  	};
  	uint steps = (_settings_game.game_creation.landscape == LT_TROPIC) ? GLS_TROPIC : GLS_OTHER;
@@ -302,9 +375,22 @@ diff -ruN a/landscape.cpp b/landscape.cpp
  
  	if (_settings_game.game_creation.landscape == LT_TROPIC) CreateDesertOrRainForest();
  }
+diff -ruN a/lang/english.txt b/lang/english.txt
+--- a/lang/english.txt	2026-07-21 15:47:40.956283300 +0200
++++ b/lang/english.txt	2026-07-21 15:47:41.658393300 +0200
+@@ -1297,7 +1297,9 @@
+ STR_CONFIG_SETTING_LARGER_TOWNS_DISABLED                        :{LTBLUE}Proportion of towns that will become cities: {ORANGE}None
+ STR_CONFIG_SETTING_CITY_SIZE_MULTIPLIER                         :{LTBLUE}Initial city size multiplier: {ORANGE}{STRING1}
+ STR_CONFIG_SETTING_MODIFIED_ROAD_REBUILD                        :{LTBLUE}Remove absurd road-elements during the road construction: {ORANGE}{STRING1}
++STR_CONFIG_SETTING_AMIGA_WB_BAR                                 :{LTBLUE}Workbench bar visible (allows flip to Workbench, costs game area): {ORANGE}{STRING1}
+ 
++STR_CONFIG_SETTING_AMIGA                                        :{ORANGE}Amiga
+ STR_CONFIG_SETTING_GUI                                          :{ORANGE}Interface
+ STR_CONFIG_SETTING_CONSTRUCTION                                 :{ORANGE}Construction
+ STR_CONFIG_SETTING_VEHICLES                                     :{ORANGE}Vehicles
 diff -ruN a/main_gui.cpp b/main_gui.cpp
---- a/main_gui.cpp	2026-07-21 10:46:10.694506700 +0200
-+++ b/main_gui.cpp	2026-07-21 10:46:11.222503900 +0200
+--- a/main_gui.cpp	2026-07-21 15:47:41.417252500 +0200
++++ b/main_gui.cpp	2026-07-21 15:47:41.933302200 +0200
 @@ -30,6 +30,7 @@
  #include "toolbar_gui.h"
  #include "statusbar_gui.h"
@@ -362,8 +448,8 @@ diff -ruN a/main_gui.cpp b/main_gui.cpp
  
  #if defined(_DEBUG)
 diff -ruN a/network/core/os_abstraction.h b/network/core/os_abstraction.h
---- a/network/core/os_abstraction.h	2026-07-21 10:46:10.781503600 +0200
-+++ b/network/core/os_abstraction.h	2026-07-21 10:46:11.202504800 +0200
+--- a/network/core/os_abstraction.h	2026-07-21 15:47:41.034041300 +0200
++++ b/network/core/os_abstraction.h	2026-07-21 15:47:41.911901500 +0200
 @@ -158,7 +158,7 @@
  #		include <arpa/inet.h>
  #		include <net/if.h>
@@ -374,8 +460,8 @@ diff -ruN a/network/core/os_abstraction.h b/network/core/os_abstraction.h
  /* If for any reason ifaddrs.h does not exist on your system, comment out
   *   the following two lines and an alternative way will be used to fetch
 diff -ruN a/news_type.h b/news_type.h
---- a/news_type.h	2026-07-21 10:46:10.406537400 +0200
-+++ b/news_type.h	2026-07-21 10:46:11.005503700 +0200
+--- a/news_type.h	2026-07-21 15:47:41.250309600 +0200
++++ b/news_type.h	2026-07-21 15:47:41.702171300 +0200
 @@ -123,7 +123,7 @@
  		name(name),
  		age(age),
@@ -385,9 +471,91 @@ diff -ruN a/news_type.h b/news_type.h
  		description(description)
  	{
  	}
+diff -ruN a/openttd.cpp b/openttd.cpp
+--- a/openttd.cpp	2026-07-21 15:47:41.250309600 +0200
++++ b/openttd.cpp	2026-07-21 15:47:41.932301900 +0200
+@@ -355,8 +355,13 @@
+ 	FioCloseAll();
+ }
+ 
++/* AMIGA: startup free-memory probe, implemented in video/amiga_gfx.c
++ * (AvailMem needs Amiga headers, which must never be included from C++). */
++extern "C" void AmigaMemProbe(const char *label);
++
+ static void LoadIntroGame()
+ {
++	AmigaMemProbe("intro:begin");
+ 	_game_mode = GM_MENU;
+ 
+ 	ResetGRFConfig(false);
+@@ -365,6 +370,7 @@
+ 	ResetWindowSystem();
+ 	SetupColoursAndInitialWindow();
+ 
++	AmigaMemProbe("intro:pre-opntitle");
+ 	/* Load the default opening screen savegame */
+ 	if (SaveOrLoad("opntitle.dat", SL_LOAD, DATA_DIR) != SL_OK) {
+ 		GenerateWorld(GWM_EMPTY, 64, 64); // if failed loading, make empty world.
+@@ -373,6 +379,7 @@
+ 	} else {
+ 		SetLocalCompany(COMPANY_FIRST);
+ 	}
++	AmigaMemProbe("intro:post-opntitle");
+ 
+ 	_pause_mode = PM_UNPAUSED;
+ 	_cursor.fix_at = false;
+@@ -382,6 +389,7 @@
+ 
+ 	/* Play main theme */
+ 	if (_music_driver->IsSongPlaying()) ResetMusic();
++	AmigaMemProbe("intro:end");
+ }
+ 
+ void MakeNewgameSettingsLive()
+@@ -562,9 +570,11 @@
+ #endif
+ 
+ 	DeterminePaths(argv[0]);
++	AmigaMemProbe("main:start");
+ 	BaseGraphics::FindSets();
+ 	BaseSounds::FindSets();
+ 	BaseMusic::FindSets();
++	AmigaMemProbe("main:post-FindSets");
+ 
+ #if defined(UNIX) && !defined(__MORPHOS__)
+ 	/* We must fork here, or we'll end up without some resources we need (like sockets) */
+@@ -708,7 +718,9 @@
+ 	}
+ #endif /* ENABLE_NETWORK */
+ 
++	AmigaMemProbe("main:pre-ScanNewGRF");
+ 	ScanNewGRFFiles();
++	AmigaMemProbe("main:post-ScanNewGRF");
+ 
+ 	ResetGRFConfig(false);
+ 
+@@ -725,8 +737,10 @@
+ 	_genworld_paint_mutex->BeginCritical();
+ 	_genworld_mapgen_mutex->BeginCritical();
+ 
++	AmigaMemProbe("main:pre-empty-world");
+ 	GenerateWorld(GWM_EMPTY, 64, 64); // Make the viewport initialization happy
+ 	WaitTillGeneratedWorld();
++	AmigaMemProbe("main:post-empty-world");
+ 
+ 	CheckForMissingGlyphsInLoadedLanguagePack();
+ 
+@@ -757,6 +771,7 @@
+ 	}
+ #endif /* ENABLE_NETWORK */
+ 
++	AmigaMemProbe("main:enter-MainLoop");
+ 	_video_driver->MainLoop();
+ 
+ 	WaitTillSaved();
 diff -ruN a/os/unix/crashlog_unix.cpp b/os/unix/crashlog_unix.cpp
---- a/os/unix/crashlog_unix.cpp	2026-07-21 10:46:10.508537300 +0200
-+++ b/os/unix/crashlog_unix.cpp	2026-07-21 10:46:11.121502900 +0200
+--- a/os/unix/crashlog_unix.cpp	2026-07-21 15:47:41.048824000 +0200
++++ b/os/unix/crashlog_unix.cpp	2026-07-21 15:47:41.823400400 +0200
 @@ -19,6 +19,10 @@
  #include <signal.h>
  #include <sys/utsname.h>
@@ -400,8 +568,8 @@ diff -ruN a/os/unix/crashlog_unix.cpp b/os/unix/crashlog_unix.cpp
  /* Execinfo (and thus making stacktraces) is a GNU extension */
  #	include <execinfo.h>
 diff -ruN a/os/unix/unix.cpp b/os/unix/unix.cpp
---- a/os/unix/unix.cpp	2026-07-21 10:46:10.508537300 +0200
-+++ b/os/unix/unix.cpp	2026-07-21 10:46:11.121502900 +0200
+--- a/os/unix/unix.cpp	2026-07-21 15:47:41.050039000 +0200
++++ b/os/unix/unix.cpp	2026-07-21 15:47:41.823400400 +0200
 @@ -44,6 +44,12 @@
  
  #ifdef __AMIGA__
@@ -535,8 +703,8 @@ diff -ruN a/os/unix/unix.cpp b/os/unix/unix.cpp
 +unsigned long __stack = 1024 * 1024; /* OpenTTD needs a large stack on AmigaOS */
 +#endif
 diff -ruN a/rail_cmd.cpp b/rail_cmd.cpp
---- a/rail_cmd.cpp	2026-07-21 10:46:10.410503600 +0200
-+++ b/rail_cmd.cpp	2026-07-21 10:46:11.217503500 +0200
+--- a/rail_cmd.cpp	2026-07-21 15:47:41.089721500 +0200
++++ b/rail_cmd.cpp	2026-07-21 15:47:41.927218200 +0200
 @@ -11,6 +11,7 @@
  
  #include "stdafx.h"
@@ -571,8 +739,8 @@ diff -ruN a/rail_cmd.cpp b/rail_cmd.cpp
  
  		if (ret.Failed()) {
 diff -ruN a/saveload/saveload.cpp b/saveload/saveload.cpp
---- a/saveload/saveload.cpp	2026-07-21 10:46:10.596505700 +0200
-+++ b/saveload/saveload.cpp	2026-07-21 10:46:10.899507000 +0200
+--- a/saveload/saveload.cpp	2026-07-21 15:47:41.224147200 +0200
++++ b/saveload/saveload.cpp	2026-07-21 15:47:41.598834200 +0200
 @@ -192,6 +192,9 @@
   * pretty ugly, and seriously interferes with any multithreaded approaches */
  static void NORETURN SlError(StringID string, const char *extra_msg = NULL)
@@ -667,9 +835,135 @@ diff -ruN a/saveload/saveload.cpp b/saveload/saveload.cpp
  		}
  
  		return SL_OK;
+diff -ruN a/settings.cpp b/settings.cpp
+--- a/settings.cpp	2026-07-21 15:47:41.090730600 +0200
++++ b/settings.cpp	2026-07-21 15:47:41.880512400 +0200
+@@ -697,6 +697,19 @@
+ 	return true;
+ }
+ 
++#ifdef __AMIGA__
++/* Defined in video/amiga_v.cpp: reopens the game screen so the new
++ * "Workbench bar" state takes effect immediately, exactly like a resolution
++ * change. A plain function on purpose - this file must not see Amiga types. */
++extern void AmigaWorkbenchBarChanged();
++
++static bool AmigaWbBarToggled(int32 p1)
++{
++	AmigaWorkbenchBarChanged();
++	return true;
++}
++#endif /* __AMIGA__ */
++
+ static bool InvalidateTownViewWindow(int32 p1)
+ {
+ 	InvalidateWindowClassesData(WC_TOWN_VIEW, p1);
+diff -ruN a/settings_gui.cpp b/settings_gui.cpp
+--- a/settings_gui.cpp	2026-07-21 15:47:40.857929500 +0200
++++ b/settings_gui.cpp	2026-07-21 15:47:41.929300000 +0200
+@@ -88,10 +88,26 @@
+ 	return STR_UNDEFINED;
+ }
+ 
++#ifdef __AMIGA__
++/* See the "resolution-list hooks" block in video/amiga_v.cpp. Declared here the
++ * way AmigaWorkbenchBarChanged() is in settings.cpp, so no generic header has
++ * to know about the Amiga video driver. */
++extern int  AmigaGetResolutionIndex();
++extern void AmigaSetResolutionIndex(int index);
++#endif
++
+ static int GetCurRes()
+ {
+ 	int i;
+ 
++#ifdef __AMIGA__
++	/* The Amiga driver offers the same size on two backends - 640x480 exists
++	 * as an AGA mode and as an RTG mode - so the search below, which matches on
++	 * width and height alone, would always report the AGA entry and mislabel an
++	 * RTG screen. The driver knows exactly which entry it opened. */
++	return AmigaGetResolutionIndex();
++#endif
++
+ 	for (i = 0; i != _num_resolutions; i++) {
+ 		if ((int)_resolutions[i].width == _screen.width &&
+ 				(int)_resolutions[i].height == _screen.height) {
+@@ -418,6 +434,14 @@
+ 				break;
+ 
+ 			case GOW_RESOLUTION_DROPDOWN: // Change resolution
++#ifdef __AMIGA__
++				/* ChangeResInGame passes on a width and a height only, and on
++				 * the Amiga that pair is ambiguous: 640x480 is offered both as
++				 * an AGA mode and as an RTG one. Hand the driver the entry the
++				 * player actually clicked, which is not ambiguous, BEFORE the
++				 * call that acts on it. */
++				AmigaSetResolutionIndex(index);
++#endif
+ 				if (index < _num_resolutions && ChangeResInGame(_resolutions[index].width, _resolutions[index].height)) {
+ 					this->SetDirty();
+ 				}
+@@ -1468,7 +1492,20 @@
+ /** Vehicles sub-page */
+ static SettingsPage _settings_vehicles_page = {_settings_vehicles, lengthof(_settings_vehicles)};
+ 
++#ifdef __AMIGA__
++static SettingEntry _settings_amiga[] = {
++	SettingEntry("amiga.wb_bar"),
++};
++/** Amiga sub-page: options of the native Amiga port. Every future amiga.*
++ * setting (table/settings.h) gets a SettingEntry here. */
++static SettingsPage _settings_amiga_page = {_settings_amiga, lengthof(_settings_amiga)};
++#endif
++
+ static SettingEntry _settings_main[] = {
++#ifdef __AMIGA__
++	/* Deliberately FIRST: the home of all Amiga-only options. */
++	SettingEntry(&_settings_amiga_page,        STR_CONFIG_SETTING_AMIGA),
++#endif
+ 	SettingEntry(&_settings_ui_page,           STR_CONFIG_SETTING_GUI),
+ 	SettingEntry(&_settings_construction_page, STR_CONFIG_SETTING_CONSTRUCTION),
+ 	SettingEntry(&_settings_vehicles_page,     STR_CONFIG_SETTING_VEHICLES),
+diff -ruN a/settings_type.h b/settings_type.h
+--- a/settings_type.h	2026-07-21 15:47:40.859929900 +0200
++++ b/settings_type.h	2026-07-21 15:47:41.928301100 +0200
+@@ -392,11 +392,33 @@
+ 	LocaleSettings       locale;             ///< settings related to used currency/unit system in the current game
+ };
+ 
++/* bebbo's GCC predefines lowercase "amiga" (alongside AMIGA, __AMIGA__, ...),
++ * which would macro-expand both the ClientSettings member below and the
++ * "_settings_client.amiga.wb_bar" reference the SDTC macros build in
++ * table/settings.h. No C++ unit in this port includes Amiga system headers
++ * (they live behind amiga_gfx.c by design), so the macro is never needed. */
++#ifdef amiga
++#undef amiga
++#endif
++
++/** Settings of the native Amiga port. Client-side only (they describe this
++ * machine's display, not the game world); saved under [amiga] in the config.
++ * All future Amiga-only options belong in this struct. */
++struct AmigaSettings {
++	bool   wb_bar;                           ///< keep the system screen title bar visible (flip to Workbench); costs game area
++	bool   rtg;                              ///< the chosen screen mode is a CyberGraphX/Picasso96 one, not AGA
++	                                         ///< Not a user-facing switch: it is written by the video driver whenever a
++	                                         ///< mode is opened, and exists only so a restart can tell the AGA 640x480
++	                                         ///< entry from the RTG one - openttd.cfg stores a width and a height, which
++	                                         ///< on this port is not a unique name for a mode.
++};
++
+ /** All settings that are only important for the local client. */
+ struct ClientSettings {
+ 	GUISettings          gui;                ///< settings related to the GUI
+ 	NetworkSettings      network;            ///< settings related to the network
+ 	CompanySettings      company;            ///< default values for per-company settings
++	AmigaSettings        amiga;              ///< settings of the native Amiga port
+ };
+ 
+ /** The current settings for this game. */
 diff -ruN a/sound.cpp b/sound.cpp
---- a/sound.cpp	2026-07-21 10:46:10.425504200 +0200
-+++ b/sound.cpp	2026-07-21 10:46:11.217503500 +0200
+--- a/sound.cpp	2026-07-21 15:47:40.868304000 +0200
++++ b/sound.cpp	2026-07-21 15:47:41.926215600 +0200
 @@ -168,6 +168,9 @@
  	/* Empty sound? */
  	if (sound->rate == 0) return;
@@ -681,8 +975,8 @@ diff -ruN a/sound.cpp b/sound.cpp
  	if (mc == NULL) return;
  
 diff -ruN a/string_func.h b/string_func.h
---- a/string_func.h	2026-07-21 10:46:10.575503200 +0200
-+++ b/string_func.h	2026-07-21 10:46:10.871543400 +0200
+--- a/string_func.h	2026-07-21 15:47:40.877495900 +0200
++++ b/string_func.h	2026-07-21 15:47:41.572486200 +0200
 @@ -282,7 +282,10 @@
  #endif /* strndup is available */
  
@@ -696,27 +990,48 @@ diff -ruN a/string_func.h b/string_func.h
  #else
  #	define DEFINE_STRCASESTR
 diff -ruN a/strings.cpp b/strings.cpp
---- a/strings.cpp	2026-07-21 10:46:10.431538800 +0200
-+++ b/strings.cpp	2026-07-21 10:46:11.223504400 +0200
-@@ -1242,8 +1242,13 @@
+--- a/strings.cpp	2026-07-21 15:47:41.093985800 +0200
++++ b/strings.cpp	2026-07-21 15:47:41.931301100 +0200
+@@ -1242,9 +1242,25 @@
  	/* resolution size? */
  	if (IsInsideMM(ind, (SPECSTR_RESOLUTION_START - 0x70E4), (SPECSTR_RESOLUTION_END - 0x70E4) + 1)) {
  		int i = ind - (SPECSTR_RESOLUTION_START - 0x70E4);
-+		/* " AGA" so the fixed chipset modes stay identifiable once a
-+		 * Picasso96/RTG backend adds its own modes to this same list.
-+		 * This is the single formatter behind SPECSTR_RESOLUTION_*, so it
-+		 * covers both the closed dropdown label (settings_gui.cpp SetDParam)
-+		 * and the open dropdown list (BuildDynamicDropdown). */
++		/* " AGA" / " RTG" so the two kinds of mode stay unmistakable: the list
++		 * holds fixed-chipset modes and Picasso96/CyberGraphX modes together,
++		 * and 640x480 appears on both. This is the single formatter behind
++		 * SPECSTR_RESOLUTION_*, so it covers the closed dropdown label
++		 * (settings_gui.cpp SetDParam) and the open dropdown list
++		 * (BuildDynamicDropdown) alike. */
++#ifdef __AMIGA__
++		/* Declared locally, like AmigaWorkbenchBarChanged() in settings.cpp -
++		 * see the "resolution-list hooks" block in video/amiga_v.cpp. */
++		extern const char *AmigaResolutionSuffix(int index);
++		buff += seprintf(
++			buff, last, "%ux%u%s", _resolutions[i].width, _resolutions[i].height,
++			AmigaResolutionSuffix(i)
++		);
++#else
  		buff += seprintf(
--			buff, last, "%ux%u", _resolutions[i].width, _resolutions[i].height
-+			buff, last, "%ux%u AGA", _resolutions[i].width, _resolutions[i].height
+ 			buff, last, "%ux%u", _resolutions[i].width, _resolutions[i].height
  		);
++#endif
  		return buff;
  	}
+ 
 diff -ruN a/table/settings.h b/table/settings.h
---- a/table/settings.h	2026-07-21 10:46:10.537506800 +0200
-+++ b/table/settings.h	2026-07-21 10:46:10.965507100 +0200
-@@ -317,7 +317,7 @@
+--- a/table/settings.h	2026-07-21 15:47:41.440235100 +0200
++++ b/table/settings.h	2026-07-21 15:47:41.677186900 +0200
+@@ -36,6 +36,9 @@
+ static bool ChangeDynamicEngines(int32 p1);
+ static bool StationCatchmentChanged(int32 p1);
+ static bool InvalidateVehTimetableWindow(int32 p1);
++#ifdef __AMIGA__
++static bool AmigaWbBarToggled(int32 p1);
++#endif
+ 
+ #ifdef ENABLE_NETWORK
+ static bool UpdateClientName(int32 p1);
+@@ -317,7 +320,7 @@
  	    SDT_OMANY(GameSettings, game_creation.landscape,  SLE_UINT8,                     0, 0, 0, 3, _climates, STR_NULL, NULL, ConvertLandscape),
  	      SDT_VAR(GameSettings, game_creation.snow_line,  SLE_UINT8,                     0, 0, DEF_SNOWLINE_HEIGHT * TILE_HEIGHT, MIN_SNOWLINE_HEIGHT * TILE_HEIGHT, MAX_SNOWLINE_HEIGHT * TILE_HEIGHT, 0, STR_NULL, NULL),
  	 SDT_CONDNULL(                                                1,  0, 22),
@@ -725,7 +1040,7 @@ diff -ruN a/table/settings.h b/table/settings.h
  	    SDT_OMANY(GameSettings, vehicle.road_side,        SLE_UINT8,                     0, 0, 1, 1, _roadsides, STR_NULL, NULL, NULL),
  	    SDT_END()
  };
-@@ -540,7 +540,7 @@
+@@ -540,7 +543,7 @@
  
  	/***************************************************************************/
  	/* Unsaved setting variables. */
@@ -734,9 +1049,31 @@ diff -ruN a/table/settings.h b/table/settings.h
  	 SDTC_BOOL(gui.threaded_saves,                       S,  0,  true,                        STR_NULL,                                       NULL),
  	SDTC_OMANY(gui.date_format_in_default_names,SLE_UINT8,S,MS, 0, 2, _savegame_date,         STR_CONFIG_SETTING_DATE_FORMAT_IN_SAVE_NAMES,   NULL),
  	 SDTC_BOOL(gui.vehicle_speed,                        S,  0,  true,                        STR_CONFIG_SETTING_VEHICLESPEED,                NULL),
+@@ -650,6 +653,21 @@
+ 	 SDTC_VAR(gui.right_mouse_btn_emulation, SLE_UINT8, S, MS, 0, 0, 2, 0, STR_CONFIG_SETTING_RIGHT_MOUSE_BTN_EMU, NULL),
+ #endif
+ 
++#ifdef __AMIGA__
++	/* Native Amiga port settings, [amiga] section in openttd.cfg. Client-side
++	 * display preferences, so the SDTC_ (client) macros; conditional entries
++	 * must stay at the END of this array - see the network comment above.
++	 * Add future amiga.* settings here and to the Amiga page in
++	 * settings_gui.cpp. */
++	 SDTC_BOOL(amiga.wb_bar,                             S,  0, false,                        STR_CONFIG_SETTING_AMIGA_WB_BAR,                AmigaWbBarToggled),
++	 /* Written by the video driver, never by the player: STR_NULL keeps it out
++	  * of the settings GUI, and it has no proc because nothing must happen when
++	  * it is loaded - the driver reads it once while building the resolution
++	  * list. It exists purely to disambiguate the AGA and RTG entries that share
++	  * a size (640x480), which openttd.cfg's width/height pair cannot do. */
++	 SDTC_BOOL(amiga.rtg,                                S,  0, false,                        STR_NULL,                                       NULL),
++#endif
++
+ 	SDT_END()
+ };
+ 
 diff -ruN a/tgp.cpp b/tgp.cpp
---- a/tgp.cpp	2026-07-21 10:46:10.773505700 +0200
-+++ b/tgp.cpp	2026-07-21 10:46:11.216503400 +0200
+--- a/tgp.cpp	2026-07-21 15:47:40.888227800 +0200
++++ b/tgp.cpp	2026-07-21 15:47:41.926215600 +0200
 @@ -669,6 +669,10 @@
  		if (water_tiles >= desired_water_tiles) break;
  	}
@@ -869,7 +1206,7 @@ diff -ruN a/tgp.cpp b/tgp.cpp
  }
 diff -ruN a/video/c2p_glue.s b/video/c2p_glue.s
 --- a/video/c2p_glue.s	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/c2p_glue.s	2026-07-21 10:46:10.860541500 +0200
++++ b/video/c2p_glue.s	2026-07-21 15:47:41.562223000 +0200
 @@ -0,0 +1,42 @@
 +; C-callable wrapper around Mikael Kalms' dirty-rectangle c2p.
 +;
@@ -915,7 +1252,7 @@ diff -ruN a/video/c2p_glue.s b/video/c2p_glue.s
 +	include	"c2p_rect.s"
 diff -ruN a/video/c2p_rect.s b/video/c2p_rect.s
 --- a/video/c2p_rect.s	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/c2p_rect.s	2026-07-21 10:46:10.859546200 +0200
++++ b/video/c2p_rect.s	2026-07-21 15:47:41.561222700 +0200
 @@ -0,0 +1,429 @@
 +
 +; C2P a rectangular area between equally-sized chunkybuffer and

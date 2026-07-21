@@ -41,9 +41,55 @@ typedef struct {
 	int code;    /* button id, or raw key code */
 } AmigaGfxEvent;
 
-/* Open a w x h, 256-colour AGA screen. Returns 0 on success, non-zero on
- * failure. w must be a multiple of 32 (the c2p works in 32-pixel columns). */
-int amigagfx_open(int w, int h);
+/* Which display backend a screen runs on. Passed to amigagfx_open() and
+ * reported back by amigagfx_backend() - which is what actually opened, and may
+ * be AGA even when RTG was asked for (see the fallback note on amigagfx_open).
+ *
+ *   AGA - planar Intuition screen, 8 bitplanes in one contiguous Chip RAM
+ *         block, every dirty rectangle pushed through Kalms' chunky-to-planar.
+ *   RTG - 8-bit CyberGraphX/Picasso96 screen. The chunky buffer IS the display
+ *         format there, so the c2p disappears entirely and a blit becomes a
+ *         per-row memcpy into the card's bitmap. No Chip RAM is used at all. */
+#define AMIGAGFX_BACKEND_AGA 0
+#define AMIGAGFX_BACKEND_RTG 1
+
+/* Is an 8-bit RTG mode of at least w x h available on this machine? Returns 0
+ * when cybergraphics.library is missing (a plain AGA Amiga), when the library
+ * offers no matching 8-bit mode, or when the "best" mode it returns turns out
+ * not to be a Cybergraphics mode at all - BestCModeIDTagList happily falls back
+ * to a native chipset mode, which would put us back on the c2p path wearing an
+ * RTG label. Safe to call before amigagfx_open(); used to decide which RTG
+ * entries to offer in the resolution list at all, so an AGA-only machine sees
+ * exactly the list it saw before RTG support existed. */
+int amigagfx_rtg_has_mode(int w, int h);
+
+/* AMIGAGFX_BACKEND_* of the screen currently open (AGA when none is). */
+int amigagfx_backend(void);
+
+/* Open a w x h, 256-colour screen on the requested backend. Returns 0 on
+ * success, non-zero on failure.
+ *
+ * backend AMIGAGFX_BACKEND_RTG asks for a CyberGraphX/Picasso96 8-bit screen
+ * and SILENTLY FALLS BACK to AGA if anything about it fails (no library, no
+ * such mode, OpenScreen refused) - one log line says which and why, and the
+ * game keeps running. amigagfx_backend() then reports AGA.
+ *
+ * On AGA w must be a multiple of 32 (the c2p works in 32-pixel columns); on
+ * RTG there is no such constraint and the caller must not impose one.
+ *
+ * show_bar non-zero keeps the SYSTEM screen title bar visible (the real
+ * Intuition bar with the depth gadget, so the player can flip to Workbench
+ * like any other Amiga program). The bar takes vertical space: the drawable
+ * game area is then w x amigagfx_game_height(), which is h minus the bar
+ * height Intuition reports for the opened screen - it depends on the font
+ * and the mode, so it is never hard-coded. With show_bar 0 the game area is
+ * the full w x h, as before. */
+int amigagfx_open(int w, int h, int show_bar, int backend);
+
+/* Height in pixels of the drawable game area of the currently open screen:
+ * the opened height minus the system title bar when that is visible. This is
+ * what _screen.height must be set to. */
+int amigagfx_game_height(void);
 
 void amigagfx_close(void);
 
@@ -57,8 +103,10 @@ int amigagfx_pitch(void);
 /* rgb points at count*3 bytes. */
 void amigagfx_set_palette(const unsigned char *rgb, int first, int count);
 
-/* Push one dirty rectangle to the screen. x/width are snapped outwards to the
- * 32-pixel grid the c2p requires; clipping is handled here. */
+/* Push one dirty rectangle to the screen. On AGA x/width are snapped outwards
+ * to the 32-pixel grid the c2p requires; on RTG they are used as given, because
+ * that granularity is a c2p property and nothing else needs it. Clipping is
+ * handled here on both backends. */
 void amigagfx_blit(int x, int y, int w, int h);
 
 /* Milliseconds since program start; OpenTTD's main loop needs a ms clock. */
@@ -67,7 +115,8 @@ unsigned long amigagfx_millis(void);
 /* Pops one pending event. Returns 0 when the queue is empty. */
 int amigagfx_poll(AmigaGfxEvent *ev);
 
-/* Move the system pointer to the ABSOLUTE pixel position x,y on OUR screen by
+/* Move the system pointer to the ABSOLUTE pixel position x,y in the GAME AREA
+ * of our screen (the title-bar offset, if any, is added internally) by
  * writing an IECLASS_NEWPOINTERPOS / IESUBCLASS_PIXEL event to input.device
  * (opened lazily, closed again by amigagfx_close). The screen pointer stays
  * internal to amiga_gfx.c. Returns 1 if the event was sent, 0 if it could not
@@ -85,6 +134,16 @@ void amigagfx_log(const char *msg);
  * periodic "blit #N" heartbeat). Off by default for a quiet release log; the
  * C++ driver calls this for "-v amiga:verbose". */
 void amigagfx_set_verbose(int verbose);
+
+/* Startup memory probe: appends one line to PROGDIR:amiga_mem.log with the
+ * label plus AvailMem(MEMF_FAST), AvailMem(MEMF_FAST|MEMF_LARGEST) and
+ * AvailMem(MEMF_CHIP) in KB. Total-free vs largest-block matters: with two
+ * Fast regions (8 MB + 32 MB Z3) fragmentation can move total-free readings
+ * by megabytes with no real change in usage. First call truncates the log;
+ * capped at a fixed number of lines so it can never flood. Safe to call at
+ * any time, including before amigagfx_open(). Lives here because AvailMem
+ * needs Amiga headers, which OpenTTD C++ must never include. */
+void AmigaMemProbe(const char *label);
 
 /* Show the startup splash image (ASPL file, see build/make-splash.py) on the
  * already-open screen: fade in ~0.5 s, hold 2.5 s, fade out ~0.5 s. The image

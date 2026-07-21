@@ -68,6 +68,13 @@
 *.dll
 *.log
 
+# Vendored CyberGraphX developer headers: "Copyright (c) 1996-1998 by phase5
+# digital products", with no redistribution licence we can point to. They are
+# needed to compile the RTG path, but they are not ours to publish - see
+# patches/README.md for where to get them. Replacing them with our own minimal
+# declarations would close this gap.
+/native/openttd/cgx-include/
+
 # Editor / OS noise
 Thumbs.db
 .DS_Store

@@ -17,6 +17,20 @@
  *   - Kalms' c2p_rect for chunky->planar: measured 117 ms for a full 640x512
  *     frame on a 68040/25 versus 388 ms for graphics.library WritePixelArray8
  *   - a backdrop, borderless window purely to receive IDCMP input
+ *
+ * Since 2026-07-21 there is a SECOND display backend here: CyberGraphX/RTG.
+ * On an 8-bit RTG screen the chunky buffer is already the display format, so
+ * the whole chunky-to-planar step - by far the most expensive thing this file
+ * does, 117 ms for a full 640x512 frame on an 040/25 - simply disappears and a
+ * dirty rectangle becomes a per-row memcpy into the card's bitmap. The two
+ * backends share everything above the blit (chunky buffer, dirty rectangles,
+ * Intuition input window, palette, splash) and differ only in how a screen is
+ * opened and how a rectangle reaches it.
+ *
+ * cybergraphics.library is targeted rather than the Picasso96-specific API,
+ * because P96 ships a CGX-compatible layer: one implementation then serves both
+ * P96 and genuine CyberGraphX users. The library is opened at runtime and
+ * everything falls back to AGA if it is not there.
  */
 
 #include <proto/exec.h>
@@ -34,7 +48,18 @@
 #include <string.h>
 #include <stdio.h>
 
+/* cybergraphics.library is not part of the bebbo NDK, so the official CGX
+ * developer headers are vendored under cgx-include/ and reached with an -I on
+ * this file's (hand-written) compile line. The inline/ header there is the
+ * repaired one: the 1995 FD2Inline original lists d0 both as the "=r" output
+ * and in the clobber list and declares "register _res" with no type at all,
+ * which GCC 6.5 either rejects or miscompiles. */
+#include <proto/cybergraphics.h>
+
 #include "amiga_gfx.h"
+
+/* Declared extern by <proto/cybergraphics.h>; ours to define and to fill. */
+struct Library *CyberGfxBase;
 
 /* OpenTTD writes everything - DEBUG(), errors, the lot - to stderr, and the
  * AmigaDOS 3.1 shell can only redirect stdout, so a crash or a hang leaves no
@@ -55,6 +80,45 @@ void amigagfx_set_verbose(int verbose)
 	g_verbose = verbose;
 }
 
+/* ---- startup memory probe -----------------------------------------------
+ * Which startup phase takes ~5 MB of Fast RAM and which gives it back?
+ * One line per call: total free Fast, largest free Fast block, free Chip -
+ * all in KB. Total vs largest matters because the machine has two Fast
+ * regions (8 MB motherboard + 32 MB Z3): an allocation that lands in the
+ * other region, or fragmentation, moves total-free by megabytes while
+ * largest-block tells the real story. The log is only readable from the
+ * host after the game exits, so one run must be conclusive: every line is
+ * numbered and labelled, the first call truncates the file, and a hard cap
+ * keeps it from flooding no matter how often a phase repeats. */
+#define AMIGA_MEM_LOG      "PROGDIR:amiga_mem.log"
+#define AMIGA_MEM_MAXLINES 100
+
+void AmigaMemProbe(const char *label)
+{
+	static int mem_lines = 0;
+	ULONG fast, largest, chip;
+	FILE *f;
+
+	if (mem_lines >= AMIGA_MEM_MAXLINES) return;
+
+	/* Forbid so the three readings are one consistent snapshot. */
+	Forbid();
+	fast    = AvailMem(MEMF_FAST);
+	largest = AvailMem(MEMF_FAST | MEMF_LARGEST);
+	chip    = AvailMem(MEMF_CHIP);
+	Permit();
+
+	f = fopen(AMIGA_MEM_LOG, mem_lines == 0 ? "w" : "a");
+	if (f == NULL) return;
+	mem_lines++;
+	fprintf(f, "M%03d %-26s fast=%luK largest=%luK chip=%luK\n",
+	        mem_lines, label,
+	        (unsigned long)(fast >> 10),
+	        (unsigned long)(largest >> 10),
+	        (unsigned long)(chip >> 10));
+	fclose(f);
+}
+
 /* Argument block for the assembly c2p; layout must match native/c2p_glue.s. */
 struct C2PArgs {
 	UWORD x, y, w, h;
@@ -72,12 +136,199 @@ static struct Window *g_window;
 static struct BitMap  g_bitmap;
 static UBYTE *g_chip;
 static UBYTE *g_chunky;
-static int    g_width, g_height, g_bpr;
+static int    g_width, g_height, g_bpr;   /* g_height = GAME AREA height */
+static int    g_yoff;                     /* first game-area line: 0, or the
+                                           * system title bar height when the
+                                           * bar is left visible */
 static ULONG  g_planesize;
 static ULONG  g_epoch;
 static unsigned long g_blits;
 static ULONG g_want_modeid;
 static int   g_used_fallback;
+
+/* ---- RTG (CyberGraphX / Picasso96) state --------------------------------
+ *
+ * g_backend says which of the two paths the CURRENTLY OPEN screen uses. It is
+ * the single switch every backend-dependent decision below reads, so nothing
+ * has to re-derive "am I on RTG" from the width or the mode id.
+ *
+ * How a rectangle reaches an 8-bit RTG screen - the two candidates, and why
+ * this is the order:
+ *
+ *   RTG_METHOD_LOCK (preferred): LockBitMapTagList() hands back the base
+ *     address and bytes-per-row of the screen's own bitmap, which on an 8-bit
+ *     LUT8 screen holds exactly the bytes our chunky buffer holds. The blit is
+ *     then a memcpy per row into card memory - no conversion and no
+ *     intermediate copy, which is the entire reason to want RTG.
+ *
+ *   RTG_METHOD_WLUT (fallback): WriteLUTPixelArray() with a CTABFMT_XRGB8
+ *     colour table. Always correct, but it goes through the library per
+ *     rectangle and, because it is specified in terms of colours rather than
+ *     pen numbers, it may remap every pixel instead of copying it. Used only if
+ *     the lock is refused or reports something other than a LUT8 8-bit bitmap.
+ *
+ * The choice is made by ACTUALLY TAKING the lock once when the screen opens
+ * (probe_rtg_lock) rather than by trusting the mode we asked for, and a later
+ * failure demotes to WLUT permanently for that screen.
+ *
+ * LOCKING DISCIPLINE - getting this wrong hangs the machine, so it is stated
+ * once and obeyed everywhere:
+ *   1. Between LockBitMapTagList() and UnLockBitMap() this file calls NOTHING:
+ *      no OS function, no logging, no Wait, no allocation. Only memcpy over
+ *      memory whose bounds were computed BEFORE the lock was taken.
+ *   2. Every path out of a locked region passes through exactly one
+ *      UnLockBitMap(). The validity check inside the lock does not return
+ *      early; it sets a flag, falls out, unlocks, and only then acts on it.
+ *   3. The base address and bytes-per-row are valid ONLY inside the lock that
+ *      produced them. They are re-read on every single lock and never cached
+ *      across one - RTG display memory can move between locks.
+ *   4. The lock is held for one rectangle at a time, never across the event
+ *      loop and never across a frame.
+ */
+#define RTG_METHOD_LOCK 0
+#define RTG_METHOD_WLUT 1
+
+static int   g_backend;        /* AMIGAGFX_BACKEND_* of the open screen */
+static int   g_rtg_method;
+static int   g_rtg_demoted;    /* log the LOCK->WLUT demotion once */
+static ULONG g_ctable[256];    /* CTABFMT_XRGB8 mirror of the palette */
+
+static UBYTE g_screen_title[] = "OpenTTD 68K";
+
+/* Intuition's default screen pens (DetailPen 0, BlockPen 1) index whatever
+ * palette the GAME loads - and in the TTD *Windows* palette (OpenGFX's
+ * default) indices 1..9 are magenta (212,0,212): that was the pink bar.
+ * The indices below hold the SAME colour in both TTD palettes (DOS and
+ * Windows, src/table/palettes.h) and lie outside the animated range
+ * 217..254, so they survive UpdatePalette() and any base-set choice:
+ *   0  = black          (0,0,0)
+ *   15 = white          (252,252,252)
+ *   17 = dark blue-grey (68,76,92)   - OpenTTD's own chrome family
+ *   19 = mid blue-grey  (108,116,132)
+ * Result: dark neutral bar, white legible title, black trim line. */
+static UWORD g_screen_pens[] = {
+	15,         /* DETAILPEN        - bar text, old (1.3) look   */
+	17,         /* BLOCKPEN         - bar fill, old (1.3) look   */
+	15,         /* TEXTPEN          - text on BACKGROUNDPEN      */
+	15,         /* SHINEPEN         - bevel light edge           */
+	0,          /* SHADOWPEN        - bevel dark edge            */
+	19,         /* FILLPEN          - selected gadget fill       */
+	15,         /* FILLTEXTPEN                                   */
+	17,         /* BACKGROUNDPEN                                 */
+	15,         /* HIGHLIGHTTEXTPEN                              */
+	15,         /* BARDETAILPEN     - screen title text (3.x)    */
+	17,         /* BARBLOCKPEN     - screen title bar fill (3.x) */
+	0,          /* BARTRIMPEN       - line under the bar         */
+	(UWORD)~0
+};
+
+int amigagfx_backend(void) { return g_backend; }
+
+/* cybergraphics.library, opened on demand. V41 is the first version with
+ * LockBitMapTagList and WriteLUTPixelArray, and it is also what Picasso96's
+ * compatibility layer reports, so it is the right floor for both. */
+static int cgx_open(void)
+{
+	if (CyberGfxBase != NULL) return 1;
+	CyberGfxBase = OpenLibrary((CONST_STRPTR)CYBERGFXNAME, 41L);
+	if (CyberGfxBase == NULL) {
+		amigagfx_log("cybergraphics.library v41 not available - RTG modes disabled");
+		return 0;
+	}
+	return 1;
+}
+
+static void cgx_close(void)
+{
+	if (CyberGfxBase != NULL) { CloseLibrary(CyberGfxBase); CyberGfxBase = NULL; }
+}
+
+/* Ask CGX for the best 8-bit mode of at least w x h, then verify it really is
+ * one. BestCModeIDTagList never fails outright: when nothing matches it returns
+ * a NATIVE chipset mode id, which would silently put an "RTG" screen back on
+ * the planar path with no c2p behind it - garbage on screen. So the result is
+ * checked three ways (is it a Cybergraphics id, is it 8 bits deep, is it one
+ * byte per pixel) before it is believed. Returns INVALID_ID if not usable. */
+static ULONG rtg_best_mode(int w, int h)
+{
+	ULONG id;
+	struct TagItem tags[4];
+
+	if (!cgx_open()) return (ULONG)INVALID_ID;
+
+	tags[0].ti_Tag = CYBRBIDTG_NominalWidth;  tags[0].ti_Data = (ULONG)w;
+	tags[1].ti_Tag = CYBRBIDTG_NominalHeight; tags[1].ti_Data = (ULONG)h;
+	tags[2].ti_Tag = CYBRBIDTG_Depth;         tags[2].ti_Data = 8UL;
+	tags[3].ti_Tag = TAG_END;                 tags[3].ti_Data = 0UL;
+
+	id = BestCModeIDTagList(tags);
+
+	if (id == (ULONG)INVALID_ID) return (ULONG)INVALID_ID;
+	if (!IsCyberModeID(id))      return (ULONG)INVALID_ID;
+	if (GetCyberIDAttr(CYBRIDATTR_DEPTH, id) != 8UL) return (ULONG)INVALID_ID;
+	if (GetCyberIDAttr(CYBRIDATTR_BPPIX, id) != 1UL) return (ULONG)INVALID_ID;
+
+	return id;
+}
+
+int amigagfx_rtg_has_mode(int w, int h)
+{
+	ULONG id = rtg_best_mode(w, h);
+
+	/* The probe runs while building the resolution list, long before any
+	 * screen exists. Leave the library open only if it is already carrying an
+	 * open screen; otherwise hand it straight back, so an AGA-only session
+	 * never keeps cybergraphics.library referenced for nothing. */
+	if (g_screen == NULL) cgx_close();
+
+	return id != (ULONG)INVALID_ID;
+}
+
+/* Take the lock once, look at what we actually got, release it, and decide
+ * which blit method this screen will use. Deliberately a real lock rather than
+ * an inspection of the mode: the mode says what was requested, the lock says
+ * what LockBitMapTagList will hand the blit every frame. */
+static void probe_rtg_lock(void)
+{
+	APTR  handle;
+	APTR  base   = NULL;
+	ULONG bpr    = 0;
+	ULONG depth  = 0;
+	ULONG pixfmt = (ULONG)~0;
+	struct TagItem tags[5];
+
+	g_rtg_method = RTG_METHOD_WLUT;
+	g_rtg_demoted = 0;
+
+	tags[0].ti_Tag = LBMI_BASEADDRESS; tags[0].ti_Data = (ULONG)&base;
+	tags[1].ti_Tag = LBMI_BYTESPERROW; tags[1].ti_Data = (ULONG)&bpr;
+	tags[2].ti_Tag = LBMI_DEPTH;       tags[2].ti_Data = (ULONG)&depth;
+	tags[3].ti_Tag = LBMI_PIXFMT;      tags[3].ti_Data = (ULONG)&pixfmt;
+	tags[4].ti_Tag = TAG_DONE;         tags[4].ti_Data = 0;
+
+	handle = LockBitMapTagList((APTR)g_screen->RastPort.BitMap, tags);
+	if (handle != NULL) UnLockBitMap(handle);   /* nothing at all in between */
+
+	if (handle == NULL) {
+		amigagfx_log("RTG: LockBitMap refused - using WriteLUTPixelArray");
+		return;
+	}
+	if (base == NULL || depth != 8UL || pixfmt != PIXFMT_LUT8 ||
+	    bpr < (ULONG)g_width) {
+		fprintf(stdout, "amiga: RTG: lock gave depth=%lu pixfmt=%lu bpr=%lu base=%p"
+		                " - not a usable LUT8 surface, using WriteLUTPixelArray\n",
+		        (unsigned long)depth, (unsigned long)pixfmt,
+		        (unsigned long)bpr, base);
+		fflush(stdout);
+		return;
+	}
+
+	g_rtg_method = RTG_METHOD_LOCK;
+	fprintf(stdout, "amiga: RTG: direct LUT8 bitmap access, bpr %lu (chunky pitch %d)"
+	                " - no chunky-to-planar at all\n",
+	        (unsigned long)bpr, g_width);
+	fflush(stdout);
+}
 
 /* input.device, opened lazily and only for IND_WRITEEVENT: Intuition has no
  * "warp the pointer" call, but feeding an IECLASS_NEWPOINTERPOS event with
@@ -144,7 +395,11 @@ int amigagfx_warp_pointer(int x, int y)
 	 * pixel coordinates in that screen, which is unambiguous in every mode. */
 	pp.iepp_Screen     = g_screen;
 	pp.iepp_Position.X = (WORD)x;
-	pp.iepp_Position.Y = (WORD)y;
+	/* Callers pass game-area coordinates; the screen wants absolute pixels,
+	 * so shift past the title bar when it is visible. The warp echo comes
+	 * back window-relative, i.e. already in game-area coordinates - the
+	 * C++ side's echo matching needs no offset. */
+	pp.iepp_Position.Y = (WORD)(y + g_yoff);
 
 	memset(&ie, 0, sizeof(ie));        /* zeroes ie_NextEvent and ie_TimeStamp */
 	ie.ie_Class        = IECLASS_NEWPOINTERPOS;
@@ -185,21 +440,17 @@ unsigned long amigagfx_millis(void)
 	return (unsigned long)((raw_ticks() - g_epoch) * 20UL);
 }
 
-int amigagfx_open(int w, int h)
+/* AGA: one contiguous Chip RAM block for eight equally spaced bitplanes, handed
+ * to Intuition with SA_BitMap. Sets g_bpr / g_planesize / g_chip / g_bitmap -
+ * none of which exist on the RTG path, where display memory lives on the card
+ * and Chip RAM must not be touched at all. Returns 0 on success. */
+static int open_screen_aga(int w, int h, ULONG quiet, ULONG title)
 {
-
-	fprintf(stdout, "amiga: amigagfx_open(%d,%d)\n", w, h); fflush(stdout);
-	g_width  = w;
-	g_height = h;
 	g_bpr    = ((w + 15) >> 4) << 1;
-	g_planesize = (ULONG)g_bpr * h;
-	g_epoch  = raw_ticks();
-
-	g_chunky = (UBYTE *)AllocVec((ULONG)w * h, MEMF_ANY | MEMF_CLEAR);
-	if (g_chunky == NULL) return 1;
+	g_planesize = (ULONG)g_bpr * h;   /* planes ALWAYS cover the full screen */
 
 	g_chip = (UBYTE *)AllocMem(g_planesize * DEPTH, MEMF_CHIP | MEMF_CLEAR);
-	if (g_chip == NULL) { amigagfx_close(); return 2; }
+	if (g_chip == NULL) return 2;
 
 	InitBitMap(&g_bitmap, DEPTH, w, h);
 	{
@@ -211,7 +462,11 @@ int amigagfx_open(int w, int h)
 	/* Pick the display mode from the size actually asked for, instead of always
 	 * forcing hires-interlaced. 320-wide means lores, and anything at or below
 	 * 256 lines fits a PAL frame without interlace - which also means no
-	 * flicker, the main reason to want a lores mode in the first place. */
+	 * flicker, the main reason to want a lores mode in the first place. So
+	 * 320x256 and 352x272 come out lores and 640x480 hires interlaced, with no
+	 * special-casing anywhere. Kept general on purpose: it derives the mode from
+	 * the size rather than from a table, so it stays correct whatever the
+	 * resolution list happens to offer. */
 	{
 		ULONG modeid = PAL_MONITOR_ID;
 		modeid |= (w > 400) ? HIRES_KEY : LORES_KEY;
@@ -224,8 +479,12 @@ int amigagfx_open(int w, int h)
 		                          SA_Height,    (ULONG)h,
 		                          SA_Depth,     (ULONG)DEPTH,
 		                          SA_Type,      (ULONG)CUSTOMSCREEN,
-		                          SA_Quiet,     (ULONG)TRUE,
-		                          SA_ShowTitle, (ULONG)FALSE,
+		                          SA_Quiet,     quiet,
+		                          SA_ShowTitle, title,
+		                          SA_Title,     (ULONG)g_screen_title,
+		                          SA_DetailPen, 15UL,
+		                          SA_BlockPen,  17UL,
+		                          SA_Pens,      (ULONG)g_screen_pens,
 		                          SA_DisplayID, modeid,
 		                          TAG_END);
 	}
@@ -239,31 +498,148 @@ int amigagfx_open(int w, int h)
 		                          SA_Height,    (ULONG)h,
 		                          SA_Depth,     (ULONG)DEPTH,
 		                          SA_Type,      (ULONG)CUSTOMSCREEN,
-		                          SA_Quiet,     (ULONG)TRUE,
-		                          SA_ShowTitle, (ULONG)FALSE,
+		                          SA_Quiet,     quiet,
+		                          SA_ShowTitle, title,
+		                          SA_Title,     (ULONG)g_screen_title,
+		                          SA_DetailPen, 15UL,
+		                          SA_BlockPen,  17UL,
+		                          SA_Pens,      (ULONG)g_screen_pens,
 		                          TAG_END);
 	}
-	if (g_screen == NULL) { amigagfx_close(); return 3; }
+	if (g_screen == NULL) { FreeMem(g_chip, g_planesize * DEPTH); g_chip = NULL; return 3; }
+
+	g_backend = AMIGAGFX_BACKEND_AGA;
+	return 0;
+}
+
+/* RTG: an 8-bit CyberGraphX/Picasso96 screen. Deliberately NO SA_BitMap - the
+ * card's display memory is allocated by CGX behind the mode id, so not one byte
+ * of Chip RAM is spent here. Returns 0 on success; any non-zero means the
+ * caller should open an AGA screen instead. */
+static int open_screen_rtg(int w, int h, ULONG quiet, ULONG title)
+{
+	ULONG modeid = rtg_best_mode(w, h);
+
+	if (modeid == (ULONG)INVALID_ID) {
+		fprintf(stdout, "amiga: RTG: no 8-bit mode for %dx%d - falling back to AGA\n", w, h);
+		fflush(stdout);
+		return 5;
+	}
+	g_want_modeid = modeid;
+
+	g_screen = OpenScreenTags(NULL,
+	                          SA_Width,     (ULONG)w,
+	                          SA_Height,    (ULONG)h,
+	                          SA_Depth,     (ULONG)DEPTH,
+	                          SA_Type,      (ULONG)CUSTOMSCREEN,
+	                          SA_Quiet,     quiet,
+	                          SA_ShowTitle, title,
+	                          SA_Title,     (ULONG)g_screen_title,
+	                          SA_DetailPen, 15UL,
+	                          SA_BlockPen,  17UL,
+	                          SA_Pens,      (ULONG)g_screen_pens,
+	                          SA_DisplayID, modeid,
+	                          TAG_END);
+	if (g_screen == NULL) {
+		fprintf(stdout, "amiga: RTG: OpenScreen refused mode $%08lx at %dx%d"
+		                " - falling back to AGA\n", (unsigned long)modeid, w, h);
+		fflush(stdout);
+		return 6;
+	}
+
+	g_backend = AMIGAGFX_BACKEND_RTG;
+	probe_rtg_lock();
+	return 0;
+}
+
+int amigagfx_open(int w, int h, int show_bar, int backend)
+{
+	/* SA_Quiet must be OFF when the bar is wanted, or Intuition renders no
+	 * screen gadgetry at all; SA_ShowTitle keeps the bar in front of our
+	 * backdrop window. The bar is Intuition's own - never a drawn imitation. */
+	ULONG quiet = show_bar ? FALSE : TRUE;
+	ULONG title = show_bar ? TRUE  : FALSE;
+	int err;
+
+	fprintf(stdout, "amiga: amigagfx_open(%d,%d) wb_bar=%d backend=%s\n",
+	        w, h, show_bar, backend == AMIGAGFX_BACKEND_RTG ? "RTG" : "AGA");
+	fflush(stdout);
+	g_width  = w;
+	g_height = h;            /* provisional; reduced below if the bar shows */
+	g_yoff   = 0;
+	g_used_fallback = 0;
+	g_backend = AMIGAGFX_BACKEND_AGA;
+	g_bpr = 0;
+	g_planesize = 0;
+	g_epoch  = raw_ticks();
+
+	/* RTG first when asked for, AGA whenever that did not work out. A machine
+	 * with no graphics card therefore behaves exactly as it did before RTG
+	 * support existed, and one log line always says why. */
+	err = (backend == AMIGAGFX_BACKEND_RTG) ? open_screen_rtg(w, h, quiet, title) : 5;
+	if (err != 0) {
+		if (backend == AMIGAGFX_BACKEND_RTG) cgx_close();
+		err = open_screen_aga(w, h, quiet, title);
+		if (err != 0) { amigagfx_close(); return err; }
+	}
+
+	/* The bar height is whatever Intuition says it is for the mode and font it
+	 * actually opened with - it is NEVER hard-coded. The bar itself occupies
+	 * BarHeight+1 lines (BarHeight excludes the separator line), so the game
+	 * area starts right below that and everything downstream (chunky buffer,
+	 * dirty rects, blit, mouse warp) works in the reduced height. */
+	if (show_bar) {
+		int bar = (int)g_screen->BarHeight + 1;
+		if (bar > 0 && bar < h / 2) {
+			g_yoff   = bar;
+			g_height = h - bar;
+			fprintf(stdout, "amiga: wb bar visible, BarHeight %d -> game area %dx%d at y=%d\n",
+			        (int)g_screen->BarHeight, g_width, g_height, g_yoff);
+		} else {
+			fprintf(stdout, "amiga: wb bar height %d implausible for %d lines - bar ignored\n",
+			        bar, h);
+		}
+		fflush(stdout);
+	}
+
 	{
 		/* Report the mode Intuition ACTUALLY granted, not the one we asked for.
 		 * It substitutes silently when a mode is unavailable, and a lores-sized
 		 * screen running in a hires mode looks identical in a log that only
 		 * prints the pixel dimensions. */
 		ULONG got = GetVPModeID(&g_screen->ViewPort);
-		fprintf(stdout, "amiga: screen open %dx%d depth 8, bpr %d\n", w, h, g_bpr);
-		fprintf(stdout, "amiga: modeid wanted $%08lx got $%08lx  %s%s  [%s]\n",
-		        (unsigned long)g_want_modeid, (unsigned long)got,
-		        (got & HIRES_KEY) ? "HIRES " : "LORES ",
-		        (got & 0x0004) ? "INTERLACED" : "non-interlaced",
-		        g_used_fallback ? "SYSTEM FALLBACK - our mode was refused"
-		                        : "our mode accepted");
+		if (g_backend == AMIGAGFX_BACKEND_RTG) {
+			fprintf(stdout, "amiga: RTG screen open %dx%d depth 8 (no Chip RAM, no c2p)\n", w, h);
+			fprintf(stdout, "amiga: modeid wanted $%08lx got $%08lx  blit=%s\n",
+			        (unsigned long)g_want_modeid, (unsigned long)got,
+			        g_rtg_method == RTG_METHOD_LOCK ? "LockBitMap+memcpy"
+			                                        : "WriteLUTPixelArray");
+		} else {
+			fprintf(stdout, "amiga: AGA screen open %dx%d depth 8, bpr %d\n", w, h, g_bpr);
+			fprintf(stdout, "amiga: modeid wanted $%08lx got $%08lx  %s%s  [%s]\n",
+			        (unsigned long)g_want_modeid, (unsigned long)got,
+			        (got & HIRES_KEY) ? "HIRES " : "LORES ",
+			        (got & 0x0004) ? "INTERLACED" : "non-interlaced",
+			        g_used_fallback ? "SYSTEM FALLBACK - our mode was refused"
+			                        : "our mode accepted");
+		}
 		fflush(stdout);
 	}
 
+	/* Chunky buffer covers the GAME AREA only, so any write past its bounds is
+	 * a bug, not silently absorbed border space. Allocated after the screen
+	 * opens because only then is the bar height - and thus g_height - known. */
+	g_chunky = (UBYTE *)AllocVec((ULONG)g_width * g_height, MEMF_ANY | MEMF_CLEAR);
+	if (g_chunky == NULL) { amigagfx_close(); return 1; }
+
+	/* The input window covers only the game area, leaving the title bar to
+	 * Intuition: clicks on the depth gadget and screen drags stay system-
+	 * handled, and IDCMP mouse coordinates (window-relative) automatically
+	 * become game-area coordinates. */
 	g_window = OpenWindowTags(NULL,
 	                          WA_CustomScreen, (ULONG)g_screen,
-	                          WA_Left, 0UL, WA_Top, 0UL,
-	                          WA_Width, (ULONG)w, WA_Height, (ULONG)h,
+	                          WA_Left, 0UL, WA_Top, (ULONG)g_yoff,
+	                          WA_Width, (ULONG)w, WA_Height, (ULONG)g_height,
 	                          WA_Flags, (ULONG)(WFLG_BACKDROP | WFLG_BORDERLESS |
 	                                            WFLG_ACTIVATE | WFLG_REPORTMOUSE |
 	                                            WFLG_RMBTRAP | WFLG_NOCAREREFRESH),
@@ -284,12 +660,22 @@ void amigagfx_close(void)
 	input_device_close();
 	if (g_window != NULL) { CloseWindow(g_window); g_window = NULL; }
 	if (g_screen != NULL) { CloseScreen(g_screen); g_screen = NULL; }
+	/* Chip RAM only ever exists on the AGA path; on RTG g_chip stays NULL and
+	 * this is a no-op, which is exactly the point - the card owns the display
+	 * memory and none of the machine's scarce Chip RAM is spent on it. */
 	if (g_chip != NULL)   { FreeMem(g_chip, g_planesize * DEPTH); g_chip = NULL; }
 	if (g_chunky != NULL) { FreeVec(g_chunky); g_chunky = NULL; }
+	/* The screen is gone, so nothing can be locked any more; hand the library
+	 * back. A resolution change closes and reopens it, which costs one
+	 * OpenLibrary on an already-resident library - not worth keeping state for. */
+	cgx_close();
+	g_backend = AMIGAGFX_BACKEND_AGA;
+	g_yoff = 0;
 }
 
 unsigned char *amigagfx_chunky(void) { return g_chunky; }
 int amigagfx_pitch(void) { return g_width; }
+int amigagfx_game_height(void) { return g_height; }
 
 void amigagfx_set_palette(const unsigned char *rgb, int first, int count)
 {
@@ -305,6 +691,13 @@ void amigagfx_set_palette(const unsigned char *rgb, int first, int count)
 		table[1 + i*3 + 0] = ((ULONG)rgb[i*3 + 0]) * 0x01010101UL;
 		table[1 + i*3 + 1] = ((ULONG)rgb[i*3 + 1]) * 0x01010101UL;
 		table[1 + i*3 + 2] = ((ULONG)rgb[i*3 + 2]) * 0x01010101UL;
+		/* Mirror into the CTABFMT_XRGB8 table WriteLUTPixelArray needs. Kept
+		 * up to date unconditionally rather than only on RTG: it costs three
+		 * shifts per changed colour and means the WLUT fallback is always
+		 * ready, including when a mid-session lock failure demotes to it. */
+		g_ctable[first + i] = ((ULONG)rgb[i*3 + 0] << 16) |
+		                      ((ULONG)rgb[i*3 + 1] <<  8) |
+		                       (ULONG)rgb[i*3 + 2];
 	}
 	table[1 + count * 3] = 0UL;
 	LoadRGB32(&g_screen->ViewPort, table);
@@ -457,6 +850,72 @@ void amigagfx_splash(const char *path)
 	amigagfx_blit(0, 0, g_width, g_height);
 }
 
+/* RTG blit, direct route: lock the screen's bitmap, memcpy the rectangle row by
+ * row, unlock. On an 8-bit LUT8 surface our chunky bytes ARE the pen numbers,
+ * so there is no conversion of any kind - this is the whole reason RTG is worth
+ * having. Returns 0 if the lock could not be used, which permanently demotes
+ * this screen to the WriteLUTPixelArray path.
+ *
+ * Read the LOCKING DISCIPLINE comment at the top of the RTG state block before
+ * touching this. In short: every bound is computed BEFORE the lock, nothing but
+ * memcpy happens inside it, and the single UnLockBitMap is reached on every
+ * path including the "wrong format" one. */
+static int rtg_blit_locked(int x, int y, int w, int h)
+{
+	APTR  handle;
+	APTR  base   = NULL;
+	ULONG bpr    = 0;
+	ULONG depth  = 0;
+	ULONG pixfmt = (ULONG)~0;
+	struct TagItem tags[5];
+	int   usable;
+
+	tags[0].ti_Tag = LBMI_BASEADDRESS; tags[0].ti_Data = (ULONG)&base;
+	tags[1].ti_Tag = LBMI_BYTESPERROW; tags[1].ti_Data = (ULONG)&bpr;
+	tags[2].ti_Tag = LBMI_DEPTH;       tags[2].ti_Data = (ULONG)&depth;
+	tags[3].ti_Tag = LBMI_PIXFMT;      tags[3].ti_Data = (ULONG)&pixfmt;
+	tags[4].ti_Tag = TAG_DONE;         tags[4].ti_Data = 0;
+
+	handle = LockBitMapTagList((APTR)g_screen->RastPort.BitMap, tags);
+	if (handle == NULL) return 0;
+
+	/* ---- LOCK HELD: memcpy only, no OS calls, no early return ---- */
+	usable = (base != NULL && depth == 8UL && pixfmt == PIXFMT_LUT8 &&
+	          bpr >= (ULONG)(x + w));
+	if (usable) {
+		const UBYTE *src = g_chunky + (ULONG)y * g_width + x;
+		/* The destination row is the SCREEN row: the chunky buffer covers the
+		 * game area only, so the title bar offset is added here and nowhere
+		 * else. bpr is the card's pitch and is NOT g_width - it is whatever
+		 * this lock reported, re-read every time, never cached. */
+		UBYTE *dst = (UBYTE *)base + (ULONG)(y + g_yoff) * bpr + x;
+		int row;
+		for (row = 0; row < h; row++) {
+			memcpy(dst, src, (size_t)w);
+			src += g_width;
+			dst += bpr;
+		}
+	}
+	UnLockBitMap(handle);
+	/* ---- LOCK RELEASED ---- */
+
+	return usable;
+}
+
+/* RTG blit, library route. Correct on any CGX screen but goes through the
+ * library per rectangle and is specified in colours rather than pen numbers, so
+ * it may remap every pixel where the locked path copies it. Only ever reached
+ * when the lock is unavailable. */
+static void rtg_blit_wlut(int x, int y, int w, int h)
+{
+	WriteLUTPixelArray((APTR)g_chunky,
+	                   (UWORD)x, (UWORD)y, (UWORD)g_width,
+	                   &g_screen->RastPort, (APTR)g_ctable,
+	                   (UWORD)x, (UWORD)(y + g_yoff),
+	                   (UWORD)w, (UWORD)h,
+	                   (UBYTE)CTABFMT_XRGB8);
+}
+
 void amigagfx_blit(int x, int y, int w, int h)
 {
 	struct C2PArgs args;
@@ -467,16 +926,44 @@ void amigagfx_blit(int x, int y, int w, int h)
 	x2 = x + w;
 	y2 = y + h;
 
-	/* Kalms' c2p works on 32-pixel columns: grow the rect outwards to that
-	 * grid rather than refusing it, then clip to the screen. */
-	x  &= ~31;
-	x2  = (x2 + 31) & ~31;
+	/* The 32-pixel column granularity below is a property of Kalms' c2p and of
+	 * nothing else, so RTG must not pay for it: an RTG rectangle is used as
+	 * given and only clipped. Snapping it outwards there would convert pixels
+	 * that never changed, for no reason at all. */
+	if (g_backend == AMIGAGFX_BACKEND_AGA) {
+		/* Kalms' c2p works on 32-pixel columns: grow the rect outwards to that
+		 * grid rather than refusing it, then clip to the screen. */
+		x  &= ~31;
+		x2  = (x2 + 31) & ~31;
+	}
 
 	if (x < 0) x = 0;
 	if (y < 0) y = 0;
 	if (x2 > g_width)  x2 = g_width;
 	if (y2 > g_height) y2 = g_height;
 	if (x2 <= x || y2 <= y) return;
+
+	if (g_backend == AMIGAGFX_BACKEND_RTG) {
+		if (g_rtg_method == RTG_METHOD_LOCK &&
+		    !rtg_blit_locked(x, y, x2 - x, y2 - y)) {
+			/* Demote once and for this screen only. Logged outside the lock. */
+			g_rtg_method = RTG_METHOD_WLUT;
+			if (!g_rtg_demoted) {
+				g_rtg_demoted = 1;
+				amigagfx_log("RTG: LockBitMap became unusable - "
+				             "switching to WriteLUTPixelArray for this screen");
+			}
+		}
+		if (g_rtg_method == RTG_METHOD_WLUT) rtg_blit_wlut(x, y, x2 - x, y2 - y);
+
+		g_blits++;
+		if (g_blits == 1 || (g_verbose && (g_blits % 200) == 0)) {
+			fprintf(stdout, "amiga: rtg blit #%lu  %dx%d at %d,%d\n",
+			        g_blits, x2 - x, y2 - y, x, y);
+			fflush(stdout);
+		}
+		return;
+	}
 
 	args.x = (UWORD)x;
 	args.y = (UWORD)y;
@@ -486,7 +973,11 @@ void amigagfx_blit(int x, int y, int w, int h)
 	args.bmod = (UWORD)g_bpr;
 	args.bplsize = g_planesize;
 	args.chunky = g_chunky;
-	args.bpl = g_chip;
+	/* Skip the title bar lines when the bar is visible: plane spacing
+	 * (bplsize) stays the full-screen plane size, only the row origin moves.
+	 * g_bpr is a multiple of 4 for every offered width, so the 32-pixel column
+	 * alignment of the c2p is unaffected. */
+	args.bpl = g_chip + (ULONG)g_yoff * g_bpr;
 	c2p_rect_asm(&args);
 
 	/* The FIRST blit is logged always - it is the one-shot proof that the main

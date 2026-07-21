@@ -30,6 +30,26 @@ cp native/openttd/fp_conv.c    src/
 cp native/c2p_rect.s native/c2p_glue.s src/video/
 ```
 
+## One thing you have to supply yourself
+
+The RTG (Picasso96 / CyberGraphX) path needs the **CyberGraphX developer
+headers** — `cybergraphx/cybergraphics.h`, `clib/cybergraphics_protos.h`,
+`inline/cybergraphics.h`, `proto/cybergraphics.h`. They are not in bebbo's
+toolchain and they are not in this repository: they carry
+"Copyright © 1996-1998 by phase5 digital products" and we have no
+redistribution licence to point at. Get them from the CyberGraphX or Picasso96
+developer kit and put them in `src/video/cgx-include/`.
+
+Two of them need fixing before they will compile with GCC 6.5, which is worth
+knowing before you lose an hour to it: the FD2Inline-generated
+`inline/cybergraphics.h` declares a register variable with no type and lists the
+same register as both an output operand and a clobber, and `proto/cybergraphics.h`
+pulls in the `clib` prototypes and the `inline` definitions at the same time,
+which gives you a screenful of "static declaration follows non-static
+declaration". Real NDK headers pick one or the other.
+
+Without these headers the AGA path still builds and runs; only RTG is lost.
+
 Read [../BUILDING.md](../BUILDING.md) before building. The toolchain has several
 traps that produce silently wrong code rather than errors, and
 `build/build-with-ice-retry.sh` is the only correct way to build — a plain

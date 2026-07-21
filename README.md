@@ -16,13 +16,14 @@ mouse control including right-drag scrolling, the keyboard, and arrow-key map
 scrolling.
 
 Resolution is selectable in Game Options and takes effect immediately:
-`320x256 AGA`, `352x272 AGA` (PAL lores, no interlace) and `640x480 AGA`,
-`640x512 AGA` (hires, interlaced). The interface font follows the resolution.
+`320x256 AGA`, `352x272 AGA` (PAL lores, no interlace) and `640x480 AGA`
+(hires, interlaced), followed by the RTG modes if a graphics card is present.
+The interface font follows the resolution.
 They are labelled AGA because a Picasso96/RTG backend is planned and will add
 its own modes to the same list.
 
 **If the game runs too slowly, switch to one of the lores modes.** They convert
-a quarter of the pixels of `640x512`, which is the single biggest lever you
+a quarter of the pixels of `640x480`, which is the single biggest lever you
 have, and they are not interlaced, so the display is steadier as well. On an 030
 lores is the only configuration with a chance of being playable at all — and
 even then, generate a small map.
@@ -73,10 +74,25 @@ implemented yet.**
   simulation is integer-only by design, because OpenTTD keeps multiplayer
   deterministic across platforms — which is exactly where an FPU-less machine
   fails.
-- **AGA**: A1200, A4000 or CD32.
-- **16 MB Fast RAM.** The executable is 5 MB on its own, plus the sprite cache
-  and the map. (It cannot be stripped: `m68k-amigaos-strip` produces an
-  executable that halts the CPU on load.)
+- **AGA**, or a Picasso96 / CyberGraphX RTG card. A1200, A4000 or CD32 for the
+  AGA path.
+
+  RTG is worth having if you own a card: OpenTTD renders into a chunky 8bpp
+  buffer, so on an 8bpp RTG screen that buffer goes to the display essentially
+  unchanged and the chunky-to-planar conversion - the most expensive thing the
+  driver does on AGA - disappears entirely. RTG modes are offered from 400x300
+  upward and appear below the AGA ones in Game Options.
+- **24 MB Fast RAM.** Tested: it will not start on 4 MB Fast + 16 MB Z3, but
+  does on 8 + 16, leaving about 10 MB free. The executable alone occupies
+  4.6 MB once loaded, and the sprite cache another 4 MB.
+
+  Stripping the binary would not help, which is worth stating because it looks
+  like it should: measuring the hunk table shows only 0.4 MB of the 5 MB file
+  is symbols and debug information, and AmigaDOS never makes that resident.
+  (`m68k-amigaos-strip` also produces an executable that halts the CPU on load,
+  most likely because `--strip-all` removes the relocation records `LoadSeg()`
+  has to apply.) The real weight is code, so the way down is removing code -
+  the AI scripting VM is the obvious candidate.
 - AmigaOS 3.0 or 3.1, ~30 MB free disk space.
 
 Nothing from the original Transport Tycoon Deluxe is needed. The release archive

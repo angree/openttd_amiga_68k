@@ -503,10 +503,37 @@ static int open_screen_aga(int w, int h, ULONG quiet, ULONG title, int depth)
 	 * lores widths only, so the OR below never produces an undefined mode. */
 	{
 		ULONG modeid = PAL_MONITOR_ID;
-		modeid |= (w > 400) ? HIRES_KEY : LORES_KEY;
-		if (h > 300) modeid |= 0x0004;          /* LACE bit */
+		int   lores  = (w <= 400);
+		int   lace   = (h > 300);
+		int   overscan;
+
+		modeid |= lores ? LORES_KEY : HIRES_KEY;
+		if (lace) modeid |= 0x0004;             /* LACE bit */
 		if (depth == DEPTH_EHB) modeid |= EXTRAHALFBRITE_KEY;
 		g_want_modeid = modeid;
+
+		/* Does the requested size fit inside the STANDARD display clip for that
+		 * mode, or does it need overscan?
+		 *
+		 * This decides one tag, and getting it wrong is a hard failure rather
+		 * than a cosmetic one: a PAL lores non-interlaced screen is 320x256 as
+		 * standard, so 352x272 does not fit, OpenScreen refuses it outright, and
+		 * the driver reports "could not open a 352x272 screen (error 3)". That is
+		 * exactly what happened to the 352x272 entries - both the AGA one and the
+		 * OCS one, since OCS downgrades to 8 planes at the same size mid-session.
+		 * SA_Overscan/OSCAN_MAX widens the clip to the largest the display can
+		 * actually show, which is what an overscan mode is.
+		 *
+		 * Applied ONLY when the size genuinely exceeds the standard clip, so
+		 * 320x256 and 640x480 - which fit and which work today - open with the
+		 * exact same tag list they have always used. OSCAN_MAX moves the screen
+		 * origin out to the overscan corner, and there is no reason to pay that
+		 * for a mode that never needed it. */
+		{
+			int max_w = lores ? 320 : 640;   /* standard PAL width  for the mode */
+			int max_h = lace  ? 512 : 256;   /* standard PAL height for the mode */
+			overscan = (w > max_w || h > max_h);
+		}
 
 		g_screen = OpenScreenTags(NULL,
 		                          SA_BitMap,    (ULONG)&g_bitmap,
@@ -521,7 +548,17 @@ static int open_screen_aga(int w, int h, ULONG quiet, ULONG title, int depth)
 		                          SA_BlockPen,  17UL,
 		                          SA_Pens,      (ULONG)g_screen_pens,
 		                          SA_DisplayID, modeid,
+		                          /* TAG_IGNORE leaves the tag out entirely, so a
+		                           * fitting mode gets byte-identical treatment. */
+		                          overscan ? SA_Overscan : TAG_IGNORE,
+		                          (ULONG)OSCAN_MAX,
 		                          TAG_END);
+		if (overscan) {
+			fprintf(stdout, "amiga: %dx%d exceeds the standard clip for mode $%08lx"
+			                " - opening with OSCAN_MAX\n",
+			        w, h, (unsigned long)modeid);
+			fflush(stdout);
+		}
 	}
 	if (g_screen == NULL && depth == DEPTH_AGA) {
 		/* Fallback: the system picks. NOTE this drops our mode entirely, so a

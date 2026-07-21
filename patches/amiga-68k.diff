@@ -1,6 +1,6 @@
 diff -ruN a/debug.cpp b/debug.cpp
---- a/debug.cpp	2026-07-21 18:27:24.902155000 +0200
-+++ b/debug.cpp	2026-07-21 18:27:25.534625400 +0200
+--- a/debug.cpp	2026-07-21 19:24:07.104092000 +0200
++++ b/debug.cpp	2026-07-21 19:24:07.688155300 +0200
 @@ -86,7 +86,7 @@
  		_sntprintf(tbuf, sizeof(tbuf), _T("%s"), OTTD2FS(dbg));
  		NKDbgPrintfW(_T("dbg: [%s] %s\n"), tbuf, OTTD2FS(buf));
@@ -11,8 +11,8 @@ diff -ruN a/debug.cpp b/debug.cpp
  		IConsoleDebug(dbg, buf);
  	} else {
 diff -ruN a/fileio.cpp b/fileio.cpp
---- a/fileio.cpp	2026-07-21 18:27:24.851061700 +0200
-+++ b/fileio.cpp	2026-07-21 18:27:25.529624300 +0200
+--- a/fileio.cpp	2026-07-21 19:24:06.880314500 +0200
++++ b/fileio.cpp	2026-07-21 19:24:07.683157000 +0200
 @@ -22,11 +22,13 @@
  #include <Path.h>
  #include <storage/FindDirectory.h>
@@ -38,8 +38,8 @@ diff -ruN a/fileio.cpp b/fileio.cpp
  	ttd_strlcpy(buf, name, MAX_PATH);
  
 diff -ruN a/fios.cpp b/fios.cpp
---- a/fios.cpp	2026-07-21 18:27:24.755182100 +0200
-+++ b/fios.cpp	2026-07-21 18:27:25.530626400 +0200
+--- a/fios.cpp	2026-07-21 19:24:06.646483400 +0200
++++ b/fios.cpp	2026-07-21 19:24:07.684155300 +0200
 @@ -110,7 +110,7 @@
  			s = strrchr(path, PATHSEPCHAR);
  			if (s != NULL) {
@@ -59,8 +59,8 @@ diff -ruN a/fios.cpp b/fios.cpp
  		unsigned char sepchar = _fios_path[(strlen(_fios_path) - 1)];
  
 diff -ruN a/fontcache.cpp b/fontcache.cpp
---- a/fontcache.cpp	2026-07-21 18:27:24.775196000 +0200
-+++ b/fontcache.cpp	2026-07-21 18:27:25.112761400 +0200
+--- a/fontcache.cpp	2026-07-21 19:24:06.931950700 +0200
++++ b/fontcache.cpp	2026-07-21 19:24:07.294946300 +0200
 @@ -22,6 +22,9 @@
  /** Semi-constant for the height of the different sizes of fonts. */
  int _font_height[FS_END];
@@ -119,8 +119,8 @@ diff -ruN a/fontcache.cpp b/fontcache.cpp
  }
  
 diff -ruN a/fontcache.h b/fontcache.h
---- a/fontcache.h	2026-07-21 18:27:24.760195600 +0200
-+++ b/fontcache.h	2026-07-21 18:27:25.372731000 +0200
+--- a/fontcache.h	2026-07-21 19:24:06.930410300 +0200
++++ b/fontcache.h	2026-07-21 19:24:07.556566500 +0200
 @@ -73,12 +73,23 @@
  }
  
@@ -147,8 +147,8 @@ diff -ruN a/fontcache.h b/fontcache.h
  
  #endif /* WITH_FREETYPE */
 diff -ruN a/genworld.cpp b/genworld.cpp
---- a/genworld.cpp	2026-07-21 18:27:24.769195600 +0200
-+++ b/genworld.cpp	2026-07-21 18:27:25.535624300 +0200
+--- a/genworld.cpp	2026-07-21 19:24:06.949635400 +0200
++++ b/genworld.cpp	2026-07-21 19:24:07.689155100 +0200
 @@ -97,6 +97,7 @@
  {
  	try {
@@ -274,8 +274,8 @@ diff -ruN a/genworld.cpp b/genworld.cpp
  		return;
  	}
 diff -ruN a/gfx.cpp b/gfx.cpp
---- a/gfx.cpp	2026-07-21 18:27:24.837910700 +0200
-+++ b/gfx.cpp	2026-07-21 18:27:25.528633500 +0200
+--- a/gfx.cpp	2026-07-21 19:24:06.937468200 +0200
++++ b/gfx.cpp	2026-07-21 19:24:07.681146200 +0200
 @@ -29,6 +29,11 @@
  #include "table/sprites.h"
  #include "table/control_codes.h"
@@ -288,7 +288,69 @@ diff -ruN a/gfx.cpp b/gfx.cpp
  byte _dirkeys;        ///< 1 = left, 2 = up, 4 = right, 8 = down
  bool _fullscreen;
  CursorVars _cursor;
-@@ -252,11 +257,30 @@
+@@ -114,6 +119,35 @@
+  */
+ void GfxFillRect(int left, int top, int right, int bottom, int colour, FillRectMode mode)
+ {
++#ifdef __AMIGA__
++	/* EHB: force the pen into the 0..63 index space the 6-bitplane screen can
++	 * actually represent.
++	 *
++	 * This is not cosmetic - an out-of-range pen CORRUPTS THE PICTURE. Kalms'
++	 * 6-plane c2p ("c5") merges its bitfields with OR on the assumption that
++	 * bits 6 and 7 of every chunky byte are clear (the "Swap/Merge 2x4" stage).
++	 * Feed it a byte >= 64 and those bits collide and leak into the plane 4 and
++	 * plane 5 outputs, in a pattern that depends on the pixel's position within
++	 * the 32-pixel group and is therefore IDENTICAL in every group - which comes
++	 * out on screen as evenly spaced vertical stripes. Plane 5 is the half-brite
++	 * control, so the damage shows up as whole areas wrongly dimmed with a few
++	 * correct columns surviving.
++	 *
++	 * The sprite, recolour and text paths were all remapped already; literal
++	 * colour numbers passed straight to GfxFillRect were not, and there are many
++	 * of them (misc_gui.cpp:1192 fills the interior of EVERY edit box with a
++	 * literal 215, redrawn on every caret blink - which is why edit boxes were
++	 * the worst affected). Remapping here catches all of them at one choke point
++	 * rather than chasing each call site.
++	 *
++	 * FILLRECT_RECOLOUR is deliberately excluded: in that mode `colour` is a
++	 * recolour SPRITE NUMBER, not a palette index, and remapping it would select
++	 * the wrong sprite. */
++	if (_amiga_ehb_active && mode != FILLRECT_RECOLOUR) {
++		colour = _amiga_ehb_remap[colour & 0xFF];
++	}
++#endif /* __AMIGA__ */
++
+ 	Blitter *blitter = BlitterFactoryBase::GetCurrentBlitter();
+ 	const DrawPixelInfo *dpi = _cur_dpi;
+ 	void *dst;
+@@ -161,6 +195,12 @@
+ 
+ void GfxDrawLine(int x, int y, int x2, int y2, int colour)
+ {
++#ifdef __AMIGA__
++	/* Same reason as GfxFillRect: a pen >= 64 corrupts the 6-plane c2p output.
++	 * See the note there. */
++	if (_amiga_ehb_active) colour = _amiga_ehb_remap[colour & 0xFF];
++#endif /* __AMIGA__ */
++
+ 	Blitter *blitter = BlitterFactoryBase::GetCurrentBlitter();
+ 	DrawPixelInfo *dpi = _cur_dpi;
+ 
+@@ -180,6 +220,12 @@
+ 
+ void GfxDrawLineUnscaled(int x, int y, int x2, int y2, int colour)
+ {
++#ifdef __AMIGA__
++	/* Same reason as GfxFillRect: a pen >= 64 corrupts the 6-plane c2p output.
++	 * See the note there. */
++	if (_amiga_ehb_active) colour = _amiga_ehb_remap[colour & 0xFF];
++#endif /* __AMIGA__ */
++
+ 	Blitter *blitter = BlitterFactoryBase::GetCurrentBlitter();
+ 	DrawPixelInfo *dpi = _cur_dpi;
+ 
+@@ -252,11 +298,30 @@
  	if (colour == TC_INVALID) return;
  
  	if (colour & IS_PALETTE_COLOUR) {
@@ -320,8 +382,8 @@ diff -ruN a/gfx.cpp b/gfx.cpp
  	_colour_remap_ptr = _string_colourremap;
  }
 diff -ruN a/gfx_func.h b/gfx_func.h
---- a/gfx_func.h	2026-07-21 18:27:24.778194400 +0200
-+++ b/gfx_func.h	2026-07-21 18:27:25.535624300 +0200
+--- a/gfx_func.h	2026-07-21 19:24:06.930927800 +0200
++++ b/gfx_func.h	2026-07-21 19:24:07.688155300 +0200
 @@ -64,6 +64,14 @@
  extern DrawPixelInfo _screen;
  extern bool _screen_disable_anim;   ///< Disable palette animation (important for 32bpp-anim blitter during giant screenshot)
@@ -338,8 +400,8 @@ diff -ruN a/gfx_func.h b/gfx_func.h
  extern int _pal_count_dirty;
  extern int _num_resolutions;
 diff -ruN a/gfxinit.cpp b/gfxinit.cpp
---- a/gfxinit.cpp	2026-07-21 18:27:24.754184800 +0200
-+++ b/gfxinit.cpp	2026-07-21 18:27:25.531636500 +0200
+--- a/gfxinit.cpp	2026-07-21 19:24:06.911828500 +0200
++++ b/gfxinit.cpp	2026-07-21 19:24:07.684155300 +0200
 @@ -41,6 +41,10 @@
  	_landscape_spriteindexes_3,
  };
@@ -378,8 +440,8 @@ diff -ruN a/gfxinit.cpp b/gfxinit.cpp
  
  bool GraphicsSet::FillSetDetails(IniFile *ini, const char *path, const char *full_filename)
 diff -ruN a/intro_gui.cpp b/intro_gui.cpp
---- a/intro_gui.cpp	2026-07-21 18:27:24.751182700 +0200
-+++ b/intro_gui.cpp	2026-07-21 18:27:25.529624300 +0200
+--- a/intro_gui.cpp	2026-07-21 19:24:06.943467300 +0200
++++ b/intro_gui.cpp	2026-07-21 19:24:07.683157000 +0200
 @@ -61,6 +61,14 @@
  	SelectGameWindow(const WindowDesc *desc) : Window()
  	{
@@ -396,8 +458,8 @@ diff -ruN a/intro_gui.cpp b/intro_gui.cpp
  		this->SetLandscapeButtons();
  	}
 diff -ruN a/landscape.cpp b/landscape.cpp
---- a/landscape.cpp	2026-07-21 18:27:24.824350400 +0200
-+++ b/landscape.cpp	2026-07-21 18:27:25.525020600 +0200
+--- a/landscape.cpp	2026-07-21 19:24:07.116129800 +0200
++++ b/landscape.cpp	2026-07-21 19:24:07.678142300 +0200
 @@ -871,6 +871,8 @@
  	};
  	uint steps = (_settings_game.game_creation.landscape == LT_TROPIC) ? GLS_TROPIC : GLS_OTHER;
@@ -422,8 +484,8 @@ diff -ruN a/landscape.cpp b/landscape.cpp
  	if (_settings_game.game_creation.landscape == LT_TROPIC) CreateDesertOrRainForest();
  }
 diff -ruN a/lang/english.txt b/lang/english.txt
---- a/lang/english.txt	2026-07-21 18:27:24.861069400 +0200
-+++ b/lang/english.txt	2026-07-21 18:27:25.221011400 +0200
+--- a/lang/english.txt	2026-07-21 19:24:07.138620000 +0200
++++ b/lang/english.txt	2026-07-21 19:24:07.404920900 +0200
 @@ -1297,7 +1297,10 @@
  STR_CONFIG_SETTING_LARGER_TOWNS_DISABLED                        :{LTBLUE}Proportion of towns that will become cities: {ORANGE}None
  STR_CONFIG_SETTING_CITY_SIZE_MULTIPLIER                         :{LTBLUE}Initial city size multiplier: {ORANGE}{STRING1}
@@ -436,8 +498,8 @@ diff -ruN a/lang/english.txt b/lang/english.txt
  STR_CONFIG_SETTING_CONSTRUCTION                                 :{ORANGE}Construction
  STR_CONFIG_SETTING_VEHICLES                                     :{ORANGE}Vehicles
 diff -ruN a/main_gui.cpp b/main_gui.cpp
---- a/main_gui.cpp	2026-07-21 18:27:24.918359800 +0200
-+++ b/main_gui.cpp	2026-07-21 18:27:25.526556800 +0200
+--- a/main_gui.cpp	2026-07-21 19:24:07.105095200 +0200
++++ b/main_gui.cpp	2026-07-21 19:24:07.680142800 +0200
 @@ -30,6 +30,7 @@
  #include "toolbar_gui.h"
  #include "statusbar_gui.h"
@@ -495,8 +557,8 @@ diff -ruN a/main_gui.cpp b/main_gui.cpp
  
  #if defined(_DEBUG)
 diff -ruN a/network/core/os_abstraction.h b/network/core/os_abstraction.h
---- a/network/core/os_abstraction.h	2026-07-21 18:27:24.790599500 +0200
-+++ b/network/core/os_abstraction.h	2026-07-21 18:27:25.509621700 +0200
+--- a/network/core/os_abstraction.h	2026-07-21 19:24:06.966134500 +0200
++++ b/network/core/os_abstraction.h	2026-07-21 19:24:07.662301400 +0200
 @@ -158,7 +158,7 @@
  #		include <arpa/inet.h>
  #		include <net/if.h>
@@ -507,8 +569,8 @@ diff -ruN a/network/core/os_abstraction.h b/network/core/os_abstraction.h
  /* If for any reason ifaddrs.h does not exist on your system, comment out
   *   the following two lines and an alternative way will be used to fetch
 diff -ruN a/news_type.h b/news_type.h
---- a/news_type.h	2026-07-21 18:27:24.664876300 +0200
-+++ b/news_type.h	2026-07-21 18:27:25.265864000 +0200
+--- a/news_type.h	2026-07-21 19:24:06.888314800 +0200
++++ b/news_type.h	2026-07-21 19:24:07.450565500 +0200
 @@ -123,7 +123,7 @@
  		name(name),
  		age(age),
@@ -519,8 +581,8 @@ diff -ruN a/news_type.h b/news_type.h
  	{
  	}
 diff -ruN a/openttd.cpp b/openttd.cpp
---- a/openttd.cpp	2026-07-21 18:27:24.665846400 +0200
-+++ b/openttd.cpp	2026-07-21 18:27:25.533624700 +0200
+--- a/openttd.cpp	2026-07-21 19:24:06.889315200 +0200
++++ b/openttd.cpp	2026-07-21 19:24:07.687154900 +0200
 @@ -355,8 +355,13 @@
  	FioCloseAll();
  }
@@ -601,8 +663,8 @@ diff -ruN a/openttd.cpp b/openttd.cpp
  
  	WaitTillSaved();
 diff -ruN a/os/unix/crashlog_unix.cpp b/os/unix/crashlog_unix.cpp
---- a/os/unix/crashlog_unix.cpp	2026-07-21 18:27:24.741280100 +0200
-+++ b/os/unix/crashlog_unix.cpp	2026-07-21 18:27:25.386709800 +0200
+--- a/os/unix/crashlog_unix.cpp	2026-07-21 19:24:06.917826100 +0200
++++ b/os/unix/crashlog_unix.cpp	2026-07-21 19:24:07.569932100 +0200
 @@ -19,6 +19,10 @@
  #include <signal.h>
  #include <sys/utsname.h>
@@ -615,8 +677,8 @@ diff -ruN a/os/unix/crashlog_unix.cpp b/os/unix/crashlog_unix.cpp
  /* Execinfo (and thus making stacktraces) is a GNU extension */
  #	include <execinfo.h>
 diff -ruN a/os/unix/unix.cpp b/os/unix/unix.cpp
---- a/os/unix/unix.cpp	2026-07-21 18:27:24.741280100 +0200
-+++ b/os/unix/unix.cpp	2026-07-21 18:27:25.386709800 +0200
+--- a/os/unix/unix.cpp	2026-07-21 19:24:06.917826100 +0200
++++ b/os/unix/unix.cpp	2026-07-21 19:24:07.569932100 +0200
 @@ -44,6 +44,12 @@
  
  #ifdef __AMIGA__
@@ -750,8 +812,8 @@ diff -ruN a/os/unix/unix.cpp b/os/unix/unix.cpp
 +unsigned long __stack = 1024 * 1024; /* OpenTTD needs a large stack on AmigaOS */
 +#endif
 diff -ruN a/rail_cmd.cpp b/rail_cmd.cpp
---- a/rail_cmd.cpp	2026-07-21 18:27:24.811759100 +0200
-+++ b/rail_cmd.cpp	2026-07-21 18:27:25.528633500 +0200
+--- a/rail_cmd.cpp	2026-07-21 19:24:07.120130300 +0200
++++ b/rail_cmd.cpp	2026-07-21 19:24:07.682167900 +0200
 @@ -11,6 +11,7 @@
  
  #include "stdafx.h"
@@ -786,8 +848,8 @@ diff -ruN a/rail_cmd.cpp b/rail_cmd.cpp
  
  		if (ret.Failed()) {
 diff -ruN a/saveload/saveload.cpp b/saveload/saveload.cpp
---- a/saveload/saveload.cpp	2026-07-21 18:27:24.598426800 +0200
-+++ b/saveload/saveload.cpp	2026-07-21 18:27:25.147911400 +0200
+--- a/saveload/saveload.cpp	2026-07-21 19:24:06.756413700 +0200
++++ b/saveload/saveload.cpp	2026-07-21 19:24:07.330691900 +0200
 @@ -192,6 +192,9 @@
   * pretty ugly, and seriously interferes with any multithreaded approaches */
  static void NORETURN SlError(StringID string, const char *extra_msg = NULL)
@@ -883,8 +945,8 @@ diff -ruN a/saveload/saveload.cpp b/saveload/saveload.cpp
  
  		return SL_OK;
 diff -ruN a/settings.cpp b/settings.cpp
---- a/settings.cpp	2026-07-21 18:27:24.841933200 +0200
-+++ b/settings.cpp	2026-07-21 18:27:25.536623900 +0200
+--- a/settings.cpp	2026-07-21 19:24:07.112133800 +0200
++++ b/settings.cpp	2026-07-21 19:24:07.689155100 +0200
 @@ -697,6 +697,19 @@
  	return true;
  }
@@ -906,9 +968,9 @@ diff -ruN a/settings.cpp b/settings.cpp
  {
  	InvalidateWindowClassesData(WC_TOWN_VIEW, p1);
 diff -ruN a/settings_gui.cpp b/settings_gui.cpp
---- a/settings_gui.cpp	2026-07-21 18:27:24.820830800 +0200
-+++ b/settings_gui.cpp	2026-07-21 18:27:25.528100200 +0200
-@@ -88,10 +88,26 @@
+--- a/settings_gui.cpp	2026-07-21 19:24:07.117129600 +0200
++++ b/settings_gui.cpp	2026-07-21 19:24:07.682167900 +0200
+@@ -88,10 +88,27 @@
  	return STR_UNDEFINED;
  }
  
@@ -918,6 +980,7 @@ diff -ruN a/settings_gui.cpp b/settings_gui.cpp
 + * to know about the Amiga video driver. */
 +extern int  AmigaGetResolutionIndex();
 +extern void AmigaSetResolutionIndex(int index);
++extern bool AmigaChangeResolutionByIndex(int index);
 +#endif
 +
  static int GetCurRes()
@@ -935,22 +998,31 @@ diff -ruN a/settings_gui.cpp b/settings_gui.cpp
  	for (i = 0; i != _num_resolutions; i++) {
  		if ((int)_resolutions[i].width == _screen.width &&
  				(int)_resolutions[i].height == _screen.height) {
-@@ -418,6 +434,14 @@
+@@ -418,9 +435,23 @@
  				break;
  
  			case GOW_RESOLUTION_DROPDOWN: // Change resolution
 +#ifdef __AMIGA__
-+				/* ChangeResInGame passes on a width and a height only, and on
-+				 * the Amiga that pair is ambiguous: 640x480 is offered both as
-+				 * an AGA mode and as an RTG one. Hand the driver the entry the
-+				 * player actually clicked, which is not ambiguous, BEFORE the
-+				 * call that acts on it. */
++				/* NOT ChangeResInGame() here. That helper returns early when the
++				 * requested width/height equal the current ones, which assumes a
++				 * size identifies a mode - false on the Amiga, where 320x256 is
++				 * offered as AGA and as OCS and 640x480 as AGA and as RTG. A
++				 * same-size backend switch would be swallowed silently. Hand the
++				 * driver the entry the player actually clicked instead; it is
++				 * unambiguous and it applies what it is given. */
 +				AmigaSetResolutionIndex(index);
-+#endif
++				if (AmigaChangeResolutionByIndex(index)) {
++					this->SetDirty();
++				}
++#else
  				if (index < _num_resolutions && ChangeResInGame(_resolutions[index].width, _resolutions[index].height)) {
  					this->SetDirty();
  				}
-@@ -1468,7 +1492,20 @@
++#endif
+ 				break;
+ 
+ 			case GOW_SCREENSHOT_DROPDOWN: // Change screenshot format
+@@ -1468,7 +1499,20 @@
  /** Vehicles sub-page */
  static SettingsPage _settings_vehicles_page = {_settings_vehicles, lengthof(_settings_vehicles)};
  
@@ -972,8 +1044,8 @@ diff -ruN a/settings_gui.cpp b/settings_gui.cpp
  	SettingEntry(&_settings_construction_page, STR_CONFIG_SETTING_CONSTRUCTION),
  	SettingEntry(&_settings_vehicles_page,     STR_CONFIG_SETTING_VEHICLES),
 diff -ruN a/settings_type.h b/settings_type.h
---- a/settings_type.h	2026-07-21 18:27:24.844932900 +0200
-+++ b/settings_type.h	2026-07-21 18:27:25.524013900 +0200
+--- a/settings_type.h	2026-07-21 19:24:07.096093900 +0200
++++ b/settings_type.h	2026-07-21 19:24:07.678142300 +0200
 @@ -392,11 +392,38 @@
  	LocaleSettings       locale;             ///< settings related to used currency/unit system in the current game
  };
@@ -1014,8 +1086,8 @@ diff -ruN a/settings_type.h b/settings_type.h
  
  /** The current settings for this game. */
 diff -ruN a/sound.cpp b/sound.cpp
---- a/sound.cpp	2026-07-21 18:27:24.751182700 +0200
-+++ b/sound.cpp	2026-07-21 18:27:25.527588800 +0200
+--- a/sound.cpp	2026-07-21 19:24:07.129619800 +0200
++++ b/sound.cpp	2026-07-21 19:24:07.681146200 +0200
 @@ -168,6 +168,9 @@
  	/* Empty sound? */
  	if (sound->rate == 0) return;
@@ -1027,8 +1099,8 @@ diff -ruN a/sound.cpp b/sound.cpp
  	if (mc == NULL) return;
  
 diff -ruN a/spritecache.cpp b/spritecache.cpp
---- a/spritecache.cpp	2026-07-21 18:27:24.831593400 +0200
-+++ b/spritecache.cpp	2026-07-21 18:27:25.525556400 +0200
+--- a/spritecache.cpp	2026-07-21 19:24:07.097091900 +0200
++++ b/spritecache.cpp	2026-07-21 19:24:07.679142700 +0200
 @@ -21,6 +21,24 @@
  
  #include "table/sprites.h"
@@ -1141,8 +1213,8 @@ diff -ruN a/spritecache.cpp b/spritecache.cpp
  
  	return sc->ptr;
 diff -ruN a/string_func.h b/string_func.h
---- a/string_func.h	2026-07-21 18:27:24.618497700 +0200
-+++ b/string_func.h	2026-07-21 18:27:25.119842700 +0200
+--- a/string_func.h	2026-07-21 19:24:06.721429300 +0200
++++ b/string_func.h	2026-07-21 19:24:07.303583000 +0200
 @@ -282,7 +282,10 @@
  #endif /* strndup is available */
  
@@ -1156,8 +1228,8 @@ diff -ruN a/string_func.h b/string_func.h
  #else
  #	define DEFINE_STRCASESTR
 diff -ruN a/strings.cpp b/strings.cpp
---- a/strings.cpp	2026-07-21 18:27:24.909187200 +0200
-+++ b/strings.cpp	2026-07-21 18:27:25.532633500 +0200
+--- a/strings.cpp	2026-07-21 19:24:06.646483400 +0200
++++ b/strings.cpp	2026-07-21 19:24:07.686154600 +0200
 @@ -1242,9 +1242,25 @@
  	/* resolution size? */
  	if (IsInsideMM(ind, (SPECSTR_RESOLUTION_START - 0x70E4), (SPECSTR_RESOLUTION_END - 0x70E4) + 1)) {
@@ -1185,8 +1257,8 @@ diff -ruN a/strings.cpp b/strings.cpp
  	}
  
 diff -ruN a/table/settings.h b/table/settings.h
---- a/table/settings.h	2026-07-21 18:27:24.527898900 +0200
-+++ b/table/settings.h	2026-07-21 18:27:25.236889900 +0200
+--- a/table/settings.h	2026-07-21 19:24:06.698407100 +0200
++++ b/table/settings.h	2026-07-21 19:24:07.420375700 +0200
 @@ -36,6 +36,9 @@
  static bool ChangeDynamicEngines(int32 p1);
  static bool StationCatchmentChanged(int32 p1);
@@ -1248,8 +1320,8 @@ diff -ruN a/table/settings.h b/table/settings.h
  };
  
 diff -ruN a/tgp.cpp b/tgp.cpp
---- a/tgp.cpp	2026-07-21 18:27:24.733170500 +0200
-+++ b/tgp.cpp	2026-07-21 18:27:25.527588800 +0200
+--- a/tgp.cpp	2026-07-21 19:24:07.178457300 +0200
++++ b/tgp.cpp	2026-07-21 19:24:07.681146200 +0200
 @@ -669,6 +669,10 @@
  		if (water_tiles >= desired_water_tiles) break;
  	}
@@ -1382,7 +1454,7 @@ diff -ruN a/tgp.cpp b/tgp.cpp
  }
 diff -ruN a/video/amiga_ehb_data.h b/video/amiga_ehb_data.h
 --- a/video/amiga_ehb_data.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/amiga_ehb_data.h	2026-07-21 18:27:25.104213100 +0200
++++ b/video/amiga_ehb_data.h	2026-07-21 19:24:07.286943600 +0200
 @@ -0,0 +1,83 @@
 +/* Generated by tools/gen_ehb_data.py from the "sat20" EHB assets
 + * (saturation x1.2).  DO NOT EDIT BY HAND - re-run the generator.
@@ -1469,7 +1541,7 @@ diff -ruN a/video/amiga_ehb_data.h b/video/amiga_ehb_data.h
 +#endif /* AMIGA_EHB_DATA_DEFINE */
 diff -ruN a/video/c2p1x1_6_c5_bm_040.s b/video/c2p1x1_6_c5_bm_040.s
 --- a/video/c2p1x1_6_c5_bm_040.s	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/c2p1x1_6_c5_bm_040.s	2026-07-21 18:27:25.103218900 +0200
++++ b/video/c2p1x1_6_c5_bm_040.s	2026-07-21 19:24:07.286943600 +0200
 @@ -0,0 +1,377 @@
 +;
 +; File:   c2p1x1_6_c5_bm_040.s
@@ -1850,7 +1922,7 @@ diff -ruN a/video/c2p1x1_6_c5_bm_040.s b/video/c2p1x1_6_c5_bm_040.s
 +
 diff -ruN a/video/c2p_glue.s b/video/c2p_glue.s
 --- a/video/c2p_glue.s	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/c2p_glue.s	2026-07-21 18:27:25.110335100 +0200
++++ b/video/c2p_glue.s	2026-07-21 19:24:07.292946000 +0200
 @@ -0,0 +1,91 @@
 +; C-callable wrappers around Mikael Kalms' chunky-to-planar routines.
 +;
@@ -1945,7 +2017,7 @@ diff -ruN a/video/c2p_glue.s b/video/c2p_glue.s
 +	include	"c2p1x1_6_c5_bm_040.s"
 diff -ruN a/video/c2p_rect.s b/video/c2p_rect.s
 --- a/video/c2p_rect.s	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/c2p_rect.s	2026-07-21 18:27:25.110335100 +0200
++++ b/video/c2p_rect.s	2026-07-21 19:24:07.292946000 +0200
 @@ -0,0 +1,429 @@
 +
 +; C2P a rectangular area between equally-sized chunkybuffer and

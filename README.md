@@ -33,8 +33,6 @@ at hires bandwidth. A "640x480 OCS" entry would simply be refused.
 
 Changing between AGA, OCS and RTG needs a restart — the choice is saved
 immediately and the game says so on screen.
-They are labelled AGA because a Picasso96/RTG backend is planned and will add
-its own modes to the same list.
 
 **If the game runs too slowly, switch to one of the lores modes.** They convert
 a quarter of the pixels of `640x480`, which is the single biggest lever you
@@ -64,10 +62,12 @@ implemented yet.**
 
 ## What does not
 
+- **No music.**
 - **No networking** in this build.
-- AGA/RTG, and no ECS/OCS
 - Memory use is high: 24MB total memory required. Half-size graphics and a
   smaller cache are the planned.
+- The OCS modes cut colours and bitplanes but **not** sprite size, so they do
+  not yet lower the memory requirement. Half-size graphics are the next step.
 
 ## Requirements
 
@@ -140,7 +140,7 @@ in normal play.
 ## Building
 
 See [BUILDING.md](BUILDING.md), and read it before you start. The toolchain has
-several traps that produce silently wrong code rather than errors: five source
+several traps that produce silently wrong code rather than errors: eight source
 files miscompile at `-O1` and must be built at `-O0`, `-O2` breaks C++ exception
 unwinding outright, and zlib returns corrupt data above `-O0`. Each one cost a
 day to find.

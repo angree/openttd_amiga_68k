@@ -54,6 +54,48 @@ int AmigaAudio_ChannelIdle(int ch);
 int AmigaAudio_Play(int ch, void *chipdata, unsigned long bytes,
                     int period, int volume);
 
+/* ---- streaming music on Paula channels 2 (right) + 3 (left) -------------
+ *
+ * The same mono stream is played on both a left and a right channel so music
+ * is never stuck in one ear. While music streams, the SFX side (amiga_s.cpp)
+ * confines itself to channels 0 and 1; with music off, SFX uses all four.
+ *
+ * Gapless double buffering: two Chip buffers are kept queued on each music
+ * channel, so audio.device chains the next before the current one ends. The
+ * refill callback is pulled from AmigaAudio_MusicService(), called once per
+ * frame from the video driver's main loop - never from an interrupt, so the
+ * thread_none contract holds.
+ */
+
+/* Start streaming. period = PAL_CLOCK/rate (>=124). chunk_samples = 8-bit
+ * samples per buffer (even; clamped internally). refill(ud, dst, max) writes
+ * up to max 8-bit signed samples to dst and returns the count (0 = end of
+ * stream). Returns 1 on success, 0 if audio is unavailable or Chip RAM is
+ * exhausted. */
+int  AmigaAudio_MusicStart(int period, int chunk_samples,
+                           int (*refill)(void *ud, signed char *dst, int max),
+                           void *ud);
+
+/* Stop streaming: abort the music writes, free the Chip buffers, hand
+ * channels 2 and 3 back to the SFX pool. Safe to call when not streaming. */
+void AmigaAudio_MusicStop(void);
+
+/* Refill any music buffer both channels have finished with; call once per
+ * frame. Cheap and non-blocking when nothing needs refilling. */
+void AmigaAudio_MusicService(void);
+
+/* Hardware volume 0..64 for the music channels; applied from the next
+ * buffer (so within one chunk). */
+void AmigaAudio_MusicSetVolume(int volume);
+
+/* 1 while a track is loaded/streaming - the SFX side then avoids channels
+ * 2 and 3. */
+int  AmigaAudio_MusicActive(void);
+
+/* 1 once the stream has drained AND both channels have played the last
+ * buffer out (so the caller can loop or advance to the next track). */
+int  AmigaAudio_MusicFinished(void);
+
 #ifdef __cplusplus
 }
 #endif

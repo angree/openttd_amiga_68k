@@ -47,6 +47,25 @@ static int aa_ready = 0;
 /* The only allocation we accept: all four channels at once. */
 static UBYTE aa_allocmap[] = { 15 };
 
+/* ---- streaming music state (Paula channels 2 & 3) ---------------------- */
+#define AA_MUS_MAX_CHUNK 16384          /* 8-bit samples per buffer ceiling */
+
+static int   aa_mus_active = 0;
+static int   aa_mus_ended  = 0;         /* refill returned end-of-stream */
+static int   aa_mus_period = 400;
+static int   aa_mus_vol    = 48;        /* 0..64 */
+static int   aa_mus_chunk  = 0;         /* samples per buffer */
+static signed char *aa_mus_buf[2] = { NULL, NULL }; /* Chip, shared by both channels */
+static int   aa_mus_len[2] = { 0, 0 };  /* valid bytes per buffer (even) */
+static int   (*aa_mus_refill)(void *, signed char *, int) = NULL;
+static void *aa_mus_ud = NULL;
+
+/* Logical music channel 0 -> Paula ch3 (LEFT), 1 -> ch2 (RIGHT); two
+ * requests each for gapless ping-pong over aa_mus_buf[0]/[1]. */
+static const int aa_mus_chan[2] = { 3, 2 };
+static struct IOAudio *aa_mus_req[2][2] = { { NULL, NULL }, { NULL, NULL } };
+static int   aa_mus_busy[2][2] = { { 0, 0 }, { 0, 0 } };
+
 int AmigaAudio_Open(void)
 {
     int i;
@@ -100,6 +119,9 @@ void AmigaAudio_Close(void)
     int i;
 
     aa_ready = 0;
+
+    /* Stop music first: aborts channels 2 & 3 and frees their buffers. */
+    AmigaAudio_MusicStop();
 
     /* Abort and dequeue any outstanding write before freeing its request. */
     for (i = 0; i < AMIGA_AUDIO_CHANNELS; i++) {
@@ -159,6 +181,7 @@ int AmigaAudio_Play(int ch, void *chipdata, unsigned long bytes,
     struct IOAudio *io;
 
     if (!aa_ready || ch < 0 || ch >= AMIGA_AUDIO_CHANNELS) return 0;
+    if (aa_mus_active && (ch == 2 || ch == 3)) return 0; /* held by music */
     if (chipdata == NULL || bytes < 2) return 0;
     if (!AmigaAudio_ChannelIdle(ch)) return 0;
 
@@ -181,5 +204,180 @@ int AmigaAudio_Play(int ch, void *chipdata, unsigned long bytes,
     /* MUST be BeginIO - see the file header. */
     BeginIO((struct IORequest *)io);
     aa_busy[ch] = 1;
+    return 1;
+}
+
+/* ======================================================================== */
+/* Streaming music: identical mono stream on ch3 (LEFT) and ch2 (RIGHT),    */
+/* double-buffered so audio.device chains the next write before the current */
+/* one ends. Serviced once per frame from the video main loop.              */
+/* ======================================================================== */
+
+/* Queue one CMD_WRITE of buffer 'ping' on logical music channel 'mc'. It is
+ * sent while the other ping is still playing, so the device plays them
+ * back-to-back with no CPU gap. */
+static void MusWrite(int mc, int ping)
+{
+    struct IOAudio *io = aa_mus_req[mc][ping];
+    if (io == NULL || aa_mus_len[ping] < 2) return;
+    io->ioa_Request.io_Command = CMD_WRITE;
+    io->ioa_Request.io_Flags   = ADIOF_PERVOL;   /* see file header: never lose this */
+    io->ioa_Request.io_Unit    = (struct Unit *)(1UL << aa_mus_chan[mc]);
+    io->ioa_Data   = (UBYTE *)aa_mus_buf[ping];
+    io->ioa_Length = (ULONG)(aa_mus_len[ping] & ~1UL);
+    io->ioa_Period = (UWORD)aa_mus_period;
+    io->ioa_Volume = (UWORD)aa_mus_vol;
+    io->ioa_Cycles = 1;
+    BeginIO((struct IORequest *)io);
+    aa_mus_busy[mc][ping] = 1;
+}
+
+static void MusFreeReqs(void)
+{
+    int mc, p;
+    for (mc = 0; mc < 2; mc++) {
+        for (p = 0; p < 2; p++) {
+            if (aa_mus_req[mc][p] == NULL) continue;
+            if (aa_mus_busy[mc][p]) {
+                AbortIO((struct IORequest *)aa_mus_req[mc][p]);
+                WaitIO((struct IORequest *)aa_mus_req[mc][p]);
+                aa_mus_busy[mc][p] = 0;
+            }
+            FreeVec(aa_mus_req[mc][p]);
+            aa_mus_req[mc][p] = NULL;
+        }
+    }
+}
+
+void AmigaAudio_MusicStop(void)
+{
+    if (aa_mus_req[0][0] != NULL || aa_mus_active) MusFreeReqs();
+    if (aa_mus_buf[0] != NULL) { FreeVec(aa_mus_buf[0]); aa_mus_buf[0] = NULL; }
+    if (aa_mus_buf[1] != NULL) { FreeVec(aa_mus_buf[1]); aa_mus_buf[1] = NULL; }
+    aa_mus_len[0] = aa_mus_len[1] = 0;
+    aa_mus_active = 0;
+    aa_mus_ended  = 0;
+    aa_mus_refill = NULL;
+    aa_mus_ud     = NULL;
+}
+
+int AmigaAudio_MusicStart(int period, int chunk_samples,
+                          int (*refill)(void *, signed char *, int), void *ud)
+{
+    int mc, p, n0, n1;
+    if (!aa_ready || refill == NULL) return 0;
+
+    AmigaAudio_MusicStop();
+
+    if (chunk_samples < 512) chunk_samples = 512;
+    if (chunk_samples > AA_MUS_MAX_CHUNK) chunk_samples = AA_MUS_MAX_CHUNK;
+    chunk_samples &= ~1;
+    aa_mus_chunk  = chunk_samples;
+    if (period < 124)   period = 124;
+    if (period > 65535) period = 65535;
+    aa_mus_period = period;
+    aa_mus_refill = refill;
+    aa_mus_ud     = ud;
+    aa_mus_ended  = 0;
+
+    /* Reclaim channels 2 & 3 from any in-flight SFX write. */
+    for (mc = 0; mc < 2; mc++) {
+        int ch = aa_mus_chan[mc];
+        if (aa_req[ch] != NULL && aa_busy[ch]) {
+            AbortIO((struct IORequest *)aa_req[ch]);
+            WaitIO((struct IORequest *)aa_req[ch]);
+            aa_busy[ch] = 0;
+        }
+    }
+
+    /* One byte per 8-bit sample; the two channels share these buffers. */
+    aa_mus_buf[0] = (signed char *)AllocVec((ULONG)chunk_samples, MEMF_CHIP);
+    aa_mus_buf[1] = (signed char *)AllocVec((ULONG)chunk_samples, MEMF_CHIP);
+    if (aa_mus_buf[0] == NULL || aa_mus_buf[1] == NULL) { AmigaAudio_MusicStop(); return 0; }
+
+    /* Four requests, cloned from the opener so they carry ioa_AllocKey. */
+    for (mc = 0; mc < 2; mc++) {
+        for (p = 0; p < 2; p++) {
+            struct IOAudio *io = (struct IOAudio *)AllocVec(sizeof(struct IOAudio),
+                                                            MEMF_PUBLIC | MEMF_CLEAR);
+            if (io == NULL) { AmigaAudio_MusicStop(); return 0; }
+            *io = *aa_opener;
+            io->ioa_Request.io_Unit = (struct Unit *)(1UL << aa_mus_chan[mc]);
+            aa_mus_req[mc][p] = io;
+            aa_mus_busy[mc][p] = 0;
+        }
+    }
+
+    /* Prime both buffers before starting DMA. */
+    n0 = refill(ud, aa_mus_buf[0], chunk_samples);
+    if (n0 <= 0) { AmigaAudio_MusicStop(); return 0; }   /* nothing to play */
+    aa_mus_len[0] = n0 & ~1;
+    n1 = refill(ud, aa_mus_buf[1], chunk_samples);
+    if (n1 <= 0) { aa_mus_len[1] = 0; aa_mus_ended = 1; }
+    else aa_mus_len[1] = n1 & ~1;
+
+    aa_mus_active = 1;
+    for (mc = 0; mc < 2; mc++) {
+        MusWrite(mc, 0);
+        if (aa_mus_len[1] >= 2) MusWrite(mc, 1);
+    }
+    return 1;
+}
+
+void AmigaAudio_MusicService(void)
+{
+    int ping, mc;
+    if (!aa_mus_active) return;
+
+    for (ping = 0; ping < 2; ping++) {
+        int both_idle = 1;
+        for (mc = 0; mc < 2; mc++) {
+            if (!aa_mus_busy[mc][ping]) continue;
+            if (CheckIO((struct IORequest *)aa_mus_req[mc][ping]) != NULL) {
+                WaitIO((struct IORequest *)aa_mus_req[mc][ping]);
+                aa_mus_busy[mc][ping] = 0;
+            } else {
+                both_idle = 0;
+            }
+        }
+        if (!both_idle || aa_mus_ended) continue;
+
+        {
+            int n = aa_mus_refill(aa_mus_ud, aa_mus_buf[ping], aa_mus_chunk);
+            if (n <= 0) { aa_mus_ended = 1; aa_mus_len[ping] = 0; continue; }
+            aa_mus_len[ping] = n & ~1;
+            for (mc = 0; mc < 2; mc++) MusWrite(mc, ping);
+        }
+    }
+}
+
+void AmigaAudio_MusicSetVolume(int volume)
+{
+    if (volume < 0)  volume = 0;
+    if (volume > 64) volume = 64;
+    aa_mus_vol = volume;
+}
+
+int AmigaAudio_MusicActive(void) { return aa_mus_active; }
+
+int AmigaAudio_MusicFinished(void)
+{
+    int mc, p;
+    if (!aa_mus_active) return 1;
+    if (!aa_mus_ended)  return 0;
+    /* Reap completed writes so a drained stream is reported finished even if
+     * MusicService did not run this frame. */
+    for (mc = 0; mc < 2; mc++) {
+        for (p = 0; p < 2; p++) {
+            if (aa_mus_busy[mc][p] &&
+                CheckIO((struct IORequest *)aa_mus_req[mc][p]) != NULL) {
+                WaitIO((struct IORequest *)aa_mus_req[mc][p]);
+                aa_mus_busy[mc][p] = 0;
+            }
+        }
+    }
+    for (mc = 0; mc < 2; mc++)
+        for (p = 0; p < 2; p++)
+            if (aa_mus_busy[mc][p]) return 0;
     return 1;
 }

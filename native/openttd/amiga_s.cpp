@@ -527,8 +527,14 @@ void MxActivateChannel(MixerChannel *mc)
 	 * If a start fails unexpectedly, try the remaining candidates. */
 	const int *order = (mc->vol_left >= mc->vol_right) ? left_first : right_first;
 
+	/* While a track streams it owns Paula channels 2 (right) and 3 (left);
+	 * effects then share only 0 (left) and 1 (right). With music stopped all
+	 * four are available again. */
+	bool music_on = AmigaAudio_MusicActive() != 0;
+
 	for (int i = 0; i < AMIGA_AUDIO_CHANNELS; i++) {
 		int ch = order[i];
+		if (music_on && (ch == 2 || ch == 3)) continue;
 		bool taken = false;
 		for (int j = 0; j < AMIGA_AUDIO_CHANNELS; j++) {
 			if (_mx[j].hw == ch) taken = true;

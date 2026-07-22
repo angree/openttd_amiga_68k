@@ -42,6 +42,7 @@
 #include "amiga_v.h"
 #include "amiga_gfx.h"
 #include "amiga_ehb_data.h" /* _amiga_ehb_palette - the 64 EHB colour registers */
+#include "../sound/amiga_audio.h" /* AmigaAudio_MusicService - streamed music refill */
 
 /** Defined in spritecache.cpp, which is where the reduction is applied. Declared
  * here rather than in a header for the same reason AmigaWorkbenchBarChanged() is:
@@ -1034,6 +1035,10 @@ void VideoDriver_Amiga::MainLoop()
 		if (trace < 3) amigagfx_log("iter: PollEvents");
 		PollEvents();
 		if (_exit_game) break;
+
+		/* Refill any drained music buffer (streamed from disk on Paula ch 2+3).
+		 * Cheap and non-blocking when nothing needs topping up. */
+		AmigaAudio_MusicService();
 
 		if (trace < 3) amigagfx_log("iter: millis");
 		cur_ticks = amigagfx_millis();

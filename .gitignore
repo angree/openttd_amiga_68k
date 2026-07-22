@@ -36,6 +36,10 @@
 !/build/build-nofpu.sh
 !/build/tgp-remove-pow.py
 !/build/make-splash.py
+# Generator for the Workbench .info icon shipped with the release, built from
+# the splash board art (rounded corners, no text). Produces a dual-format icon:
+# a palette-safe 4-colour OldIcon for Workbench 3.1 and an OS3.5 ColorIcon.
+!/build/make-info.py
 # Standalone probe that proves whether printf traps on an FPU-less CPU. It logs
 # through dos.library only, so the log survives even when printf itself dies.
 !/build/probe/

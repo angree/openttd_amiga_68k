@@ -22,13 +22,22 @@ Then copy the driver sources from `native/openttd/` into place — they are kept
 separately because they are wholly new files rather than modifications:
 
 ```sh
-cp native/openttd/amiga_v.cpp  native/openttd/amiga_v.h    src/video/
-cp native/openttd/amiga_gfx.c  native/openttd/amiga_gfx.h  src/video/
-cp native/openttd/amiga_s.cpp  native/openttd/amiga_s.h    src/sound/
+cp native/openttd/amiga_v.cpp   native/openttd/amiga_v.h     src/video/
+cp native/openttd/amiga_gfx.c   native/openttd/amiga_gfx.h   src/video/
+cp native/openttd/amiga_s.cpp   native/openttd/amiga_s.h     src/sound/
 cp native/openttd/amiga_audio.c native/openttd/amiga_audio.h src/sound/
+cp native/openttd/amiga_adpcm.c native/openttd/amiga_adpcm.h src/sound/
+mkdir -p src/music && cp native/openttd/amiga_m.cpp native/openttd/amiga_m.h src/music/
+mkdir -p src/ai_old && cp native/openttd/ai_old/oldai.cpp native/openttd/ai_old/oldai.h \
+                          native/openttd/ai_old/oldai_log.c src/ai_old/
 cp native/openttd/fp_conv.c    src/
-cp native/c2p_rect.s native/c2p_glue.s src/video/
+cp native/c2p1x1_6_c5_bm_040.s native/c2p_rect.s native/c2p_glue.s src/video/
 ```
+
+`amiga_m.o`, `amiga_adpcm.o`, `oldai.o` and `oldai_log.o` are compiled by hand
+(plain C at `-O0`, C++ at `-O0`) and linked via `LIBS` in
+`objs/release/Makefile`, exactly like `amiga_audio.o` / `amiga_gfx.o` — they are
+not in `source.list`. See `build/` for the helper scripts.
 
 ## One thing you have to supply yourself
 
@@ -77,6 +86,17 @@ traps that produce silently wrong code rather than errors, and
 - **`sound.cpp`** — a three-line hook passing the sound ID to the driver, so
   ambient effects can be capped to two of Paula's four channels and cannot
   drown out gameplay sounds.
+- **`music.cpp`, `music_gui.cpp`, `music/amiga_m.*`, `sound/amiga_adpcm.*`** —
+  native music. The base music set is synthesised from our own IMA-ADPCM WAV
+  tracks (the port ships no copyrighted `.gm` MIDI and does not need any), which
+  are streamed from disk and played on Paula channels 2 (right) + 3 (left) with
+  gapless double buffering; effects share channels 0+1 while music plays, all
+  four when it does not. Shuffle defaults on.
+- **`company_cmd.cpp`, `openttd.cpp`, `ai/ai_core.cpp`, `ai_old/oldai.*`** — a
+  native C++ AI, a plain-C++ replacement for the Squirrel AI (which cannot
+  unwind its `AI_VMSuspend` exception through the Hunk binary). The
+  competitor-spawn call in `company_cmd.cpp` is commented out for this release
+  (AI opponents disabled at the user's request), but the code is linked in.
 - **`table/settings.h`** — autosave defaults to yearly, because autosaving is
   expensive on this hardware.
 - **`news_type.h`, `genworld.cpp`, `landscape.cpp`** — news defaults and

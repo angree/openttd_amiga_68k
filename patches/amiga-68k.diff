@@ -1,6 +1,168 @@
+diff -ruN a/3rdparty/squirrel/squirrel/sqcompiler.cpp b/3rdparty/squirrel/squirrel/sqcompiler.cpp
+--- a/3rdparty/squirrel/squirrel/sqcompiler.cpp	2026-07-22 14:49:37.540056400 +0200
++++ b/3rdparty/squirrel/squirrel/sqcompiler.cpp	2026-07-22 14:49:38.349096300 +0200
+@@ -4,6 +4,7 @@
+ #include <squirrel.h>
+ #include "sqpcheader.h"
+ #include <stdarg.h>
++#include <setjmp.h>
+ #include "sqopcodes.h"
+ #include "sqstring.h"
+ #include "sqfuncproto.h"
+@@ -63,12 +64,11 @@
+ 	}
+ 	void Error(const SQChar *s, ...)
+ 	{
+-		static SQChar temp[256];
+ 		va_list vl;
+ 		va_start(vl, s);
+-		scvsprintf(temp, s, vl);
++		scvsprintf(_errormsg, s, vl);
+ 		va_end(vl);
+-		throw temp;
++		longjmp(_errorjmp, 1);
+ 	}
+ 	void Lex(){	_token = _lex.Lex();}
+ 	void PushExpState(){ _expstates.push_back(ExpState()); }
+@@ -164,7 +164,7 @@
+ 		_fs->AddParameter(_fs->CreateString(_SC("this")));
+ 		_fs->_sourcename = _sourcename;
+ 		SQInteger stacksize = _fs->GetStackSize();
+-		try {
++		if (setjmp(_errorjmp) == 0) {
+ 			Lex();
+ 			while(_token > 0){
+ 				Statement();
+@@ -180,12 +180,12 @@
+ #endif
+ 			return true;
+ 		}
+-		catch (SQChar *compilererror) {
++		else {
+ 			if(_raiseerror && _ss(_vm)->_compilererrorhandler) {
+-				_ss(_vm)->_compilererrorhandler(_vm, compilererror, type(_sourcename) == OT_STRING?_stringval(_sourcename):_SC("unknown"),
++				_ss(_vm)->_compilererrorhandler(_vm, _errormsg, type(_sourcename) == OT_STRING?_stringval(_sourcename):_SC("unknown"),
+ 					_lex._currentline, _lex._currentcolumn);
+ 			}
+-			_vm->_lasterror = SQString::Create(_ss(_vm), compilererror, -1);
++			_vm->_lasterror = SQString::Create(_ss(_vm), _errormsg, -1);
+ 			return false;
+ 		}
+ 	}
+@@ -1355,6 +1355,8 @@
+ 	SQInteger _debugop;
+ 	ExpStateVec _expstates;
+ 	SQVM *_vm;
++	jmp_buf _errorjmp;      ///< where Error() jumps back to; see the note at the top
++	SQChar _errormsg[256];  ///< the message Error() formatted before jumping
+ };
+ 
+ bool Compile(SQVM *vm,SQLEXREADFUNC rg, SQUserPointer up, const SQChar *sourcename, SQObjectPtr &out, bool raiseerror, bool lineinfo)
+diff -ruN a/ai/ai_core.cpp b/ai/ai_core.cpp
+--- a/ai/ai_core.cpp	2026-07-22 14:49:37.817810300 +0200
++++ b/ai/ai_core.cpp	2026-07-22 14:49:38.264132400 +0200
+@@ -70,7 +70,9 @@
+ 
+ 	const Company *c;
+ 	FOR_ALL_COMPANIES(c) {
+-		if (c->is_ai) {
++		/* Amiga port: an AI company driven by the native C++ AI (ai_old) has no
++		 * Squirrel ai_instance. Skip it here - it is ticked by OldAI_GameLoop. */
++		if (c->is_ai && c->ai_instance != NULL) {
+ 			_current_company = c->index;
+ 			c->ai_instance->GameLoop();
+ 		}
+@@ -80,7 +82,7 @@
+ 	 * Effectively collecting garbage once every two months per AI. */
+ 	if ((AI::frame_counter & 255) == 0) {
+ 		CompanyID cid = (CompanyID)GB(AI::frame_counter, 8, 4);
+-		if (Company::IsValidAiID(cid)) Company::Get(cid)->ai_instance->CollectGarbage();
++		if (Company::IsValidAiID(cid) && Company::Get(cid)->ai_instance != NULL) Company::Get(cid)->ai_instance->CollectGarbage();
+ 	}
+ 
+ 	_current_company = OWNER_NONE;
+@@ -236,7 +238,12 @@
+ {
+ 	if (!_networking || _network_server) {
+ 		Company *c = Company::GetIfValid(company);
+-		assert(c != NULL && c->ai_instance != NULL);
++		/* Amiga port: native C++ AI companies have no Squirrel ai_instance;
++		 * write an empty AI block so the savegame stays consistent. */
++		if (c == NULL || c->ai_instance == NULL) {
++			AIInstance::SaveEmpty();
++			return;
++		}
+ 
+ 		CompanyID old_company = _current_company;
+ 		_current_company = company;
+@@ -251,7 +258,11 @@
+ {
+ 	if (!_networking || _network_server) {
+ 		Company *c = Company::GetIfValid(company);
+-		assert(c != NULL && c->ai_instance != NULL);
++		/* Amiga port: native C++ AI companies have no Squirrel ai_instance. */
++		if (c == NULL || c->ai_instance == NULL) {
++			AIInstance::LoadEmpty();
++			return;
++		}
+ 
+ 		CompanyID old_company = _current_company;
+ 		_current_company = company;
+diff -ruN a/ai/ai_instance.cpp b/ai/ai_instance.cpp
+--- a/ai/ai_instance.cpp	2026-07-22 14:49:37.711328100 +0200
++++ b/ai/ai_instance.cpp	2026-07-22 14:49:38.261614500 +0200
+@@ -1,4 +1,4 @@
+-/* $Id: ai_instance.cpp 18862 2010-01-18 15:41:38Z rubidium $ */
++/* $Id$ */
+ 
+ /*
+  * This file is part of OpenTTD.
+diff -ruN a/ai/api/ai_object.cpp b/ai/api/ai_object.cpp
+--- a/ai/api/ai_object.cpp	2026-07-22 14:49:37.759068700 +0200
++++ b/ai/api/ai_object.cpp	2026-07-22 14:49:38.199153700 +0200
+@@ -1,4 +1,4 @@
+-/* $Id: ai_object.cpp 18866 2010-01-18 22:57:21Z rubidium $ */
++/* $Id$ */
+ 
+ /*
+  * This file is part of OpenTTD.
+diff -ruN a/company_cmd.cpp b/company_cmd.cpp
+--- a/company_cmd.cpp	2026-07-22 14:49:37.935426400 +0200
++++ b/company_cmd.cpp	2026-07-22 14:49:38.425066600 +0200
+@@ -21,6 +21,7 @@
+ #include "network/network_func.h"
+ #include "network/network_base.h"
+ #include "ai/ai.hpp"
++#include "ai_old/oldai.h"
+ #include "company_manager_face.h"
+ #include "group.h"
+ #include "window_func.h"
+@@ -498,7 +499,10 @@
+ 	SetWindowDirty(WC_TOOLBAR_MENU, 0);
+ 	SetWindowDirty(WC_CLIENT_LIST, 0);
+ 
+-	if (is_ai && (!_networking || _network_server)) AI::StartNew(c->index);
++	/* Amiga port: use the native C++ AI instead of the Squirrel one, whose
++	 * AI_VMSuspend exception cannot unwind through the VM in a Hunk binary.
++	 * The Squirrel AI::StartNew is deliberately NOT called for AI companies. */
++	if (is_ai && (!_networking || _network_server)) OldAI_Start(c->index);
+ 
+ 	c->num_engines = CallocT<uint16>(Engine::GetPoolSize());
+ 
+@@ -636,7 +640,9 @@
+ 	}
+ 
+ 	if (AI::CanStartNew() && _game_mode != GM_MENU && --_next_competitor_start == 0) {
+-		MaybeStartNewCompany();
++		/* TEMP (music release 2026-07-22): native C++ AI opponents disabled at
++		 * the user's request; restore this call to re-enable them. */
++		/* MaybeStartNewCompany(); */
+ 	}
+ #endif /* ENABLE_AI */
+ 
 diff -ruN a/debug.cpp b/debug.cpp
---- a/debug.cpp	2026-07-21 19:24:07.104092000 +0200
-+++ b/debug.cpp	2026-07-21 19:24:07.688155300 +0200
+--- a/debug.cpp	2026-07-22 14:49:37.837362000 +0200
++++ b/debug.cpp	2026-07-22 14:49:38.429067100 +0200
 @@ -86,7 +86,7 @@
  		_sntprintf(tbuf, sizeof(tbuf), _T("%s"), OTTD2FS(dbg));
  		NKDbgPrintfW(_T("dbg: [%s] %s\n"), tbuf, OTTD2FS(buf));
@@ -11,8 +173,8 @@ diff -ruN a/debug.cpp b/debug.cpp
  		IConsoleDebug(dbg, buf);
  	} else {
 diff -ruN a/fileio.cpp b/fileio.cpp
---- a/fileio.cpp	2026-07-21 19:24:06.880314500 +0200
-+++ b/fileio.cpp	2026-07-21 19:24:07.683157000 +0200
+--- a/fileio.cpp	2026-07-22 14:49:37.584748600 +0200
++++ b/fileio.cpp	2026-07-22 14:49:38.424073500 +0200
 @@ -22,11 +22,13 @@
  #include <Path.h>
  #include <storage/FindDirectory.h>
@@ -38,8 +200,8 @@ diff -ruN a/fileio.cpp b/fileio.cpp
  	ttd_strlcpy(buf, name, MAX_PATH);
  
 diff -ruN a/fios.cpp b/fios.cpp
---- a/fios.cpp	2026-07-21 19:24:06.646483400 +0200
-+++ b/fios.cpp	2026-07-21 19:24:07.684155300 +0200
+--- a/fios.cpp	2026-07-22 14:49:37.337622900 +0200
++++ b/fios.cpp	2026-07-22 14:49:38.426067600 +0200
 @@ -110,7 +110,7 @@
  			s = strrchr(path, PATHSEPCHAR);
  			if (s != NULL) {
@@ -59,8 +221,8 @@ diff -ruN a/fios.cpp b/fios.cpp
  		unsigned char sepchar = _fios_path[(strlen(_fios_path) - 1)];
  
 diff -ruN a/fontcache.cpp b/fontcache.cpp
---- a/fontcache.cpp	2026-07-21 19:24:06.931950700 +0200
-+++ b/fontcache.cpp	2026-07-21 19:24:07.294946300 +0200
+--- a/fontcache.cpp	2026-07-22 14:49:37.649033300 +0200
++++ b/fontcache.cpp	2026-07-22 14:49:38.030502500 +0200
 @@ -22,6 +22,9 @@
  /** Semi-constant for the height of the different sizes of fonts. */
  int _font_height[FS_END];
@@ -119,8 +281,8 @@ diff -ruN a/fontcache.cpp b/fontcache.cpp
  }
  
 diff -ruN a/fontcache.h b/fontcache.h
---- a/fontcache.h	2026-07-21 19:24:06.930410300 +0200
-+++ b/fontcache.h	2026-07-21 19:24:07.556566500 +0200
+--- a/fontcache.h	2026-07-22 14:49:37.647037200 +0200
++++ b/fontcache.h	2026-07-22 14:49:38.285353000 +0200
 @@ -73,12 +73,23 @@
  }
  
@@ -147,8 +309,8 @@ diff -ruN a/fontcache.h b/fontcache.h
  
  #endif /* WITH_FREETYPE */
 diff -ruN a/genworld.cpp b/genworld.cpp
---- a/genworld.cpp	2026-07-21 19:24:06.949635400 +0200
-+++ b/genworld.cpp	2026-07-21 19:24:07.689155100 +0200
+--- a/genworld.cpp	2026-07-22 14:49:37.668108300 +0200
++++ b/genworld.cpp	2026-07-22 14:49:38.430067400 +0200
 @@ -97,6 +97,7 @@
  {
  	try {
@@ -274,8 +436,8 @@ diff -ruN a/genworld.cpp b/genworld.cpp
  		return;
  	}
 diff -ruN a/gfx.cpp b/gfx.cpp
---- a/gfx.cpp	2026-07-21 19:24:06.937468200 +0200
-+++ b/gfx.cpp	2026-07-21 19:24:07.681146200 +0200
+--- a/gfx.cpp	2026-07-22 14:49:37.655066300 +0200
++++ b/gfx.cpp	2026-07-22 14:49:38.421714000 +0200
 @@ -29,6 +29,11 @@
  #include "table/sprites.h"
  #include "table/control_codes.h"
@@ -382,8 +544,8 @@ diff -ruN a/gfx.cpp b/gfx.cpp
  	_colour_remap_ptr = _string_colourremap;
  }
 diff -ruN a/gfx_func.h b/gfx_func.h
---- a/gfx_func.h	2026-07-21 19:24:06.930927800 +0200
-+++ b/gfx_func.h	2026-07-21 19:24:07.688155300 +0200
+--- a/gfx_func.h	2026-07-22 14:49:37.648032600 +0200
++++ b/gfx_func.h	2026-07-22 14:49:38.429067100 +0200
 @@ -64,6 +64,14 @@
  extern DrawPixelInfo _screen;
  extern bool _screen_disable_anim;   ///< Disable palette animation (important for 32bpp-anim blitter during giant screenshot)
@@ -400,8 +562,8 @@ diff -ruN a/gfx_func.h b/gfx_func.h
  extern int _pal_count_dirty;
  extern int _num_resolutions;
 diff -ruN a/gfxinit.cpp b/gfxinit.cpp
---- a/gfxinit.cpp	2026-07-21 19:24:06.911828500 +0200
-+++ b/gfxinit.cpp	2026-07-21 19:24:07.684155300 +0200
+--- a/gfxinit.cpp	2026-07-22 14:49:37.616366500 +0200
++++ b/gfxinit.cpp	2026-07-22 14:49:38.426067600 +0200
 @@ -41,6 +41,10 @@
  	_landscape_spriteindexes_3,
  };
@@ -440,8 +602,8 @@ diff -ruN a/gfxinit.cpp b/gfxinit.cpp
  
  bool GraphicsSet::FillSetDetails(IniFile *ini, const char *path, const char *full_filename)
 diff -ruN a/intro_gui.cpp b/intro_gui.cpp
---- a/intro_gui.cpp	2026-07-21 19:24:06.943467300 +0200
-+++ b/intro_gui.cpp	2026-07-21 19:24:07.683157000 +0200
+--- a/intro_gui.cpp	2026-07-22 14:49:37.661084000 +0200
++++ b/intro_gui.cpp	2026-07-22 14:49:38.422708300 +0200
 @@ -61,6 +61,14 @@
  	SelectGameWindow(const WindowDesc *desc) : Window()
  	{
@@ -458,8 +620,8 @@ diff -ruN a/intro_gui.cpp b/intro_gui.cpp
  		this->SetLandscapeButtons();
  	}
 diff -ruN a/landscape.cpp b/landscape.cpp
---- a/landscape.cpp	2026-07-21 19:24:07.116129800 +0200
-+++ b/landscape.cpp	2026-07-21 19:24:07.678142300 +0200
+--- a/landscape.cpp	2026-07-22 14:49:37.850932200 +0200
++++ b/landscape.cpp	2026-07-22 14:49:38.419187900 +0200
 @@ -871,6 +871,8 @@
  	};
  	uint steps = (_settings_game.game_creation.landscape == LT_TROPIC) ? GLS_TROPIC : GLS_OTHER;
@@ -484,8 +646,8 @@ diff -ruN a/landscape.cpp b/landscape.cpp
  	if (_settings_game.game_creation.landscape == LT_TROPIC) CreateDesertOrRainForest();
  }
 diff -ruN a/lang/english.txt b/lang/english.txt
---- a/lang/english.txt	2026-07-21 19:24:07.138620000 +0200
-+++ b/lang/english.txt	2026-07-21 19:24:07.404920900 +0200
+--- a/lang/english.txt	2026-07-22 14:49:37.875528400 +0200
++++ b/lang/english.txt	2026-07-22 14:49:38.134445700 +0200
 @@ -1297,7 +1297,10 @@
  STR_CONFIG_SETTING_LARGER_TOWNS_DISABLED                        :{LTBLUE}Proportion of towns that will become cities: {ORANGE}None
  STR_CONFIG_SETTING_CITY_SIZE_MULTIPLIER                         :{LTBLUE}Initial city size multiplier: {ORANGE}{STRING1}
@@ -498,8 +660,8 @@ diff -ruN a/lang/english.txt b/lang/english.txt
  STR_CONFIG_SETTING_CONSTRUCTION                                 :{ORANGE}Construction
  STR_CONFIG_SETTING_VEHICLES                                     :{ORANGE}Vehicles
 diff -ruN a/main_gui.cpp b/main_gui.cpp
---- a/main_gui.cpp	2026-07-21 19:24:07.105095200 +0200
-+++ b/main_gui.cpp	2026-07-21 19:24:07.680142800 +0200
+--- a/main_gui.cpp	2026-07-22 14:49:37.838881000 +0200
++++ b/main_gui.cpp	2026-07-22 14:49:38.421191400 +0200
 @@ -30,6 +30,7 @@
  #include "toolbar_gui.h"
  #include "statusbar_gui.h"
@@ -556,9 +718,115 @@ diff -ruN a/main_gui.cpp b/main_gui.cpp
  			case 'R' | WKC_CTRL: MarkWholeScreenDirty(); break;
  
  #if defined(_DEBUG)
+diff -ruN a/music.cpp b/music.cpp
+--- a/music.cpp	2026-07-22 14:49:37.671621500 +0200
++++ b/music.cpp	2026-07-22 14:49:38.422708300 +0200
+@@ -57,41 +57,37 @@
+ 	return BaseMedia<Tbase_set>::used_set != NULL;
+ }
+ 
++/* Amiga port: music is our own IMA-ADPCM WAVs, streamed and played by the
++ * native music driver (music/amiga_m.cpp) on Paula. We do NOT use the base
++ * set's .gm MIDI files - shipping the original TTD .gm files would be
++ * copyright infringement, and the port has none. So the "songs" of the used
++ * set are synthesised from the native driver's own track list: the theme
++ * plus the in-game tracks, always complete, regardless of what .obm/.gm
++ * happen to be on disk. This makes the music window and playlist work while
++ * the driver decides which WAV to stream (see MusicDriver_Amiga::PlaySong). */
++extern "C" int AmigaMusic_NumSongs(void);
++extern "C" const char *AmigaMusic_SongName(int idx);
++
+ bool MusicSet::FillSetDetails(IniFile *ini, const char *path, const char *full_filename)
+ {
+-	bool ret = this->BaseSet<MusicSet, NUM_SONGS_AVAILABLE, GM_DIR>::FillSetDetails(ini, path, full_filename);
+-	if (ret) {
+-		this->num_available = 0;
+-		IniGroup *names = ini->GetGroup("names");
+-		for (uint i = 0, j = 1; i < lengthof(this->song_name); i++) {
+-			const char *filename = this->files[i].filename;
+-			if (names == NULL || StrEmpty(filename)) {
+-				this->song_name[i][0] = '\0';
+-				continue;
+-			}
+-
+-			IniItem *item = NULL;
+-			/* As we possibly add a path to the filename and we compare
+-			 * on the filename with the path as in the .obm, we need to
+-			 * keep stripping path elements until we find a match. */
+-			for (const char *p = filename; p != NULL; p = strchr(p, PATHSEPCHAR)) {
+-				/* Remove possible double path separator characters from
+-				 * the beginning, so we don't start reading e.g. root. */
+-				while (*p == PATHSEPCHAR) p++;
+-
+-				item = names->GetItem(p, false);
+-				if (item != NULL && !StrEmpty(item->value)) break;
+-			}
+-
+-			if (item == NULL || StrEmpty(item->value)) {
+-				DEBUG(grf, 0, "Base music set song name missing: %s", filename);
+-				return false;
+-			}
++	/* Parse whatever .obm this is (metadata etc.) but never fail on it. */
++	this->BaseSet<MusicSet, NUM_SONGS_AVAILABLE, GM_DIR>::FillSetDetails(ini, path, full_filename, true);
+ 
+-			strecpy(this->song_name[i], item->value, lastof(this->song_name[i]));
+-			this->track_nr[i] = j++;
++	int have = AmigaMusic_NumSongs();
++	this->num_available = 0;
++	for (uint i = 0; i < lengthof(this->song_name); i++) {
++		if ((int)i < have) {
++			strecpy(this->song_name[i], AmigaMusic_SongName(i), lastof(this->song_name[i]));
++			this->track_nr[i] = i + 1;
+ 			this->num_available++;
++		} else {
++			this->song_name[i][0] = '\0';
++			this->track_nr[i] = 0;
+ 		}
+ 	}
+-	return ret;
++	/* Report every slot as found+valid so DetermineBestSet does not skip us
++	 * (GetNumMissing() == 0) and prefers this set over the silent fallback. */
++	this->found_files = NUM_SONGS_AVAILABLE;
++	this->valid_files = NUM_SONGS_AVAILABLE;
++	return true;
+ }
+diff -ruN a/music_gui.cpp b/music_gui.cpp
+--- a/music_gui.cpp	2026-07-22 14:49:37.952654000 +0200
++++ b/music_gui.cpp	2026-07-22 14:49:38.427066900 +0200
+@@ -46,8 +46,9 @@
+ 	return BaseMusic::GetUsedSet()->track_nr[index];
+ }
+ 
+-/** The currently played song */
+-static byte _music_wnd_cursong = 1;
++/** The currently played song. Non-static so the native Amiga music driver
++ * can read which track to stream (see music/amiga_m.cpp). */
++byte _music_wnd_cursong = 1;
+ /** Whether a song is currently played */
+ static bool _song_is_active = false;
+ 
+@@ -191,13 +192,11 @@
+ 
+ 	memset(_cur_playlist, 0, sizeof(_cur_playlist));
+ 	do {
+-		const char *filename = BaseMusic::GetUsedSet()->files[_playlists[msf.playlist][i] - 1].filename;
+-		/* We are now checking for the existence of that file prior
+-		 * to add it to the list of available songs */
+-		if (!StrEmpty(filename) && FioCheckFileExists(filename, GM_DIR)) {
+-			_cur_playlist[j] = _playlists[msf.playlist][i];
+-			j++;
+-		}
++		/* Amiga port: songs are the native WAV set (no .gm files on disk),
++		 * so add every playlist entry unconditionally - the native music
++		 * driver resolves the track from the song number. */
++		_cur_playlist[j] = _playlists[msf.playlist][i];
++		j++;
+ 	} while (_playlists[msf.playlist][++i] != 0 && j < lengthof(_cur_playlist) - 1);
+ 
+ 	/* Do not shuffle when on the intro-start window, as the song to play has to be the original TTD Theme*/
 diff -ruN a/network/core/os_abstraction.h b/network/core/os_abstraction.h
---- a/network/core/os_abstraction.h	2026-07-21 19:24:06.966134500 +0200
-+++ b/network/core/os_abstraction.h	2026-07-21 19:24:07.662301400 +0200
+--- a/network/core/os_abstraction.h	2026-07-22 14:49:37.686214600 +0200
++++ b/network/core/os_abstraction.h	2026-07-22 14:49:38.400189000 +0200
 @@ -158,7 +158,7 @@
  #		include <arpa/inet.h>
  #		include <net/if.h>
@@ -569,8 +837,8 @@ diff -ruN a/network/core/os_abstraction.h b/network/core/os_abstraction.h
  /* If for any reason ifaddrs.h does not exist on your system, comment out
   *   the following two lines and an alternative way will be used to fetch
 diff -ruN a/news_type.h b/news_type.h
---- a/news_type.h	2026-07-21 19:24:06.888314800 +0200
-+++ b/news_type.h	2026-07-21 19:24:07.450565500 +0200
+--- a/news_type.h	2026-07-22 14:49:37.594304900 +0200
++++ b/news_type.h	2026-07-22 14:49:38.178988900 +0200
 @@ -123,7 +123,7 @@
  		name(name),
  		age(age),
@@ -581,9 +849,17 @@ diff -ruN a/news_type.h b/news_type.h
  	{
  	}
 diff -ruN a/openttd.cpp b/openttd.cpp
---- a/openttd.cpp	2026-07-21 19:24:06.889315200 +0200
-+++ b/openttd.cpp	2026-07-21 19:24:07.687154900 +0200
-@@ -355,8 +355,13 @@
+--- a/openttd.cpp	2026-07-22 14:49:37.595297000 +0200
++++ b/openttd.cpp	2026-07-22 14:49:38.420187800 +0200
+@@ -42,6 +42,7 @@
+ #include "network/network_func.h"
+ #include "signs_base.h"
+ #include "ai/ai.hpp"
++#include "ai_old/oldai.h"
+ #include "ai/ai_config.hpp"
+ #include "settings_func.h"
+ #include "genworld.h"
+@@ -355,8 +356,13 @@
  	FioCloseAll();
  }
  
@@ -597,7 +873,7 @@ diff -ruN a/openttd.cpp b/openttd.cpp
  	_game_mode = GM_MENU;
  
  	ResetGRFConfig(false);
-@@ -365,6 +370,7 @@
+@@ -365,6 +371,7 @@
  	ResetWindowSystem();
  	SetupColoursAndInitialWindow();
  
@@ -605,7 +881,7 @@ diff -ruN a/openttd.cpp b/openttd.cpp
  	/* Load the default opening screen savegame */
  	if (SaveOrLoad("opntitle.dat", SL_LOAD, DATA_DIR) != SL_OK) {
  		GenerateWorld(GWM_EMPTY, 64, 64); // if failed loading, make empty world.
-@@ -373,6 +379,7 @@
+@@ -373,6 +380,7 @@
  	} else {
  		SetLocalCompany(COMPANY_FIRST);
  	}
@@ -613,7 +889,7 @@ diff -ruN a/openttd.cpp b/openttd.cpp
  
  	_pause_mode = PM_UNPAUSED;
  	_cursor.fix_at = false;
-@@ -382,6 +389,7 @@
+@@ -382,6 +390,7 @@
  
  	/* Play main theme */
  	if (_music_driver->IsSongPlaying()) ResetMusic();
@@ -621,7 +897,7 @@ diff -ruN a/openttd.cpp b/openttd.cpp
  }
  
  void MakeNewgameSettingsLive()
-@@ -562,9 +570,11 @@
+@@ -562,9 +571,11 @@
  #endif
  
  	DeterminePaths(argv[0]);
@@ -633,7 +909,7 @@ diff -ruN a/openttd.cpp b/openttd.cpp
  
  #if defined(UNIX) && !defined(__MORPHOS__)
  	/* We must fork here, or we'll end up without some resources we need (like sockets) */
-@@ -708,7 +718,9 @@
+@@ -708,7 +719,9 @@
  	}
  #endif /* ENABLE_NETWORK */
  
@@ -643,7 +919,7 @@ diff -ruN a/openttd.cpp b/openttd.cpp
  
  	ResetGRFConfig(false);
  
-@@ -725,8 +737,10 @@
+@@ -725,8 +738,10 @@
  	_genworld_paint_mutex->BeginCritical();
  	_genworld_mapgen_mutex->BeginCritical();
  
@@ -654,7 +930,7 @@ diff -ruN a/openttd.cpp b/openttd.cpp
  
  	CheckForMissingGlyphsInLoadedLanguagePack();
  
-@@ -757,6 +771,7 @@
+@@ -757,6 +772,7 @@
  	}
  #endif /* ENABLE_NETWORK */
  
@@ -662,9 +938,17 @@ diff -ruN a/openttd.cpp b/openttd.cpp
  	_video_driver->MainLoop();
  
  	WaitTillSaved();
+@@ -1265,6 +1281,7 @@
+ 		ClearStorageChanges(true);
+ 
+ 		AI::GameLoop();
++		OldAI_GameLoop();
+ 
+ 		CallWindowTickEvent();
+ 		NewsLoop();
 diff -ruN a/os/unix/crashlog_unix.cpp b/os/unix/crashlog_unix.cpp
---- a/os/unix/crashlog_unix.cpp	2026-07-21 19:24:06.917826100 +0200
-+++ b/os/unix/crashlog_unix.cpp	2026-07-21 19:24:07.569932100 +0200
+--- a/os/unix/crashlog_unix.cpp	2026-07-22 14:49:37.626914600 +0200
++++ b/os/unix/crashlog_unix.cpp	2026-07-22 14:49:38.299912400 +0200
 @@ -19,6 +19,10 @@
  #include <signal.h>
  #include <sys/utsname.h>
@@ -677,8 +961,14 @@ diff -ruN a/os/unix/crashlog_unix.cpp b/os/unix/crashlog_unix.cpp
  /* Execinfo (and thus making stacktraces) is a GNU extension */
  #	include <execinfo.h>
 diff -ruN a/os/unix/unix.cpp b/os/unix/unix.cpp
---- a/os/unix/unix.cpp	2026-07-21 19:24:06.917826100 +0200
-+++ b/os/unix/unix.cpp	2026-07-21 19:24:07.569932100 +0200
+--- a/os/unix/unix.cpp	2026-07-22 14:49:37.625912700 +0200
++++ b/os/unix/unix.cpp	2026-07-22 14:49:38.300914700 +0200
+@@ -1,4 +1,4 @@
+-/* $Id: unix.cpp 19857 2010-05-18 21:44:47Z rubidium $ */
++/* $Id$ */
+ 
+ /*
+  * This file is part of OpenTTD.
 @@ -44,6 +44,12 @@
  
  #ifdef __AMIGA__
@@ -812,8 +1102,8 @@ diff -ruN a/os/unix/unix.cpp b/os/unix/unix.cpp
 +unsigned long __stack = 1024 * 1024; /* OpenTTD needs a large stack on AmigaOS */
 +#endif
 diff -ruN a/rail_cmd.cpp b/rail_cmd.cpp
---- a/rail_cmd.cpp	2026-07-21 19:24:07.120130300 +0200
-+++ b/rail_cmd.cpp	2026-07-21 19:24:07.682167900 +0200
+--- a/rail_cmd.cpp	2026-07-22 14:49:37.856932100 +0200
++++ b/rail_cmd.cpp	2026-07-22 14:49:38.422708300 +0200
 @@ -11,6 +11,7 @@
  
  #include "stdafx.h"
@@ -848,8 +1138,8 @@ diff -ruN a/rail_cmd.cpp b/rail_cmd.cpp
  
  		if (ret.Failed()) {
 diff -ruN a/saveload/saveload.cpp b/saveload/saveload.cpp
---- a/saveload/saveload.cpp	2026-07-21 19:24:06.756413700 +0200
-+++ b/saveload/saveload.cpp	2026-07-21 19:24:07.330691900 +0200
+--- a/saveload/saveload.cpp	2026-07-22 14:49:37.454175700 +0200
++++ b/saveload/saveload.cpp	2026-07-22 14:49:38.066670200 +0200
 @@ -192,6 +192,9 @@
   * pretty ugly, and seriously interferes with any multithreaded approaches */
  static void NORETURN SlError(StringID string, const char *extra_msg = NULL)
@@ -945,8 +1235,8 @@ diff -ruN a/saveload/saveload.cpp b/saveload/saveload.cpp
  
  		return SL_OK;
 diff -ruN a/settings.cpp b/settings.cpp
---- a/settings.cpp	2026-07-21 19:24:07.112133800 +0200
-+++ b/settings.cpp	2026-07-21 19:24:07.689155100 +0200
+--- a/settings.cpp	2026-07-22 14:49:37.847419900 +0200
++++ b/settings.cpp	2026-07-22 14:49:38.424073500 +0200
 @@ -697,6 +697,19 @@
  	return true;
  }
@@ -967,9 +1257,22 @@ diff -ruN a/settings.cpp b/settings.cpp
  static bool InvalidateTownViewWindow(int32 p1)
  {
  	InvalidateWindowClassesData(WC_TOWN_VIEW, p1);
+@@ -820,9 +833,9 @@
+  */
+ static const DifficultySettings _default_game_diff[3] = { /*
+ 	 A, C, D,      E, F, G, H, J, K, L, M, N, O, P, Q, R, S*/
+-	{2, 2, 4, 300000, 2, 0, 2, 1, 2, 0, 1, 0, 0, 0, 0, 0, 0}, ///< easy
+-	{4, 2, 3, 150000, 3, 1, 3, 2, 1, 1, 2, 1, 1, 1, 1, 1, 1}, ///< medium
+-	{7, 3, 3, 100000, 4, 1, 3, 2, 0, 2, 3, 2, 1, 1, 1, 2, 2}, ///< hard
++	{2, 2, 4, 300000, 2, 0, 2, 0, 2, 0, 1, 0, 0, 0, 0, 0, 0}, ///< easy      (Amiga port: no breakdowns by default)
++	{4, 2, 3, 150000, 3, 1, 3, 0, 1, 1, 2, 1, 1, 1, 1, 1, 1}, ///< medium    (Amiga port: no breakdowns by default)
++	{7, 3, 3, 100000, 4, 1, 3, 0, 0, 2, 3, 2, 1, 1, 1, 2, 2}, ///< hard      (Amiga port: no breakdowns by default)
+ };
+ 
+ void SetDifficultyLevel(int mode, DifficultySettings *gm_opt)
 diff -ruN a/settings_gui.cpp b/settings_gui.cpp
---- a/settings_gui.cpp	2026-07-21 19:24:07.117129600 +0200
-+++ b/settings_gui.cpp	2026-07-21 19:24:07.682167900 +0200
+--- a/settings_gui.cpp	2026-07-22 14:49:37.852933600 +0200
++++ b/settings_gui.cpp	2026-07-22 14:49:38.422708300 +0200
 @@ -88,10 +88,27 @@
  	return STR_UNDEFINED;
  }
@@ -1044,8 +1347,8 @@ diff -ruN a/settings_gui.cpp b/settings_gui.cpp
  	SettingEntry(&_settings_construction_page, STR_CONFIG_SETTING_CONSTRUCTION),
  	SettingEntry(&_settings_vehicles_page,     STR_CONFIG_SETTING_VEHICLES),
 diff -ruN a/settings_type.h b/settings_type.h
---- a/settings_type.h	2026-07-21 19:24:07.096093900 +0200
-+++ b/settings_type.h	2026-07-21 19:24:07.678142300 +0200
+--- a/settings_type.h	2026-07-22 14:49:37.829339800 +0200
++++ b/settings_type.h	2026-07-22 14:49:38.418187900 +0200
 @@ -392,11 +392,38 @@
  	LocaleSettings       locale;             ///< settings related to used currency/unit system in the current game
  };
@@ -1086,8 +1389,8 @@ diff -ruN a/settings_type.h b/settings_type.h
  
  /** The current settings for this game. */
 diff -ruN a/sound.cpp b/sound.cpp
---- a/sound.cpp	2026-07-21 19:24:07.129619800 +0200
-+++ b/sound.cpp	2026-07-21 19:24:07.681146200 +0200
+--- a/sound.cpp	2026-07-22 14:49:37.866472700 +0200
++++ b/sound.cpp	2026-07-22 14:49:38.421714000 +0200
 @@ -168,6 +168,9 @@
  	/* Empty sound? */
  	if (sound->rate == 0) return;
@@ -1099,8 +1402,8 @@ diff -ruN a/sound.cpp b/sound.cpp
  	if (mc == NULL) return;
  
 diff -ruN a/spritecache.cpp b/spritecache.cpp
---- a/spritecache.cpp	2026-07-21 19:24:07.097091900 +0200
-+++ b/spritecache.cpp	2026-07-21 19:24:07.679142700 +0200
+--- a/spritecache.cpp	2026-07-22 14:49:37.830339900 +0200
++++ b/spritecache.cpp	2026-07-22 14:49:38.419187900 +0200
 @@ -21,6 +21,24 @@
  
  #include "table/sprites.h"
@@ -1213,8 +1516,8 @@ diff -ruN a/spritecache.cpp b/spritecache.cpp
  
  	return sc->ptr;
 diff -ruN a/string_func.h b/string_func.h
---- a/string_func.h	2026-07-21 19:24:06.721429300 +0200
-+++ b/string_func.h	2026-07-21 19:24:07.303583000 +0200
+--- a/string_func.h	2026-07-22 14:49:37.418038300 +0200
++++ b/string_func.h	2026-07-22 14:49:38.038012400 +0200
 @@ -282,7 +282,10 @@
  #endif /* strndup is available */
  
@@ -1228,8 +1531,8 @@ diff -ruN a/string_func.h b/string_func.h
  #else
  #	define DEFINE_STRCASESTR
 diff -ruN a/strings.cpp b/strings.cpp
---- a/strings.cpp	2026-07-21 19:24:06.646483400 +0200
-+++ b/strings.cpp	2026-07-21 19:24:07.686154600 +0200
+--- a/strings.cpp	2026-07-22 14:49:37.337622900 +0200
++++ b/strings.cpp	2026-07-22 14:49:38.427066900 +0200
 @@ -1242,9 +1242,25 @@
  	/* resolution size? */
  	if (IsInsideMM(ind, (SPECSTR_RESOLUTION_START - 0x70E4), (SPECSTR_RESOLUTION_END - 0x70E4) + 1)) {
@@ -1257,8 +1560,8 @@ diff -ruN a/strings.cpp b/strings.cpp
  	}
  
 diff -ruN a/table/settings.h b/table/settings.h
---- a/table/settings.h	2026-07-21 19:24:06.698407100 +0200
-+++ b/table/settings.h	2026-07-21 19:24:07.420375700 +0200
+--- a/table/settings.h	2026-07-22 14:49:37.393928900 +0200
++++ b/table/settings.h	2026-07-22 14:49:38.151521800 +0200
 @@ -36,6 +36,9 @@
  static bool ChangeDynamicEngines(int32 p1);
  static bool StationCatchmentChanged(int32 p1);
@@ -1269,6 +1572,15 @@ diff -ruN a/table/settings.h b/table/settings.h
  
  #ifdef ENABLE_NETWORK
  static bool UpdateClientName(int32 p1);
+@@ -225,7 +228,7 @@
+ 	SDT_LIST(MusicFileSettings, custom_1,   SLE_UINT8, S, 0, NULL,            STR_NULL, NULL),
+ 	SDT_LIST(MusicFileSettings, custom_2,   SLE_UINT8, S, 0, NULL,            STR_NULL, NULL),
+ 	SDT_BOOL(MusicFileSettings, playing,               S, 0, true,            STR_NULL, NULL),
+-	SDT_BOOL(MusicFileSettings, shuffle,               S, 0, false,           STR_NULL, NULL),
++	SDT_BOOL(MusicFileSettings, shuffle,               S, 0,  true,           STR_NULL, NULL),
+ 	 SDT_END()
+ };
+ 
 @@ -317,7 +320,7 @@
  	    SDT_OMANY(GameSettings, game_creation.landscape,  SLE_UINT8,                     0, 0, 0, 3, _climates, STR_NULL, NULL, ConvertLandscape),
  	      SDT_VAR(GameSettings, game_creation.snow_line,  SLE_UINT8,                     0, 0, DEF_SNOWLINE_HEIGHT * TILE_HEIGHT, MIN_SNOWLINE_HEIGHT * TILE_HEIGHT, MAX_SNOWLINE_HEIGHT * TILE_HEIGHT, 0, STR_NULL, NULL),
@@ -1278,6 +1590,15 @@ diff -ruN a/table/settings.h b/table/settings.h
  	    SDT_OMANY(GameSettings, vehicle.road_side,        SLE_UINT8,                     0, 0, 1, 1, _roadsides, STR_NULL, NULL, NULL),
  	    SDT_END()
  };
+@@ -344,7 +347,7 @@
+ 	 SDT_CONDVAR(GameSettings, difficulty.vehicle_costs,             SLE_UINT8, 97, SL_MAX_VERSION, 0,NS,     0,     0,      2,  1, STR_SEA_LEVEL_LOW,                         DifficultyChange),
+ 	 SDT_CONDVAR(GameSettings, difficulty.competitor_speed,          SLE_UINT8, 97, SL_MAX_VERSION, 0, 0,     2,     0,      4,  1, STR_AI_SPEED_VERY_SLOW,                    DifficultyChange),
+ 	SDT_CONDNULL(                                                            1, 97, 109),
+-	 SDT_CONDVAR(GameSettings, difficulty.vehicle_breakdowns,        SLE_UINT8, 97, SL_MAX_VERSION, 0, 0,     1,     0,      2,  1, STR_DISASTER_NONE,                         DifficultyChange),
++	 SDT_CONDVAR(GameSettings, difficulty.vehicle_breakdowns,        SLE_UINT8, 97, SL_MAX_VERSION, 0, 0,     0,     0,      2,  1, STR_DISASTER_NONE,                         DifficultyChange),
+ 	 SDT_CONDVAR(GameSettings, difficulty.subsidy_multiplier,        SLE_UINT8, 97, SL_MAX_VERSION, 0, 0,     2,     0,      3,  1, STR_SUBSIDY_X1_5,                          DifficultyChange),
+ 	 SDT_CONDVAR(GameSettings, difficulty.construction_cost,         SLE_UINT8, 97, SL_MAX_VERSION, 0,NS,     0,     0,      2,  1, STR_SEA_LEVEL_LOW,                         DifficultyChange),
+ 	 SDT_CONDVAR(GameSettings, difficulty.terrain_type,              SLE_UINT8, 97, SL_MAX_VERSION, 0,NG,     1,     0,      3,  1, STR_TERRAIN_TYPE_VERY_FLAT,                DifficultyChange),
 @@ -540,7 +543,7 @@
  
  	/***************************************************************************/
@@ -1297,7 +1618,7 @@ diff -ruN a/table/settings.h b/table/settings.h
 +	 * must stay at the END of this array - see the network comment above.
 +	 * Add future amiga.* settings here and to the Amiga page in
 +	 * settings_gui.cpp. */
-+	 SDTC_BOOL(amiga.wb_bar,                             S,  0, false,                        STR_CONFIG_SETTING_AMIGA_WB_BAR,                AmigaWbBarToggled),
++	 SDTC_BOOL(amiga.wb_bar,                             S,  0,  true,                        STR_CONFIG_SETTING_AMIGA_WB_BAR,                AmigaWbBarToggled),
 +	 /* Written by the video driver, never by the player - exactly like amiga.rtg
 +	  * below, and for the same reason. EHB used to be a checkbox on the Amiga
 +	  * page; it is now a pair of OCS entries in Game Options -> Screen
@@ -1320,8 +1641,8 @@ diff -ruN a/table/settings.h b/table/settings.h
  };
  
 diff -ruN a/tgp.cpp b/tgp.cpp
---- a/tgp.cpp	2026-07-21 19:24:07.178457300 +0200
-+++ b/tgp.cpp	2026-07-21 19:24:07.681146200 +0200
+--- a/tgp.cpp	2026-07-22 14:49:37.919235600 +0200
++++ b/tgp.cpp	2026-07-22 14:49:38.421714000 +0200
 @@ -669,6 +669,10 @@
  		if (water_tiles >= desired_water_tiles) break;
  	}
@@ -1454,7 +1775,7 @@ diff -ruN a/tgp.cpp b/tgp.cpp
  }
 diff -ruN a/video/amiga_ehb_data.h b/video/amiga_ehb_data.h
 --- a/video/amiga_ehb_data.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/amiga_ehb_data.h	2026-07-21 19:24:07.286943600 +0200
++++ b/video/amiga_ehb_data.h	2026-07-22 14:49:38.021928900 +0200
 @@ -0,0 +1,83 @@
 +/* Generated by tools/gen_ehb_data.py from the "sat20" EHB assets
 + * (saturation x1.2).  DO NOT EDIT BY HAND - re-run the generator.
@@ -1539,912 +1860,3 @@ diff -ruN a/video/amiga_ehb_data.h b/video/amiga_ehb_data.h
 +
 +#endif /* AMIGA_EHB_DATA_DEFINED */
 +#endif /* AMIGA_EHB_DATA_DEFINE */
-diff -ruN a/video/c2p1x1_6_c5_bm_040.s b/video/c2p1x1_6_c5_bm_040.s
---- a/video/c2p1x1_6_c5_bm_040.s	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/c2p1x1_6_c5_bm_040.s	2026-07-21 19:24:07.286943600 +0200
-@@ -0,0 +1,377 @@
-+;
-+; File:   c2p1x1_6_c5_bm_040.s
-+; Author: Mikael Kalms <mikael@kalms.org>
-+; Date:   17 April 2000
-+; Title:  C2P - 1x1, 6bpl, BitMap output, 040+ optimized
-+;
-+; Description:
-+;   Performs CPU-only C2P conversion
-+;   Outputs to any BitMap (interlaced, large, ...)
-+;   Position-independent (PC-relative) code
-+;   68040+ optimized -- performs badly on 020/030
-+;   No selfmodifying code used (relies on datacache instead)
-+;   For best performance, align chunkybuffer on even 16byte boundary
-+;     and make sure destination window begins on even 4byte boundary
-+;
-+; Restrictions:
-+;   Chunky-buffer must be an even multiple of 32 pixels wide
-+;   X-Offset must be set to an even multiple of 8
-+;
-+
-+	include	graphics/gfx.i
-+
-+
-+				rsreset
-+C2P1X1_6_C5_BM_040_DELTA1	rs.l	1
-+C2P1X1_6_C5_BM_040_DELTA2	rs.l	1
-+C2P1X1_6_C5_BM_040_DELTA3	rs.l	1
-+C2P1X1_6_C5_BM_040_DELTA4	rs.l	1
-+C2P1X1_6_C5_BM_040_DELTA5	rs.l	1
-+C2P1X1_6_C5_BM_040_DELTA6	rs.l	1
-+C2P1X1_6_C5_BM_040_CHUNKYX	rs.w	1
-+C2P1X1_6_C5_BM_040_CHUNKYY	rs.w	1
-+C2P1X1_6_C5_BM_040_ROWMOD	rs.l	1
-+C2P1X1_6_C5_BM_040_SIZEOF	rs.b	0
-+
-+
-+	section	code,code
-+
-+; d0.w	chunkyx [chunky-pixels]
-+; d1.w	chunkyy [chunky-pixels]
-+; d2.w	offsx [screen-pixels]
-+; d3.w	offsy [screen-pixels]
-+; a0	chunkyscreen
-+; a1	BitMap
-+
-+	XDEF	_c2p1x1_6_c5_bm_040
-+	XDEF	c2p1x1_6_c5_bm_040
-+_c2p1x1_6_c5_bm_040
-+c2p1x1_6_c5_bm_040
-+	movem.l	d2-d7/a2-a6,-(sp)
-+	sub.l	#C2P1X1_6_C5_BM_040_SIZEOF,sp
-+					; A few sanity checks
-+	cmpi.b	#6,bm_Depth(a1)		; At least 6 valid bplptrs?
-+	blo	.exit
-+	move.w	d0,d4
-+	move.w	d2,d5
-+	andi.w	#$1f,d4			; Even 32-pixel width?
-+	bne	.exit
-+	andi.w	#$7,d5			; Even 8-pixel xoffset?
-+	bne	.exit
-+	moveq	#0,d4
-+	move.w	bm_BytesPerRow(a1),d4
-+
-+	move.w	d0,C2P1X1_6_C5_BM_040_CHUNKYX(sp) ; Skip if 0 pixels to convert
-+	beq	.exit
-+	move.w	d1,C2P1X1_6_C5_BM_040_CHUNKYY(sp)
-+	beq	.exit
-+
-+	and.l	#$ffff,d0
-+	and.l	#$ffff,d2
-+
-+	mulu.w	d4,d3			; Offs to first pixel to draw in bpl
-+	lsr.l	#3,d2
-+	add.l	d2,d3
-+
-+	lsl.l	#3,d4			; Positive modulo?
-+	sub.l	d0,d4
-+	bmi	.exit
-+
-+	lsr.l	#3,d4
-+	move.l	d4,C2P1X1_6_C5_BM_040_ROWMOD(sp) ; Modulo between two rows
-+
-+	move.l	a0,a2			; Ptr to end of line
-+	add.w	C2P1X1_6_C5_BM_040_CHUNKYX(sp),a2
-+
-+	move.l	bm_Planes+1*4(a1),a3
-+	sub.l	bm_Planes+2*4(a1),a3
-+	move.l	a3,C2P1X1_6_C5_BM_040_DELTA1(sp)
-+	move.l	bm_Planes+0*4(a1),a3
-+	sub.l	bm_Planes+1*4(a1),a3
-+	move.l	a3,C2P1X1_6_C5_BM_040_DELTA2(sp)
-+	move.l	bm_Planes+5*4(a1),a3
-+	sub.l	bm_Planes+0*4(a1),a3
-+	addq.l	#4,a3
-+	move.l	a3,C2P1X1_6_C5_BM_040_DELTA3(sp)
-+	move.l	bm_Planes+4*4(a1),a3
-+	sub.l	bm_Planes+5*4(a1),a3
-+	move.l	a3,C2P1X1_6_C5_BM_040_DELTA4(sp)
-+	move.l	bm_Planes+3*4(a1),a3
-+	sub.l	bm_Planes+4*4(a1),a3
-+	move.l	a3,C2P1X1_6_C5_BM_040_DELTA5(sp)
-+	move.l	bm_Planes+2*4(a1),a3
-+	sub.l	bm_Planes+3*4(a1),a3
-+	move.l	a3,C2P1X1_6_C5_BM_040_DELTA6(sp)
-+
-+	move.l	bm_Planes+5*4(a1),a1
-+	add.l	d3,a1
-+
-+	tst.b	32(a0)
-+	move.l	(a0)+,d0
-+	move.l	(a0)+,d1
-+	move.l	(a0)+,d2
-+	move.l	(a0)+,d3
-+	tst.b	32(a0)
-+	move.l	(a0)+,d4
-+	move.l	(a0)+,d5
-+	move.l	(a0)+,a5
-+	move.l	(a0)+,a6
-+
-+	move.l	d1,d6			; Swap 4x1, part 1
-+	move.l	d3,d7
-+	lsr.l	#4,d6
-+	lsr.l	#4,d7
-+	eor.l	d0,d6
-+	eor.l	d2,d7
-+	and.l	#$0f0f0f0f,d6
-+	and.l	#$0f0f0f0f,d7
-+	eor.l	d6,d0
-+	eor.l	d7,d2
-+	lsl.l	#4,d6
-+	lsl.l	#4,d7
-+	eor.l	d6,d1
-+	eor.l	d7,d3
-+
-+	exg	d2,a5
-+	exg	d3,a6
-+
-+	move.l	d5,d6			; Swap 4x1, part 2
-+	move.l	d3,d7
-+	lsr.l	#4,d6
-+	lsr.l	#4,d7
-+	eor.l	d4,d6
-+	eor.l	d2,d7
-+	and.l	#$0f0f0f0f,d6
-+	and.l	#$0f0f0f0f,d7
-+	eor.l	d6,d4
-+	eor.l	d7,d2
-+	lsl.l	#4,d6
-+	lsl.l	#4,d7
-+	eor.l	d6,d5
-+	eor.l	d7,d3
-+
-+	exg	a5,d1
-+
-+	move.w	d4,d6			; Swap 16x4, part 1
-+	move.w	d2,d7
-+	move.w	d0,d4
-+	move.w	d1,d2
-+	swap	d4
-+	swap	d2
-+	move.w	d4,d0
-+	move.w	d2,d1
-+	move.w	d6,d4
-+	move.w	d7,d2
-+
-+	lsl.l	#2,d0			; Swap/Merge 2x4, part 1
-+	lsl.l	#2,d1
-+	or.l	d4,d0
-+	or.l	d2,d1
-+
-+	move.l	d1,d6			; Swap 8x2, part 1
-+	move.l	a5,d4			; Swap 16x4, part 2, interleaved
-+	lsr.l	#8,d6
-+	move.l	a6,d2
-+
-+	swap	d5
-+	swap	d3
-+	eor.l	d0,d6
-+	eor.w	d4,d5
-+	and.l	#$00ff00ff,d6
-+	eor.w	d2,d3
-+	eor.l	d6,d0
-+	eor.w	d5,d4
-+	lsl.l	#8,d6
-+	eor.w	d3,d2
-+	eor.l	d6,d1
-+	eor.w	d4,d5
-+
-+	move.l	d1,d6			; Swap 1x2, part 1
-+	eor.w	d2,d3			; Swap 16x4, part 2, interleaved
-+	swap	d5
-+	swap	d3
-+	lsr.l	#1,d6
-+
-+	bra	.xstart
-+.y
-+.x
-+	tst.b	32(a0)
-+	move.l	(a0)+,d0
-+	move.l	(a0)+,d1
-+	move.l	(a0)+,d2
-+	move.l	(a0)+,d3
-+	tst.b	32(a0)
-+	move.l	(a0)+,d4
-+	move.l	(a0)+,d5
-+	move.l	(a0)+,a5
-+	move.l	(a0)+,a6
-+
-+	move.l	d6,(a1)
-+
-+	move.l	d1,d6			; Swap 4x1, part 1
-+	move.l	d3,d7
-+	lsr.l	#4,d6
-+	lsr.l	#4,d7
-+	eor.l	d0,d6
-+	eor.l	d2,d7
-+	and.l	#$0f0f0f0f,d6
-+	and.l	#$0f0f0f0f,d7
-+	eor.l	d6,d0
-+	eor.l	d7,d2
-+	lsl.l	#4,d6
-+	lsl.l	#4,d7
-+	eor.l	d6,d1
-+	eor.l	d7,d3
-+
-+	exg	d2,a5
-+	exg	d3,a6
-+
-+	move.l	d5,d6			; Swap 4x1, part 2
-+	move.l	d3,d7
-+	lsr.l	#4,d6
-+	lsr.l	#4,d7
-+	eor.l	d4,d6
-+	add.l	C2P1X1_6_C5_BM_040_DELTA1(sp),a1
-+	eor.l	d2,d7
-+	and.l	#$0f0f0f0f,d6
-+	and.l	#$0f0f0f0f,d7
-+	eor.l	d6,d4
-+	eor.l	d7,d2
-+	move.l	a3,(a1)
-+	lsl.l	#4,d6
-+	lsl.l	#4,d7
-+	eor.l	d6,d5
-+	eor.l	d7,d3
-+
-+	exg	a5,d1
-+
-+	move.w	d4,d6			; Swap 16x4, part 1
-+	move.w	d2,d7
-+	move.w	d0,d4
-+	move.w	d1,d2
-+	swap	d4
-+	swap	d2
-+	move.w	d4,d0
-+	move.w	d2,d1
-+	move.w	d6,d4
-+	move.w	d7,d2
-+
-+	lsl.l	#2,d0			; Swap/Merge 2x4, part 1
-+	lsl.l	#2,d1
-+	add.l	C2P1X1_6_C5_BM_040_DELTA2(sp),a1
-+	or.l	d4,d0
-+	or.l	d2,d1
-+
-+	move.l	d1,d6			; Swap 8x2, part 1
-+	move.l	a5,d4			; Swap 16x4, part 2, interleaved
-+	lsr.l	#8,d6
-+	move.l	a6,d2
-+	move.l	a4,(a1)
-+
-+	swap	d5
-+	swap	d3
-+	eor.l	d0,d6
-+	eor.w	d4,d5
-+	and.l	#$00ff00ff,d6
-+	eor.w	d2,d3
-+	eor.l	d6,d0
-+	eor.w	d5,d4
-+	lsl.l	#8,d6
-+	eor.w	d3,d2
-+	eor.l	d6,d1
-+	eor.w	d4,d5
-+
-+	move.l	d1,d6			; Swap 1x2, part 1
-+	eor.w	d2,d3			; Swap 16x4, part 2, interleaved
-+	swap	d5
-+	swap	d3
-+	add.l	C2P1X1_6_C5_BM_040_DELTA3(sp),a1
-+	lsr.l	#1,d6
-+
-+	cmp.l	a0,a2				; End of line passed?
-+	bhs.s	.xstart
-+
-+	add.w	C2P1X1_6_C5_BM_040_CHUNKYX(sp),a2 ; Skip to end of next
-+						  ; line
-+	add.l	C2P1X1_6_C5_BM_040_ROWMOD(sp),a1  ; Skip to beginning of
-+						  ; next line
-+.xstart
-+	eor.l	d0,d6
-+	and.l	#$55555555,d6
-+	eor.l	d6,d0
-+	add.l	d6,d6
-+	eor.l	d6,d1
-+
-+	move.l	d0,(a1)
-+
-+	move.l	d5,d6			; Swap/Merge 2x4, part 2
-+	move.l	d3,d7
-+	lsr.l	#2,d6
-+	lsr.l	#2,d7
-+	eor.l	d4,d6
-+	eor.l	d2,d7
-+	and.l	#$33333333,d6
-+	and.l	#$33333333,d7
-+	eor.l	d6,d4
-+	eor.l	d7,d2
-+	lsl.l	#2,d6
-+	lsl.l	#2,d7
-+	eor.l	d6,d5
-+	eor.l	d7,d3
-+
-+	add.l	C2P1X1_6_C5_BM_040_DELTA4(sp),a1
-+	move.l	d2,d6			; Swap 8x2, part 2
-+	move.l	d3,d7
-+	lsr.l	#8,d6
-+	lsr.l	#8,d7
-+	eor.l	d4,d6
-+	eor.l	d5,d7
-+	move.l	d1,(a1)
-+	and.l	#$00ff00ff,d6
-+	and.l	#$00ff00ff,d7
-+	eor.l	d6,d4
-+	eor.l	d7,d5
-+	lsl.l	#8,d6
-+	lsl.l	#8,d7
-+	eor.l	d6,d2
-+	eor.l	d7,d3
-+
-+	move.l	d2,d6			; Swap 1x2, part 2
-+	move.l	d3,d7
-+	lsr.l	#1,d6
-+	lsr.l	#1,d7
-+	add.l	C2P1X1_6_C5_BM_040_DELTA5(sp),a1
-+	eor.l	d4,d6
-+	eor.l	d5,d7
-+	and.l	#$55555555,d6
-+	and.l	#$55555555,d7
-+	eor.l	d6,d4
-+	eor.l	d7,d5
-+	move.l	d4,(a1)
-+	add.l	d6,d6
-+	add.l	d7,d7
-+	eor.l	d2,d6
-+	eor.l	d7,d3
-+
-+	move.l	d5,a3
-+	move.l	d3,a4
-+	add.l	C2P1X1_6_C5_BM_040_DELTA6(sp),a1
-+
-+	cmp.l	a0,a2
-+	bne	.x
-+
-+	subq.w	#1,C2P1X1_6_C5_BM_040_CHUNKYY(sp)
-+	bne	.y
-+
-+	move.l	d6,(a1)
-+	add.l	C2P1X1_6_C5_BM_040_DELTA1(sp),a1
-+	move.l	a3,(a1)
-+	add.l	C2P1X1_6_C5_BM_040_DELTA2(sp),a1
-+	move.l	a4,(a1)
-+
-+.exit
-+	add.l	#C2P1X1_6_C5_BM_040_SIZEOF,sp
-+	movem.l	(sp)+,d2-d7/a2-a6
-+.earlyexit
-+	rts
-+
-diff -ruN a/video/c2p_glue.s b/video/c2p_glue.s
---- a/video/c2p_glue.s	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/c2p_glue.s	2026-07-21 19:24:07.292946000 +0200
-@@ -0,0 +1,91 @@
-+; C-callable wrappers around Mikael Kalms' chunky-to-planar routines.
-+;
-+; TWO routines live here, one per screen depth the AGA path can open:
-+;
-+;   c2p_rect              8 bitplanes, special/c2p_rect.s. The only Kalms
-+;                         routine that takes a chunky ROWMOD, so it converts a
-+;                         sub-rectangle straight out of our full-width chunky
-+;                         buffer with no intermediate copy.
-+;
-+;   c2p1x1_6_c5_bm_040    6 bitplanes (EHB), bitmap/c2p1x1_6_c5_bm_040.s. This
-+;                         one has NO rowmod: it insists the chunky input be
-+;                         contiguous and exactly chunkyx wide. amiga_gfx.c
-+;                         therefore feeds it either the chunky buffer directly
-+;                         (full-width rectangles, the common case) or a small
-+;                         scratch band it has just copied the rectangle into.
-+;                         That copy is deliberate: this is stock, released,
-+;                         already-validated assembly, and paying one memcpy is
-+;                         far cheaper than the risk of a hand-written 6-plane
-+;                         rect routine. Both source files are verbatim upstream
-+;                         copies - only these wrappers are ours.
-+;
-+; Both take all their arguments in registers, including d2-d7 which the C ABI
-+; treats as callee-saved. Each routine does save them itself - but only AFTER we
-+; have already loaded our arguments into them, so it would restore OUR values
-+; and destroy the caller's. Hence these wrappers save them first.
-+;
-+; Assemble with the vasm that ships with bebbo amiga-gcc. The -I is needed by
-+; c2p1x1_6_c5_bm_040.s, which includes graphics/gfx.i for the BitMap offsets:
-+;   vasmm68k_mot -Fhunk -m68040 -no-opt \
-+;                -I/opt/amiga/m68k-amigaos/ndk-include \
-+;                -o c2p_glue.o c2p_glue.s
-+; (this one command assembles all three .s files - the two below are included).
-+
-+	section	code,code
-+
-+	xdef	_c2p_rect_asm
-+	xdef	_c2p6_bm_asm
-+
-+; void c2p_rect_asm(struct C2PArgs *a);
-+;   0  UWORD x        (multiple of 32)
-+;   2  UWORD y
-+;   4  UWORD w        (multiple of 32)
-+;   6  UWORD h
-+;   8  UWORD cmod     chunky buffer stride in bytes
-+;  10  UWORD bmod     bitplane BytesPerRow
-+;  12  ULONG bplsize  bytes per bitplane (distance between planes)
-+;  16  APTR  chunky   BASE of the chunky buffer (routine adds x/y itself)
-+;  20  APTR  bpl      BASE of plane 0 (planes must be contiguous, bplsize apart)
-+
-+_c2p_rect_asm:
-+	movem.l	d2-d7/a2-a6,-(sp)
-+	move.l	48(sp),a1		; 11 saved longs = 44, +4 return address
-+	move.w	(a1),d0
-+	move.w	2(a1),d1
-+	move.w	4(a1),d2
-+	move.w	6(a1),d3
-+	move.w	8(a1),d4
-+	move.w	10(a1),d5
-+	move.l	12(a1),d6
-+	move.l	16(a1),a0
-+	move.l	20(a1),a1
-+	jsr	c2p_rect
-+	movem.l	(sp)+,d2-d7/a2-a6
-+	rts
-+
-+; void c2p6_bm_asm(struct C2P6Args *a);
-+;   0  UWORD chunkyx  width  in pixels, MUST be a multiple of 32
-+;   2  UWORD chunkyy  height in rows
-+;   4  UWORD offsx    destination x in the BitMap, MUST be a multiple of 8
-+;   6  UWORD offsy    destination y in the BitMap
-+;   8  APTR  chunky   contiguous chunkyx * chunkyy chunky pixels
-+;  12  APTR  bitmap   struct BitMap * with at least 6 planes
-+;
-+; Unlike c2p_rect this takes no rowmod, which is exactly why the caller must
-+; hand it contiguous input - see the header comment at the top of this file.
-+
-+_c2p6_bm_asm:
-+	movem.l	d2-d7/a2-a6,-(sp)
-+	move.l	48(sp),a1		; 11 saved longs = 44, +4 return address
-+	move.w	(a1),d0
-+	move.w	2(a1),d1
-+	move.w	4(a1),d2
-+	move.w	6(a1),d3
-+	move.l	8(a1),a0
-+	move.l	12(a1),a1
-+	jsr	c2p1x1_6_c5_bm_040
-+	movem.l	(sp)+,d2-d7/a2-a6
-+	rts
-+
-+	include	"c2p_rect.s"
-+	include	"c2p1x1_6_c5_bm_040.s"
-diff -ruN a/video/c2p_rect.s b/video/c2p_rect.s
---- a/video/c2p_rect.s	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/c2p_rect.s	2026-07-21 19:24:07.292946000 +0200
-@@ -0,0 +1,429 @@
-+
-+; C2P a rectangular area between equally-sized chunkybuffer and
-+; destination bitplanes
-+;
-+; This routine might look a bit odd and inflexible; that is entirely correct,
-+; its purpose is to allow "dirty rectangles" updating of the chipbuffer
-+; (that is, only c2p changed parts of screen), for example in a windowing
-+; system or a 2d game which has mainly static backgrounds
-+;
-+; Optimized for 040+
-+; By Mikael Kalms, although strongly influenced by Aki's and Azure's
-+;  040+ routines
-+
-+	section	code,code
-+
-+; d0.w	x [multiple of 32]
-+; d1.w	y
-+; d2.w	width [multiple of 32]
-+; d3.w	height
-+; d4.w	chunky rowmod
-+; d5.w	bpl rowmod
-+; d6.l	bplsize
-+; a0	chunky, upper-left corner of rect
-+; a1	bitplanes, upper-left corner of rect
-+
-+; No error checking is performed!
-+
-+		rsreset
-+c2p_chunkyrowmod rs.w	1
-+c2p_chunkymod	rs.w	1
-+c2p_bplmod	rs.w	1
-+c2p_ycount	rs.w	1
-+c2p_stacksize	rs.b	0
-+
-+c2p_rect
-+	movem.l	d2-d7/a2-a6,-(sp)
-+	subq.l	#c2p_stacksize,sp
-+	move.w	d1,d7
-+	andi.l	#$ffff,d0
-+	mulu.w	d4,d1
-+	mulu.w	d5,d7
-+	add.l	d0,d1
-+	move.w	d4,c2p_chunkyrowmod(sp)
-+	lsr.l	#3,d0
-+	add.l	d1,a0
-+	sub.w	d2,d4
-+	add.l	d0,d7
-+	move.l	a0,a4
-+	add.l	d7,a1
-+	add.w	d2,a4
-+	move.l	d6,a3
-+	lsr.w	#3,d2
-+	move.w	d4,c2p_chunkymod(sp)
-+	sub.w	d2,d5
-+	lea	(a1,a3.l*8),a1
-+	move.w	d5,c2p_bplmod(sp)
-+	sub.l	a3,a1
-+	move.w	d3,c2p_ycount(sp)
-+
-+	move.l	(a0)+,d0
-+	move.l	(a0)+,d1
-+	move.l	(a0)+,d2
-+	move.l	(a0)+,d3
-+	move.l	(a0)+,d4
-+	move.l	(a0)+,d5
-+	move.l	(a0)+,d6
-+	move.l	(a0)+,a2
-+
-+	swap	d4
-+	swap	d5
-+	eor.w	d0,d4
-+	eor.w	d1,d5
-+	eor.w	d4,d0
-+	eor.w	d5,d1
-+	eor.w	d0,d4
-+	eor.w	d1,d5
-+	swap	d4
-+	swap	d5
-+
-+	move.l	d4,d7
-+	lsr.l	#2,d7
-+	eor.l	d0,d7
-+	and.l	#$33333333,d7
-+	eor.l	d7,d0
-+	lsl.l	#2,d7
-+	eor.l	d7,d4
-+	move.l	d5,d7
-+	lsr.l	#2,d7
-+	eor.l	d1,d7
-+	and.l	#$33333333,d7
-+	eor.l	d7,d1
-+	lsl.l	#2,d7
-+	eor.l	d7,d5
-+
-+	exg	d5,a2
-+
-+	swap	d6
-+	swap	d5
-+	eor.w	d2,d6
-+	eor.w	d3,d5
-+	eor.w	d6,d2
-+	eor.w	d5,d3
-+	eor.w	d2,d6
-+	eor.w	d3,d5
-+	swap	d6
-+	swap	d5
-+
-+	move.l	d6,d7
-+	lsr.l	#2,d7
-+	eor.l	d2,d7
-+	and.l	#$33333333,d7
-+	eor.l	d7,d2
-+	lsl.l	#2,d7
-+	eor.l	d7,d6
-+	move.l	d5,d7
-+	lsr.l	#2,d7
-+	eor.l	d3,d7
-+	and.l	#$33333333,d7
-+	eor.l	d7,d3
-+	lsl.l	#2,d7
-+	eor.l	d7,d5
-+
-+	move.l	d1,d7
-+	lsr.l	#4,d7
-+	eor.l	d0,d7
-+	and.l	#$0f0f0f0f,d7
-+	eor.l	d7,d0
-+	lsl.l	#4,d7
-+	eor.l	d7,d1
-+	move.l	d3,d7
-+	lsr.l	#4,d7
-+	eor.l	d2,d7
-+	and.l	#$0f0f0f0f,d7
-+	eor.l	d7,d2
-+	lsl.l	#4,d7
-+	eor.l	d7,d3
-+	bra	.start
-+.row
-+	move.l	(a0)+,d0
-+	move.l	(a0)+,d1
-+	move.l	(a0)+,d2
-+	move.l	(a0)+,d3
-+	move.l	(a0)+,d4
-+	move.l	(a0)+,d5
-+	move.l	(a0)+,d6
-+	tst.l	(a0)
-+
-+	move.l	d7,(a1)
-+	swap	d4
-+	swap	d5
-+	sub.l	a3,a1
-+	eor.w	d0,d4
-+	eor.w	d1,d5
-+	eor.w	d4,d0
-+	eor.w	d5,d1
-+	eor.w	d0,d4
-+	eor.w	d1,d5
-+	swap	d4
-+	swap	d5
-+
-+	move.l	d4,d7
-+	lsr.l	#2,d7
-+	eor.l	d0,d7
-+	and.l	#$33333333,d7
-+	eor.l	d7,d0
-+	lsl.l	#2,d7
-+	eor.l	d7,d4
-+	move.l	d5,d7
-+	lsr.l	#2,d7
-+	move.l	a2,(a1)
-+	eor.l	d1,d7
-+	sub.l	a3,a1
-+	and.l	#$33333333,d7
-+	eor.l	d7,d1
-+	lsl.l	#2,d7
-+	eor.l	d7,d5
-+	move.l	d5,a2
-+	move.l	(a0)+,d5
-+
-+	swap	d6
-+	swap	d5
-+	eor.w	d2,d6
-+	eor.w	d3,d5
-+	eor.w	d6,d2
-+	eor.w	d5,d3
-+	eor.w	d2,d6
-+	eor.w	d3,d5
-+	swap	d6
-+	swap	d5
-+
-+	move.l	d6,d7
-+	lsr.l	#2,d7
-+	eor.l	d2,d7
-+	move.l	a5,(a1)
-+	and.l	#$33333333,d7
-+	sub.l	a3,a1
-+	eor.l	d7,d2
-+	lsl.l	#2,d7
-+	eor.l	d7,d6
-+	move.l	d5,d7
-+	lsr.l	#2,d7
-+	eor.l	d3,d7
-+	and.l	#$33333333,d7
-+	eor.l	d7,d3
-+	lsl.l	#2,d7
-+	eor.l	d7,d5
-+
-+	move.l	d1,d7
-+	lsr.l	#4,d7
-+	eor.l	d0,d7
-+	and.l	#$0f0f0f0f,d7
-+	eor.l	d7,d0
-+	lsl.l	#4,d7
-+	eor.l	d7,d1
-+	move.l	d3,d7
-+	move.l	a6,(a1)+
-+	lsr.l	#4,d7
-+	lea	(a1,a3.l*8),a1
-+	eor.l	d2,d7
-+	sub.l	a3,a1
-+	and.l	#$0f0f0f0f,d7
-+	eor.l	d7,d2
-+	lsl.l	#4,d7
-+	eor.l	d7,d3
-+
-+	add.w	c2p_bplmod(sp),a1
-+	bra	.start
-+.x
-+	move.l	(a0)+,d0
-+	move.l	(a0)+,d1
-+	move.l	(a0)+,d2
-+	move.l	(a0)+,d3
-+	move.l	(a0)+,d4
-+	move.l	(a0)+,d5
-+	move.l	(a0)+,d6
-+	tst.l	(a0)
-+
-+	move.l	d7,(a1)
-+	swap	d4
-+	swap	d5
-+	sub.l	a3,a1
-+	eor.w	d0,d4
-+	eor.w	d1,d5
-+	eor.w	d4,d0
-+	eor.w	d5,d1
-+	eor.w	d0,d4
-+	eor.w	d1,d5
-+	swap	d4
-+	swap	d5
-+
-+	move.l	d4,d7
-+	lsr.l	#2,d7
-+	eor.l	d0,d7
-+	and.l	#$33333333,d7
-+	eor.l	d7,d0
-+	lsl.l	#2,d7
-+	eor.l	d7,d4
-+	move.l	d5,d7
-+	lsr.l	#2,d7
-+	move.l	a2,(a1)
-+	eor.l	d1,d7
-+	sub.l	a3,a1
-+	and.l	#$33333333,d7
-+	eor.l	d7,d1
-+	lsl.l	#2,d7
-+	eor.l	d7,d5
-+	move.l	d5,a2
-+	move.l	(a0)+,d5
-+
-+	swap	d6
-+	swap	d5
-+	eor.w	d2,d6
-+	eor.w	d3,d5
-+	eor.w	d6,d2
-+	eor.w	d5,d3
-+	eor.w	d2,d6
-+	eor.w	d3,d5
-+	swap	d6
-+	swap	d5
-+
-+	move.l	d6,d7
-+	lsr.l	#2,d7
-+	eor.l	d2,d7
-+	move.l	a5,(a1)
-+	and.l	#$33333333,d7
-+	sub.l	a3,a1
-+	eor.l	d7,d2
-+	lsl.l	#2,d7
-+	eor.l	d7,d6
-+	move.l	d5,d7
-+	lsr.l	#2,d7
-+	eor.l	d3,d7
-+	and.l	#$33333333,d7
-+	eor.l	d7,d3
-+	lsl.l	#2,d7
-+	eor.l	d7,d5
-+
-+	move.l	d1,d7
-+	lsr.l	#4,d7
-+	eor.l	d0,d7
-+	and.l	#$0f0f0f0f,d7
-+	eor.l	d7,d0
-+	lsl.l	#4,d7
-+	eor.l	d7,d1
-+	move.l	d3,d7
-+	move.l	a6,(a1)+
-+	lsr.l	#4,d7
-+	lea	(a1,a3.l*8),a1
-+	eor.l	d2,d7
-+	sub.l	a3,a1
-+	and.l	#$0f0f0f0f,d7
-+	eor.l	d7,d2
-+	lsl.l	#4,d7
-+	eor.l	d7,d3
-+.start
-+	move.l	d2,d7
-+	lsr.l	#8,d7
-+	eor.l	d0,d7
-+	and.l	#$00ff00ff,d7
-+	eor.l	d7,d0
-+	lsl.l	#8,d7
-+	eor.l	d7,d2
-+	move.l	d2,d7
-+	lsr.l	#1,d7
-+	eor.l	d0,d7
-+	and.l	#$55555555,d7
-+	eor.l	d7,d0
-+	move.l	d0,(a1)
-+	add.l	d7,d7
-+	sub.l	a3,a1
-+	eor.l	d7,d2
-+; d0,d2 done				; d0 = bpl7, d2 = bpl6
-+	move.l	a2,d0
-+
-+	move.l	d0,d7
-+	lsr.l	#4,d7
-+	eor.l	d4,d7
-+	and.l	#$0f0f0f0f,d7
-+	eor.l	d7,d4
-+	lsl.l	#4,d7
-+	eor.l	d7,d0
-+	move.l	d5,d7
-+	lsr.l	#4,d7
-+	eor.l	d6,d7
-+	and.l	#$0f0f0f0f,d7
-+	eor.l	d7,d6
-+	lsl.l	#4,d7
-+	eor.l	d7,d5
-+
-+	move.l	d6,d7
-+	move.l	d2,(a1)
-+	lsr.l	#8,d7
-+	sub.l	a3,a1
-+	eor.l	d4,d7
-+	and.l	#$00ff00ff,d7
-+	eor.l	d7,d4
-+	lsl.l	#8,d7
-+	eor.l	d7,d6
-+	move.l	d6,d7
-+	lsr.l	#1,d7
-+	eor.l	d4,d7
-+	and.l	#$55555555,d7
-+	eor.l	d7,d4
-+	add.l	d7,d7
-+	eor.l	d7,d6
-+; d4,d6 done				; d4 = bpl5, d6 = bpl4
-+
-+	move.l	d3,d7
-+	lsr.l	#8,d7
-+	eor.l	d1,d7
-+	move.l	d4,(a1)
-+	and.l	#$00ff00ff,d7
-+	sub.l	a3,a1
-+	eor.l	d7,d1
-+	lsl.l	#8,d7
-+	eor.l	d7,d3
-+	move.l	d3,d7
-+	lsr.l	#1,d7
-+	eor.l	d1,d7
-+	and.l	#$55555555,d7
-+	eor.l	d7,d1
-+	add.l	d7,d7
-+	eor.l	d7,d3
-+; d1,d3 done				; d1 = bpl3, d3 = bpl2
-+
-+	move.l	d5,d7
-+	lsr.l	#8,d7
-+	eor.l	d0,d7
-+	and.l	#$00ff00ff,d7
-+	eor.l	d7,d0
-+	lsl.l	#8,d7
-+	move.l	d6,(a1)
-+	eor.l	d7,d5
-+	sub.l	a3,a1
-+	move.l	d5,d7
-+	lsr.l	#1,d7
-+	eor.l	d0,d7
-+	and.l	#$55555555,d7
-+	eor.l	d7,d0
-+	add.l	d7,d7
-+	eor.l	d7,d5
-+; d0,d5 done				; d0 = bpl1, d5 = bpl0
-+	move.l	d1,d7
-+	move.l	d3,a2
-+	move.l	d0,a5
-+	move.l	d5,a6
-+
-+	cmp.l	a0,a4
-+	bne	.x
-+
-+	add.w	c2p_chunkymod(sp),a0
-+	add.w	c2p_chunkyrowmod(sp),a4
-+
-+	subq.w	#1,c2p_ycount(sp)
-+	bne	.row
-+
-+	move.l	d7,(a1)
-+	sub.l	a3,a1
-+	move.l	a2,(a1)
-+	sub.l	a3,a1
-+	move.l	a5,(a1)
-+	sub.l	a3,a1
-+	move.l	a6,(a1)+
-+	lea	(a1,a3.l*8),a1
-+	sub.l	a3,a1
-+
-+	addq.l	#c2p_stacksize,sp
-+	movem.l	(sp)+,d2-d7/a2-a6
-+	rts

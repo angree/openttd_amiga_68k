@@ -48,13 +48,35 @@ Usage: python3 make-splash.py [input.png] [output.dat] [ogfx1_base.grf]
 """
 
 import argparse
+import re
 import struct
 import os
 
 from PIL import Image, ImageDraw
 
 CREDIT_TEXT     = "port by Grzegorz Korycki"
-DEFAULT_VERSION = "v0.7.0"
+
+
+def _read_amiga_ttd_version():
+    """Single-source the port version from native/openttd/amiga_ttd_version.h.
+
+    The header carries  #define AMIGA_TTD_VERSION "0.9.1"  and is the ONE place
+    the version lives (the intro-window caption reads the same macro via
+    rev.cpp.in). The splash stamps it as "v" + that string. Falls back to a
+    literal only if the header cannot be found or parsed."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    header = os.path.join(here, "..", "native", "openttd", "amiga_ttd_version.h")
+    try:
+        with open(header, "r", encoding="utf-8") as f:
+            m = re.search(r'#define\s+AMIGA_TTD_VERSION\s+"([^"]+)"', f.read())
+        if m:
+            return "v" + m.group(1)
+    except (IOError, OSError):
+        pass
+    return "v0.9.1"
+
+
+DEFAULT_VERSION = _read_amiga_ttd_version()
 CORNER_RADIUS   = 8     # px, rounded-corner radius on the picture
 GAP             = 6     # px between picture and credit line
 BOTTOM_PAD      = 2     # px below the credit line

@@ -27,6 +27,16 @@
 #                   reads CargoSpec::classes, so buses are mistaken for trucks
 #                   and refuse to accept an order to a bus stop.
 #
+#     misc_cmd.cpp - at -O1, CmdIncreaseLoan/CmdDecreaseLoan return SUCCESS but
+#                   the `if (flags & DC_EXEC) { c->money += loan; c->current_loan
+#                   += loan; }` writes are dropped, so borrowing/repaying does
+#                   nothing - for BOTH the human finance-window buttons AND the AI
+#                   (which calls CMD_INCREASE_LOAN directly, no GUI). Proven by
+#                   instrumentation: DoCommandP returned ok=1 while current_loan
+#                   stayed 100k. The += is on OverflowSafeInt<int64>; the O1
+#                   codegen mishandles the conditional 64-bit store. At -O0 the
+#                   loan sticks (verified: current_loan reaches the 300k max_loan).
+#
 #  2. The cc1plus internal compiler error, handled by the retry loop.
 #
 # Never -O2 anywhere: that level breaks C++ exception unwinding on this
@@ -34,7 +44,7 @@
 
 export PATH=/opt/amiga/bin:/usr/local/bin:/usr/bin:/bin
 TREE=/home/angree/build/openttd-1.0.5
-FORCE_O0="window.o cargotype.o order_cmd.o order_gui.o settings_gui.o rail_cmd.o signal.o sound/amiga_s.o"
+FORCE_O0="window.o cargotype.o order_cmd.o order_gui.o settings_gui.o rail_cmd.o signal.o sound/amiga_s.o misc_cmd.o"
 
 cd "$TREE" || exit 1
 
@@ -95,7 +105,9 @@ done
 # build so the objects definitely exist and the compile line can be recovered.
 NEED_RELINK=0
 FORCED_REPORT=""
-for OBJ in $FORCE_O0; do
+# Entries may be globs (e.g. ai/api/*.o); expand them relative to objs/release.
+FORCE_O0_EXPANDED=$(cd "$TREE/objs/release" && ls -1 $FORCE_O0 2>/dev/null | tr '\n' ' ')
+for OBJ in $FORCE_O0_EXPANDED; do
     echo "forcing $OBJ to -O0 (miscompiled at -O1)"
     rebuild_at_O0 "$OBJ" || exit 1
     # Confirm from the actual command line that -O0 is what was used, per object.

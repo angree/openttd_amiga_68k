@@ -520,6 +520,17 @@ static bool CreateMainSurface(uint w, uint h, int want_backend)
 	UpdatePalette(0, 256);
 	GameSizeChanged();
 
+	/* GameSizeChanged() (main_gui.cpp) just copied the GAME AREA - _screen,
+	 * which with the Workbench bar is shorter than the screen by one bar height
+	 * - into _cur_resolution, and _cur_resolution is what gets written to
+	 * openttd.cfg. A game-area height (e.g. 352x261) matches no entry in the
+	 * resolution list (352x272), so the next start cannot find the mode and
+	 * falls back to 320x256 - the "it never remembers the resolution" bug. Put
+	 * the SCREEN size back: the bar eats usable area, it does not change the
+	 * screen mode, and the mode is what must persist. */
+	_cur_resolution.width  = _amiga_scr_w;
+	_cur_resolution.height = _amiga_scr_h;
+
 	DEBUG(driver, 1, "amiga: %dx%d, %s", w, h,
 	      got_backend == AMIGAGFX_BACKEND_RTG ? "8bpp RTG, chunky straight to the card" :
 	      got_backend == AMIGAGFX_BACKEND_EHB ? "OCS: 6 bitplanes EHB, Kalms c2p1x1_6_c5_bm_040"

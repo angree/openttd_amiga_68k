@@ -37,6 +37,8 @@ bitplane *is* the half-brite control, and OCS/ECS cannot fetch six planes at
 hires bandwidth. Switching between AGA, OCS and RTG needs a restart (the choice
 is saved immediately and shown on screen).
 
+![OpenTTD in an OCS/ECS Extra Half-Brite mode](screenshots/openttd_68k_ocs.png)
+
 **If it runs too slowly, use a lores mode** — it converts a quarter of the pixels
 of `640x480` and is not interlaced. On an 030, lores is the only playable
 configuration, and even then generate a small map.
@@ -57,6 +59,8 @@ configuration, and even then generate a small map.
 - **AGA, or OCS/ECS, or a Picasso96 / CyberGraphX RTG card.** RTG is worth having
   if you own one: the chunky 8bpp buffer goes to an 8bpp RTG screen essentially
   unchanged, skipping chunky-to-planar entirely.
+
+  ![OpenTTD on a Picasso96 RTG screen](screenshots/openttd_68k_p96.png)
 - **24 MB Fast RAM** (won't start on 4 MB Fast + 16 MB Z3; does on 8 + 16).
   AmigaOS 3.0/3.1, ~30 MB free disk.
 

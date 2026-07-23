@@ -126,6 +126,11 @@ static const Dimension _amiga_rtg_resolutions[] = {
 	{  640, 480 },
 	{  800, 600 },
 	{ 1024, 768 },
+	{  960, 720 },   /* 720p, 4:3 */
+	{ 1280, 720 },   /* 720p, 16:9 widescreen */
+	{ 1600, 900 },   /* 900p, 16:9 widescreen */
+	{ 1440, 1080 },  /* 1080p, 4:3 */
+	{ 1920, 1080 },  /* 1080p, 16:9 widescreen */
 };
 
 /** SPECSTR_RESOLUTION_END - SPECSTR_RESOLUTION_START + 1: the hard ceiling on

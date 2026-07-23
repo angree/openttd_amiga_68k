@@ -1155,6 +1155,39 @@ static void OldAILoadCompany(size_t *left, uint32 *seen)
 			a->cleanup_phase > 2) {
 		SlErrorCorrupt("invalid OLAI plan cursor");
 	}
+
+	/* SAVE-RESUME SAFETY. A save taken mid-attempt restores a pending command and
+	 * a build/cleanup cursor; resuming it threw an uncaught C++ exception on this
+	 * toolchain (fragile Hunk unwind) the instant the loaded game ran a tick, so
+	 * loading any save made while the AI was building killed the game. Discard the
+	 * in-flight attempt and restart planning from a clean state instead. This is
+	 * deterministic (every peer loads the identical save and resets identically,
+	 * so it stays MP-safe) and keeps the durable state that matters - RNG, age,
+	 * completed routes, per-line cooldown and the next-plan tick. Only the single
+	 * interrupted attempt is lost; its half-built objects simply stay on the map. */
+	if (a->pending_op != OAOP_NONE ||
+			(a->state != OAS_IDLE && a->state != OAS_TPLAN &&
+			 a->state != OAS_DONE && a->state != OAS_GIVEUP)) {
+		a->attempt_sta_p = a->attempt_sta_a = a->attempt_line = a->attempt_spur = false;
+		a->attempt_depot = a->attempt_train_vehicle = a->attempt_loose_wagon = false;
+		a->attempt_carriages = 0;
+		a->attempt_costing = false;
+		a->attempt_bus_stop_a = a->attempt_bus_stop_b = false;
+		a->attempt_bus_depot = a->attempt_bus_road = a->attempt_bus_line = false;
+		if (cid < MAX_COMPANIES) {
+			_oldai_rail_plan_count[cid] = 0;
+			_oldai_road_plan_count[cid] = 0;
+		}
+		a->plan_cursor = 0;
+		a->cleanup_cursor = -1;
+		a->cleanup_phase = 0;
+		a->op_step = 0;
+		a->pending_op = OAOP_NONE;
+		a->pending_issued = false;
+		a->pending_done = false;
+		a->pending_cmd = 0;
+		a->state = OAS_TPLAN;
+	}
 }
 
 static void Load_OLAI()

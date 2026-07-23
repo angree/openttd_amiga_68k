@@ -1,6 +1,6 @@
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/3rdparty/squirrel/squirrel/sqcompiler.cpp b/3rdparty/squirrel/squirrel/sqcompiler.cpp
 --- a/3rdparty/squirrel/squirrel/sqcompiler.cpp	2026-07-23 16:51:17.898977900 +0200
-+++ b/3rdparty/squirrel/squirrel/sqcompiler.cpp	2026-07-23 16:51:22.886073000 +0200
++++ b/3rdparty/squirrel/squirrel/sqcompiler.cpp	2026-07-23 20:54:47.250151900 +0200
 @@ -4,6 +4,7 @@
  #include <squirrel.h>
  #include "sqpcheader.h"
@@ -60,7 +60,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  bool Compile(SQVM *vm,SQLEXREADFUNC rg, SQUserPointer up, const SQChar *sourcename, SQObjectPtr &out, bool raiseerror, bool lineinfo)
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/3rdparty/squirrel/squirrel/sqvm.cpp.ehdiag_orig b/3rdparty/squirrel/squirrel/sqvm.cpp.ehdiag_orig
 --- a/3rdparty/squirrel/squirrel/sqvm.cpp.ehdiag_orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/3rdparty/squirrel/squirrel/sqvm.cpp.ehdiag_orig	2026-07-23 16:51:23.010676400 +0200
++++ b/3rdparty/squirrel/squirrel/sqvm.cpp.ehdiag_orig	2026-07-23 20:54:47.414804400 +0200
 @@ -0,0 +1,1591 @@
 +/*
 +	see copyright notice in squirrel.h
@@ -1655,7 +1655,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +#endif
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/ai/ai_core.cpp b/ai/ai_core.cpp
 --- a/ai/ai_core.cpp	2026-07-23 16:51:14.639291800 +0200
-+++ b/ai/ai_core.cpp	2026-07-23 16:51:30.408025200 +0200
++++ b/ai/ai_core.cpp	2026-07-23 20:54:56.217475800 +0200
 @@ -70,7 +70,9 @@
  
  	const Company *c;
@@ -1705,7 +1705,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  		_current_company = company;
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/ai/ai_instance.cpp b/ai/ai_instance.cpp
 --- a/ai/ai_instance.cpp	2026-07-23 16:51:14.771647900 +0200
-+++ b/ai/ai_instance.cpp	2026-07-23 16:51:30.432188400 +0200
++++ b/ai/ai_instance.cpp	2026-07-23 20:54:56.243315100 +0200
 @@ -1,4 +1,4 @@
 -/* $Id: ai_instance.cpp 18862 2010-01-18 15:41:38Z rubidium $ */
 +/* $Id$ */
@@ -1714,7 +1714,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
   * This file is part of OpenTTD.
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/ai/ai_instance.cpp.ehdiag_orig b/ai/ai_instance.cpp.ehdiag_orig
 --- a/ai/ai_instance.cpp.ehdiag_orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/ai/ai_instance.cpp.ehdiag_orig	2026-07-23 16:51:30.506951200 +0200
++++ b/ai/ai_instance.cpp.ehdiag_orig	2026-07-23 20:54:56.353020000 +0200
 @@ -0,0 +1,779 @@
 +/* $Id: ai_instance.cpp 18862 2010-01-18 15:41:38Z rubidium $ */
 +
@@ -2497,7 +2497,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +}
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/ai/api/ai_object.cpp b/ai/api/ai_object.cpp
 --- a/ai/api/ai_object.cpp	2026-07-23 16:51:12.073682600 +0200
-+++ b/ai/api/ai_object.cpp	2026-07-23 16:51:30.680814400 +0200
++++ b/ai/api/ai_object.cpp	2026-07-23 20:54:56.546240000 +0200
 @@ -1,4 +1,4 @@
 -/* $Id: ai_object.cpp 18866 2010-01-18 22:57:21Z rubidium $ */
 +/* $Id$ */
@@ -2506,7 +2506,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
   * This file is part of OpenTTD.
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/ai/api/ai_object.cpp.ehdiag_orig b/ai/api/ai_object.cpp.ehdiag_orig
 --- a/ai/api/ai_object.cpp.ehdiag_orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/ai/api/ai_object.cpp.ehdiag_orig	2026-07-23 16:51:31.807513300 +0200
++++ b/ai/api/ai_object.cpp.ehdiag_orig	2026-07-23 20:54:57.852552200 +0200
 @@ -0,0 +1,249 @@
 +/* $Id: ai_object.cpp 18866 2010-01-18 22:57:21Z rubidium $ */
 +
@@ -2759,7 +2759,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +}
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/cargotype.cpp.orig b/cargotype.cpp.orig
 --- a/cargotype.cpp.orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/cargotype.cpp.orig	2026-07-23 16:51:28.671120900 +0200
++++ b/cargotype.cpp.orig	2026-07-23 20:54:54.178907100 +0200
 @@ -0,0 +1,115 @@
 +/* $Id: cargotype.cpp 18413 2009-12-05 21:39:28Z alberth $ */
 +
@@ -2878,7 +2878,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/command.cpp b/command.cpp
 --- a/command.cpp	2026-07-23 16:51:19.185859600 +0200
-+++ b/command.cpp	2026-07-23 16:51:26.466767900 +0200
++++ b/command.cpp	2026-07-23 20:54:51.679858600 +0200
 @@ -187,6 +187,7 @@
  CommandProc CmdSetVehicleOnTime;
  CommandProc CmdAutofillTimetable;
@@ -2897,7 +2897,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  /*!
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/command.cpp.orig b/command.cpp.orig
 --- a/command.cpp.orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/command.cpp.orig	2026-07-23 16:51:25.509053000 +0200
++++ b/command.cpp.orig	2026-07-23 20:54:50.523466100 +0200
 @@ -0,0 +1,716 @@
 +/* $Id: command.cpp 19665 2010-04-17 22:27:49Z rubidium $ */
 +
@@ -3617,7 +3617,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +}
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/command_func.h b/command_func.h
 --- a/command_func.h	2026-07-23 16:51:04.468862700 +0200
-+++ b/command_func.h	2026-07-23 16:51:28.664156800 +0200
++++ b/command_func.h	2026-07-23 20:54:54.171624500 +0200
 @@ -95,6 +95,9 @@
  /* ai/ai_core.cpp */
  CommandCallback CcAI;
@@ -3630,7 +3630,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/command_type.h b/command_type.h
 --- a/command_type.h	2026-07-23 16:51:10.187591700 +0200
-+++ b/command_type.h	2026-07-23 16:51:34.941912000 +0200
++++ b/command_type.h	2026-07-23 20:55:01.423227100 +0200
 @@ -295,6 +295,7 @@
  	CMD_SET_VEHICLE_ON_TIME,          ///< set the vehicle on time feature (timetable)
  	CMD_AUTOFILL_TIMETABLE,           ///< autofill the timetable
@@ -3641,7 +3641,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  /**
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/company_cmd.cpp b/company_cmd.cpp
 --- a/company_cmd.cpp	2026-07-23 16:51:16.068797700 +0200
-+++ b/company_cmd.cpp	2026-07-23 16:51:34.874830600 +0200
++++ b/company_cmd.cpp	2026-07-23 20:55:01.346981800 +0200
 @@ -21,6 +21,7 @@
  #include "network/network_func.h"
  #include "network/network_base.h"
@@ -3664,7 +3664,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/debug.cpp b/debug.cpp
 --- a/debug.cpp	2026-07-23 16:51:04.173645200 +0200
-+++ b/debug.cpp	2026-07-23 16:51:26.207904800 +0200
++++ b/debug.cpp	2026-07-23 20:54:51.380398000 +0200
 @@ -86,7 +86,7 @@
  		_sntprintf(tbuf, sizeof(tbuf), _T("%s"), OTTD2FS(dbg));
  		NKDbgPrintfW(_T("dbg: [%s] %s\n"), tbuf, OTTD2FS(buf));
@@ -3676,7 +3676,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	} else {
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/fileio.cpp b/fileio.cpp
 --- a/fileio.cpp	2026-07-23 16:51:07.222566900 +0200
-+++ b/fileio.cpp	2026-07-23 16:51:28.658020900 +0200
++++ b/fileio.cpp	2026-07-23 20:54:54.164623700 +0200
 @@ -22,11 +22,13 @@
  #include <Path.h>
  #include <storage/FindDirectory.h>
@@ -3703,7 +3703,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/fios.cpp b/fios.cpp
 --- a/fios.cpp	2026-07-23 16:51:11.288979300 +0200
-+++ b/fios.cpp	2026-07-23 16:51:22.054618300 +0200
++++ b/fios.cpp	2026-07-23 20:54:46.204020500 +0200
 @@ -110,7 +110,7 @@
  			s = strrchr(path, PATHSEPCHAR);
  			if (s != NULL) {
@@ -3724,7 +3724,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/fontcache.cpp b/fontcache.cpp
 --- a/fontcache.cpp	2026-07-23 16:51:04.895892200 +0200
-+++ b/fontcache.cpp	2026-07-23 16:51:30.066611800 +0200
++++ b/fontcache.cpp	2026-07-23 20:54:55.801365300 +0200
 @@ -22,6 +22,9 @@
  /** Semi-constant for the height of the different sizes of fonts. */
  int _font_height[FS_END];
@@ -3784,7 +3784,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/fontcache.h b/fontcache.h
 --- a/fontcache.h	2026-07-23 16:51:15.737637800 +0200
-+++ b/fontcache.h	2026-07-23 16:51:28.477492200 +0200
++++ b/fontcache.h	2026-07-23 20:54:53.969676600 +0200
 @@ -73,12 +73,23 @@
  }
  
@@ -3812,7 +3812,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  #endif /* WITH_FREETYPE */
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/genworld.cpp b/genworld.cpp
 --- a/genworld.cpp	2026-07-23 16:51:04.341623000 +0200
-+++ b/genworld.cpp	2026-07-23 16:51:28.997974400 +0200
++++ b/genworld.cpp	2026-07-23 20:54:54.541334700 +0200
 @@ -97,6 +97,7 @@
  {
  	try {
@@ -3939,7 +3939,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	}
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/gfx.cpp b/gfx.cpp
 --- a/gfx.cpp	2026-07-23 16:51:04.255683500 +0200
-+++ b/gfx.cpp	2026-07-23 16:51:33.809763100 +0200
++++ b/gfx.cpp	2026-07-23 20:55:00.127852800 +0200
 @@ -29,6 +29,11 @@
  #include "table/sprites.h"
  #include "table/control_codes.h"
@@ -4065,7 +4065,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	int y;
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/gfx_func.h b/gfx_func.h
 --- a/gfx_func.h	2026-07-23 16:51:03.852489300 +0200
-+++ b/gfx_func.h	2026-07-23 16:51:34.140948300 +0200
++++ b/gfx_func.h	2026-07-23 20:55:00.536649200 +0200
 @@ -64,6 +64,14 @@
  extern DrawPixelInfo _screen;
  extern bool _screen_disable_anim;   ///< Disable palette animation (important for 32bpp-anim blitter during giant screenshot)
@@ -4083,7 +4083,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  extern int _num_resolutions;
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/gfxinit.cpp b/gfxinit.cpp
 --- a/gfxinit.cpp	2026-07-23 16:51:05.036987600 +0200
-+++ b/gfxinit.cpp	2026-07-23 16:51:26.773590700 +0200
++++ b/gfxinit.cpp	2026-07-23 20:54:52.027991900 +0200
 @@ -41,6 +41,10 @@
  	_landscape_spriteindexes_3,
  };
@@ -4123,7 +4123,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  bool GraphicsSet::FillSetDetails(IniFile *ini, const char *path, const char *full_filename)
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/intro_gui.cpp b/intro_gui.cpp
 --- a/intro_gui.cpp	2026-07-23 16:51:03.910368900 +0200
-+++ b/intro_gui.cpp	2026-07-23 16:51:34.193422100 +0200
++++ b/intro_gui.cpp	2026-07-23 20:55:00.595768400 +0200
 @@ -61,6 +61,15 @@
  	SelectGameWindow(const WindowDesc *desc) : Window()
  	{
@@ -4142,7 +4142,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	}
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/landscape.cpp b/landscape.cpp
 --- a/landscape.cpp	2026-07-23 16:51:07.309729900 +0200
-+++ b/landscape.cpp	2026-07-23 16:51:28.313394600 +0200
++++ b/landscape.cpp	2026-07-23 20:54:53.757131900 +0200
 @@ -871,6 +871,8 @@
  	};
  	uint steps = (_settings_game.game_creation.landscape == LT_TROPIC) ? GLS_TROPIC : GLS_OTHER;
@@ -4168,7 +4168,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  }
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/lang/english.txt b/lang/english.txt
 --- a/lang/english.txt	2026-07-23 16:51:09.224503800 +0200
-+++ b/lang/english.txt	2026-07-23 16:51:23.796726200 +0200
++++ b/lang/english.txt	2026-07-23 20:54:48.419812700 +0200
 @@ -1297,7 +1297,11 @@
  STR_CONFIG_SETTING_LARGER_TOWNS_DISABLED                        :{LTBLUE}Proportion of towns that will become cities: {ORANGE}None
  STR_CONFIG_SETTING_CITY_SIZE_MULTIPLIER                         :{LTBLUE}Initial city size multiplier: {ORANGE}{STRING1}
@@ -4183,7 +4183,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  STR_CONFIG_SETTING_VEHICLES                                     :{ORANGE}Vehicles
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/main_gui.cpp b/main_gui.cpp
 --- a/main_gui.cpp	2026-07-23 16:51:07.376098000 +0200
-+++ b/main_gui.cpp	2026-07-23 16:51:34.911520200 +0200
++++ b/main_gui.cpp	2026-07-23 20:55:01.384570500 +0200
 @@ -30,6 +30,7 @@
  #include "toolbar_gui.h"
  #include "statusbar_gui.h"
@@ -4323,7 +4323,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	/* XXX: these are not done */
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/music.cpp b/music.cpp
 --- a/music.cpp	2026-07-23 16:51:15.545775900 +0200
-+++ b/music.cpp	2026-07-23 16:51:33.109517100 +0200
++++ b/music.cpp	2026-07-23 20:54:59.415090600 +0200
 @@ -57,41 +57,37 @@
  	return BaseMedia<Tbase_set>::used_set != NULL;
  }
@@ -4395,7 +4395,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  }
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/music_gui.cpp b/music_gui.cpp
 --- a/music_gui.cpp	2026-07-23 16:51:05.410003800 +0200
-+++ b/music_gui.cpp	2026-07-23 16:51:29.927244300 +0200
++++ b/music_gui.cpp	2026-07-23 20:54:55.632500800 +0200
 @@ -46,8 +46,9 @@
  	return BaseMusic::GetUsedSet()->track_nr[index];
  }
@@ -4452,7 +4452,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	} else if (msf.playing && !_song_is_active) {
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/network/core/os_abstraction.h b/network/core/os_abstraction.h
 --- a/network/core/os_abstraction.h	2026-07-23 16:51:20.306661500 +0200
-+++ b/network/core/os_abstraction.h	2026-07-23 16:51:24.978322100 +0200
++++ b/network/core/os_abstraction.h	2026-07-23 20:54:49.875473300 +0200
 @@ -158,7 +158,7 @@
  #		include <arpa/inet.h>
  #		include <net/if.h>
@@ -4464,7 +4464,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
   *   the following two lines and an alternative way will be used to fetch
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/network/network_command.cpp b/network/network_command.cpp
 --- a/network/network_command.cpp	2026-07-23 16:51:20.687736700 +0200
-+++ b/network/network_command.cpp	2026-07-23 16:51:24.850572400 +0200
++++ b/network/network_command.cpp	2026-07-23 20:54:49.732127200 +0200
 @@ -47,6 +47,11 @@
  	/* 0x14 */ CcGiveMoney,
  	/* 0x15 */ CcCreateGroup,
@@ -4479,7 +4479,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  /** Local queue of packets */
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/newgrf.cpp.orig b/newgrf.cpp.orig
 --- a/newgrf.cpp.orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/newgrf.cpp.orig	2026-07-23 16:51:26.708669700 +0200
++++ b/newgrf.cpp.orig	2026-07-23 20:54:51.959765800 +0200
 @@ -0,0 +1,6876 @@
 +/* $Id: newgrf.cpp 21181 2010-11-14 09:31:31Z rubidium $ */
 +
@@ -11359,7 +11359,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +}
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/news_type.h b/news_type.h
 --- a/news_type.h	2026-07-23 16:51:11.233754500 +0200
-+++ b/news_type.h	2026-07-23 16:51:30.282456500 +0200
++++ b/news_type.h	2026-07-23 20:54:56.075717800 +0200
 @@ -123,7 +123,7 @@
  		name(name),
  		age(age),
@@ -11371,7 +11371,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	}
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/openttd.cpp b/openttd.cpp
 --- a/openttd.cpp	2026-07-23 16:51:03.740246700 +0200
-+++ b/openttd.cpp	2026-07-23 16:51:26.131852600 +0200
++++ b/openttd.cpp	2026-07-23 20:54:51.304740000 +0200
 @@ -42,6 +42,7 @@
  #include "network/network_func.h"
  #include "signs_base.h"
@@ -11469,7 +11469,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  		NewsLoop();
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/order_cmd.cpp.orig b/order_cmd.cpp.orig
 --- a/order_cmd.cpp.orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/order_cmd.cpp.orig	2026-07-23 16:51:21.694156700 +0200
++++ b/order_cmd.cpp.orig	2026-07-23 20:54:45.789419500 +0200
 @@ -0,0 +1,1864 @@
 +/* $Id: order_cmd.cpp 20608 2010-08-24 00:03:26Z rubidium $ */
 +
@@ -13337,7 +13337,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +}
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/order_gui.cpp.orig b/order_gui.cpp.orig
 --- a/order_gui.cpp.orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/order_gui.cpp.orig	2026-07-23 16:51:30.327476600 +0200
++++ b/order_gui.cpp.orig	2026-07-23 20:54:56.128558400 +0200
 @@ -0,0 +1,1460 @@
 +/* $Id: order_gui.cpp 20916 2010-10-12 17:19:42Z rubidium $ */
 +
@@ -14801,7 +14801,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +}
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/os/unix/crashlog_unix.cpp b/os/unix/crashlog_unix.cpp
 --- a/os/unix/crashlog_unix.cpp	2026-07-23 16:51:16.211712200 +0200
-+++ b/os/unix/crashlog_unix.cpp	2026-07-23 16:51:32.676782700 +0200
++++ b/os/unix/crashlog_unix.cpp	2026-07-23 20:54:58.924011600 +0200
 @@ -19,6 +19,10 @@
  #include <signal.h>
  #include <sys/utsname.h>
@@ -14815,7 +14815,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  #	include <execinfo.h>
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/os/unix/unix.cpp b/os/unix/unix.cpp
 --- a/os/unix/unix.cpp	2026-07-23 16:51:16.239012800 +0200
-+++ b/os/unix/unix.cpp	2026-07-23 16:51:32.662805200 +0200
++++ b/os/unix/unix.cpp	2026-07-23 20:54:58.908782200 +0200
 @@ -1,4 +1,4 @@
 -/* $Id: unix.cpp 19857 2010-05-18 21:44:47Z rubidium $ */
 +/* $Id$ */
@@ -14956,7 +14956,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +#endif
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/os/unix/unix.cpp.ehdiag_orig b/os/unix/unix.cpp.ehdiag_orig
 --- a/os/unix/unix.cpp.ehdiag_orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/os/unix/unix.cpp.ehdiag_orig	2026-07-23 16:51:32.639672900 +0200
++++ b/os/unix/unix.cpp.ehdiag_orig	2026-07-23 20:54:58.885649800 +0200
 @@ -0,0 +1,373 @@
 +/* $Id: unix.cpp 19857 2010-05-18 21:44:47Z rubidium $ */
 +
@@ -15333,7 +15333,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +#endif
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/rail_cmd.cpp b/rail_cmd.cpp
 --- a/rail_cmd.cpp	2026-07-23 16:51:18.895891700 +0200
-+++ b/rail_cmd.cpp	2026-07-23 16:51:26.200388700 +0200
++++ b/rail_cmd.cpp	2026-07-23 20:54:51.373361300 +0200
 @@ -11,6 +11,7 @@
  
  #include "stdafx.h"
@@ -15369,7 +15369,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  		if (ret.Failed()) {
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/rev.cpp.in b/rev.cpp.in
 --- a/rev.cpp.in	2026-07-23 16:51:10.536508400 +0200
-+++ b/rev.cpp.in	2026-07-23 16:51:29.083810200 +0200
++++ b/rev.cpp.in	2026-07-23 20:54:54.641138400 +0200
 @@ -11,6 +11,7 @@
  
  #include "stdafx.h"
@@ -15383,13 +15383,32 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
   * subversion or sources that are not a checkout of subversion.
   */
 -const char _openttd_revision[] = "1.0.5";
-+const char _openttd_revision[] = "1.0.5" " / AmiTTD " AMIGA_TTD_VERSION " " AMIGA_TTD_DATE " - port by G. Korycki + Claude";
++const char _openttd_revision[] = "1.0.5" " / AmiTTD " AMIGA_TTD_VERSION " - port by G. Korycki + Claude";
  
  /**
   * The text version of OpenTTD's build date.
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/saveload/afterload.cpp b/saveload/afterload.cpp
+--- a/saveload/afterload.cpp	2026-07-23 16:51:06.101170400 +0200
++++ b/saveload/afterload.cpp	2026-07-23 20:54:52.935928400 +0200
+@@ -608,7 +608,15 @@
+ 	{
+ 		Company *c;
+ 		FOR_ALL_COMPANIES(c) {
++#ifndef __AMIGA__
+ 			if (c->is_ai && c->ai_instance == NULL) AI::StartNew(c->index);
++#endif
++			/* Amiga port: do NOT start the Squirrel AI on load. Its AI_VMSuspend
++			 * exception cannot unwind through the Hunk binary, so the first tick of
++			 * any loaded game that has an AI company called std::terminate() and
++			 * crashed. Leaving ai_instance == NULL lets OldAI_GameLoop adopt the
++			 * company as the native AI - which also RESCUES saves made before this
++			 * fix (their AI companies simply become OldAI on load). */
+ 		}
+ 	}
+ 
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/saveload/afterload.cpp.orig b/saveload/afterload.cpp.orig
 --- a/saveload/afterload.cpp.orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/saveload/afterload.cpp.orig	2026-07-23 16:51:27.645848600 +0200
++++ b/saveload/afterload.cpp.orig	2026-07-23 20:54:52.981900000 +0200
 @@ -0,0 +1,2146 @@
 +/* $Id: afterload.cpp 20872 2010-10-02 14:51:33Z rubidium $ */
 +
@@ -17537,9 +17556,26 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +	MarkWholeScreenDirty();
 +	CheckTrainsLengths();
 +}
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/saveload/ai_sl.cpp b/saveload/ai_sl.cpp
+--- a/saveload/ai_sl.cpp	2026-07-23 16:51:06.383675700 +0200
++++ b/saveload/ai_sl.cpp	2026-07-23 20:54:53.220098900 +0200
+@@ -106,7 +106,13 @@
+ 
+ 		/* Start the AI directly if it was active in the savegame */
+ 		if (Company::IsValidAiID(index)) {
++#ifndef __AMIGA__
+ 			AI::StartNew(index, false);
++#endif
++			/* Amiga port: skip the Squirrel AI::StartNew (see afterload.cpp - the
++			 * MinAI VM throws AI_VMSuspend and cannot unwind here). AI::Load with a
++			 * NULL ai_instance does LoadEmpty(), consuming the empty AI block
++			 * symmetrically, and OldAI_GameLoop then adopts the company. */
+ 			AI::Load(index, _ai_saveload_version);
+ 		}
+ 	}
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/saveload/saveload.cpp b/saveload/saveload.cpp
 --- a/saveload/saveload.cpp	2026-07-23 16:51:06.215774500 +0200
-+++ b/saveload/saveload.cpp	2026-07-23 16:51:27.888000600 +0200
++++ b/saveload/saveload.cpp	2026-07-23 20:54:53.257062900 +0200
 @@ -122,6 +122,7 @@
  extern const ChunkHandler _economy_chunk_handlers[];
  extern const ChunkHandler _subsidy_chunk_handlers[];
@@ -17652,7 +17688,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  		return SL_OK;
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/settings.cpp b/settings.cpp
 --- a/settings.cpp	2026-07-23 16:51:18.950672800 +0200
-+++ b/settings.cpp	2026-07-23 16:51:32.890966500 +0200
++++ b/settings.cpp	2026-07-23 20:54:59.188959600 +0200
 @@ -697,6 +697,19 @@
  	return true;
  }
@@ -17688,7 +17724,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  void SetDifficultyLevel(int mode, DifficultySettings *gm_opt)
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/settings_gui.cpp b/settings_gui.cpp
 --- a/settings_gui.cpp	2026-07-23 16:51:07.150004000 +0200
-+++ b/settings_gui.cpp	2026-07-23 16:51:32.912291700 +0200
++++ b/settings_gui.cpp	2026-07-23 20:54:59.212529200 +0200
 @@ -88,10 +88,27 @@
  	return STR_UNDEFINED;
  }
@@ -17765,7 +17801,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	SettingEntry(&_settings_vehicles_page,     STR_CONFIG_SETTING_VEHICLES),
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/settings_type.h b/settings_type.h
 --- a/settings_type.h	2026-07-23 16:51:19.742227100 +0200
-+++ b/settings_type.h	2026-07-23 16:51:29.235061800 +0200
++++ b/settings_type.h	2026-07-23 20:54:54.820868300 +0200
 @@ -392,11 +392,39 @@
  	LocaleSettings       locale;             ///< settings related to used currency/unit system in the current game
  };
@@ -17808,7 +17844,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  /** The current settings for this game. */
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/sound.cpp b/sound.cpp
 --- a/sound.cpp	2026-07-23 16:51:04.059193600 +0200
-+++ b/sound.cpp	2026-07-23 16:51:21.994485600 +0200
++++ b/sound.cpp	2026-07-23 20:54:46.145452800 +0200
 @@ -168,6 +168,9 @@
  	/* Empty sound? */
  	if (sound->rate == 0) return;
@@ -17821,7 +17857,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/spritecache.cpp b/spritecache.cpp
 --- a/spritecache.cpp	2026-07-23 16:51:05.171029800 +0200
-+++ b/spritecache.cpp	2026-07-23 16:51:32.934673900 +0200
++++ b/spritecache.cpp	2026-07-23 20:54:59.234398900 +0200
 @@ -21,6 +21,24 @@
  
  #include "table/sprites.h"
@@ -17935,7 +17971,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	return sc->ptr;
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/string_func.h b/string_func.h
 --- a/string_func.h	2026-07-23 16:51:05.302928700 +0200
-+++ b/string_func.h	2026-07-23 16:51:25.537792000 +0200
++++ b/string_func.h	2026-07-23 20:54:50.560178100 +0200
 @@ -282,7 +282,10 @@
  #endif /* strndup is available */
  
@@ -17950,7 +17986,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  #	define DEFINE_STRCASESTR
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/strings.cpp b/strings.cpp
 --- a/strings.cpp	2026-07-23 16:51:07.341783800 +0200
-+++ b/strings.cpp	2026-07-23 16:51:33.027170200 +0200
++++ b/strings.cpp	2026-07-23 20:54:59.335816900 +0200
 @@ -1242,9 +1242,25 @@
  	/* resolution size? */
  	if (IsInsideMM(ind, (SPECSTR_RESOLUTION_START - 0x70E4), (SPECSTR_RESOLUTION_END - 0x70E4) + 1)) {
@@ -17979,7 +18015,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/table/settings.h b/table/settings.h
 --- a/table/settings.h	2026-07-23 16:51:09.549316800 +0200
-+++ b/table/settings.h	2026-07-23 16:51:27.306738900 +0200
++++ b/table/settings.h	2026-07-23 20:54:52.596811400 +0200
 @@ -36,6 +36,9 @@
  static bool ChangeDynamicEngines(int32 p1);
  static bool StationCatchmentChanged(int32 p1);
@@ -18037,7 +18073,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +	 * Add future amiga.* settings here and to the Amiga page in
 +	 * settings_gui.cpp. */
 +	 SDTC_BOOL(amiga.wb_bar,                             S,  0,  true,                        STR_CONFIG_SETTING_AMIGA_WB_BAR,                AmigaWbBarToggled),
-+	 SDTC_BOOL(amiga.hide_game_pointer,                  S,  0,  true,                        STR_CONFIG_SETTING_AMIGA_HIDE_GAME_POINTER,     NULL),
++	 SDTC_BOOL(amiga.hide_game_pointer,                  S,  0,  false,                       STR_CONFIG_SETTING_AMIGA_HIDE_GAME_POINTER,     NULL),
 +	 /* Written by the video driver, never by the player - exactly like amiga.rtg
 +	  * below, and for the same reason. EHB used to be a checkbox on the Amiga
 +	  * page; it is now a pair of OCS entries in Game Options -> Screen
@@ -18061,7 +18097,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/tgp.cpp b/tgp.cpp
 --- a/tgp.cpp	2026-07-23 16:51:09.469520300 +0200
-+++ b/tgp.cpp	2026-07-23 16:51:26.403334600 +0200
++++ b/tgp.cpp	2026-07-23 20:54:51.605825600 +0200
 @@ -669,6 +669,10 @@
  		if (water_tiles >= desired_water_tiles) break;
  	}
@@ -18194,7 +18230,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  }
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/video/amiga_ehb_data.h b/video/amiga_ehb_data.h
 --- a/video/amiga_ehb_data.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/amiga_ehb_data.h	2026-07-23 16:51:29.669828700 +0200
++++ b/video/amiga_ehb_data.h	2026-07-23 20:54:55.305370100 +0200
 @@ -0,0 +1,83 @@
 +/* Generated by tools/gen_ehb_data.py from the "sat20" EHB assets
 + * (saturation x1.2).  DO NOT EDIT BY HAND - re-run the generator.
@@ -18281,7 +18317,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +#endif /* AMIGA_EHB_DATA_DEFINE */
 diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/window.cpp b/window.cpp
 --- a/window.cpp	2026-07-23 16:51:04.229460400 +0200
-+++ b/window.cpp	2026-07-23 16:51:32.983359700 +0200
++++ b/window.cpp	2026-07-23 20:54:59.291047200 +0200
 @@ -356,6 +356,50 @@
  			nw->SetDirty(w);
  			return;

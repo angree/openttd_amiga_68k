@@ -6,8 +6,8 @@
  * DoCommandP - which throws nothing - so it sidesteps the whole problem.
  *
  * It is a per-company native state machine for industry cargo trains, passenger
- * trains and intra-town buses. Written against the 1.0.5 API (not a line-by-line
- * port of the drifted 0.6.3 source).
+ * trains and town-to-town buses. Written against the 1.0.5 API (not a
+ * line-by-line port of the drifted 0.6.3 source).
  */
 #include "../stdafx.h"
 #include "../openttd.h"
@@ -76,17 +76,17 @@ static bool TryCmd(const char *what, TileIndex tile, uint32 p1, uint32 p2, uint3
 
 enum OldAIState {
 	OAS_IDLE = 0,
-	OAS_PLAN,          ///< pick two towns and the road endpoints
-	OAS_BUILD_ROAD,    ///< build the L-shaped road between the towns
+	OAS_PLAN,          ///< pick two towns and run the free whole-road trial
+	OAS_BUILD_ROAD,    ///< execute the saved, fully verified road plan
 	OAS_BUILD_STOP_A,
 	OAS_BUILD_STOP_B,
 	OAS_BUILD_DEPOT,
 	OAS_BUILD_BUS,
-	OAS_BCLEANUP,      ///< retry removal/refund of a failed intra-town bus attempt
+	OAS_BCLEANUP,      ///< retry removal/refund of a failed town-to-town bus attempt
 	OAS_ORDERS,
 	OAS_START,
 	/* Shared train states; cargo and town-passenger routes use the same build and
-	 * rollback machinery. OAS_TPLAN also dispatches unlocked intra-town buses. */
+	 * rollback machinery. OAS_TPLAN also dispatches unlocked inter-town buses. */
 	OAS_TPLAN,          ///< choose a cash-tier route and run its free pre-plan
 	OAS_TBUILD_STA_A,   ///< build the producer rail station (full-load end)
 	OAS_TBUILD_STA_B,   ///< build the accepter rail station (unload end)
@@ -104,23 +104,29 @@ enum OldAIRouteKind {
 	OARK_TOWN_BUS,
 };
 
+enum {
+	OLDAI_BUS_MIN_COUNT = 2,
+	OLDAI_BUS_MAX_COUNT = 8,
+	OLDAI_BUS_ROAD_TILES_PER_BUS = 16,
+	/* DAY_TICKS is 74; 18 game-days is about 40 seconds at normal speed. */
+	OLDAI_BUS_DISPATCH_INTERVAL = 18 * DAY_TICKS
+};
+
 struct OldAICompany {
 	bool active;
 	uint age;
 	OldAIState state;
 	int  tries;
 
-	TileIndex aend, bend, corner;  ///< the L-road: aend -> corner (row) -> bend (col)
 	TileIndex stopA, frontA;
 	TileIndex stopB, frontB;
 	RoadBits stopA_road, stopB_road; ///< town road bits restored if failed stop cleanup clears them
 	TileIndex depot, depot_front;
 	DiagDirection depot_dir;   ///< direction from depot_front (road) to depot
 	StationID staA, staB;
-	VehicleID bus;
 	OldAIRouteKind route_kind; ///< machinery currently building cargo rail, passenger rail, or bus
 	int routes_done;           ///< how many complete routes this AI has built
-	int buses_on_route;        ///< buses started on the current route
+	int buses_on_route;        ///< stopped buses built during the current attempt
 	int town_skip;             ///< towns skipped because they had no buildable spot
 
 	/* Shared train-route fields. Cargo uses producer/accepter industries;
@@ -156,7 +162,14 @@ struct OldAICompany {
 	bool      attempt_bus_stop_b; ///< current bus attempt built stop B
 	bool      attempt_bus_depot;  ///< current bus attempt built its road depot
 	bool      attempt_bus_road;   ///< current bus attempt added the depot connector road bit
+	bool      attempt_bus_line;   ///< saved road plan may own complete or partial objects
+	byte      depot_front_road;   ///< 4-bit mask immediately before adding the connector
 	uint      cooldown_until;  ///< _oldai_tick before which no new line may start (per-line cooldown)
+	uint      next_plan_tick;  ///< _oldai_tick before which no new PLANNING attempt (A*) may run
+	VehicleID dispatch_bus[OLDAI_BUS_MAX_COUNT]; ///< stopped buses, in release order
+	uint      next_bus_release_tick; ///< earliest tick at which the queue may release one bus
+	byte      bus_target_count;      ///< fleet size selected from the planned road length
+	byte      buses_waiting;         ///< completed-route buses still queued in the depot
 };
 
 static OldAICompany _oldai[MAX_COMPANIES];
@@ -427,97 +440,12 @@ static const Town *FindPartnerTown(const Town *from, uint min_dist, uint max_dis
 	return best;
 }
 
-/* A flat, clear, buildable tile near 'centre' (searching outward), where the
- * road can start/end without ploughing through the town's houses. */
-static bool FlatClearNear(TileIndex centre, TileIndex *out)
-{
-	int cx = TileX(centre), cy = TileY(centre);
-	for (int r = 3; r < 12; r++) {
-		for (int dy = -r; dy <= r; dy++) {
-			for (int dx = -r; dx <= r; dx++) {
-				if (abs(dx) != r && abs(dy) != r) continue;   /* ring only */
-				int x = cx + dx, y = cy + dy;
-				if (x < 3 || y < 3 || x >= (int)MapMaxX() - 3 || y >= (int)MapMaxY() - 3) continue;
-				TileIndex t = TileXY(x, y);
-				if (IsTileType(t, MP_CLEAR) && IsFlat(t)) { *out = t; return true; }
-			}
-		}
-	}
-	return false;
-}
-
-/* Build a straight road along a row or column (CMD_BUILD_LONG_ROAD). Both tiles
- * must share a row or column. Returns true on success (or if it was already
- * there). Fails on water or immovable obstacles. */
-static bool BuildLongRoad(const char *what, TileIndex start, TileIndex end)
-{
-	if (start == end) return true;
-	uint32 p2 = (TileY(start) != TileY(end) ? 4 : 0)   /* axis */
-	          | ((start < end) ? 1 : 2)                /* which half */
-	          | (ROADTYPE_ROAD << 3)
-	          | (1u << 6);                             /* build over existing */
-	CommandCost r = DoCommand(start, end, p2, DC_NONE, CMD_BUILD_LONG_ROAD);
-	if (r.Failed()) { OLn(what, (uint32)r.GetErrorMessage()); return false; }
-	return DoCommandP(start, end, p2, CMD_BUILD_LONG_ROAD);
-}
-
-/* Build a road bridge between two land bridge-heads on the same row/column,
- * spanning the water/valley between them. Tries each bridge type and uses the
- * first the game accepts for that span. */
-static bool BuildBridgeSpan(TileIndex head1, TileIndex head2)
-{
-	uint32 type = ((uint32)TRANSPORT_ROAD << 15) | (RoadTypeToRoadTypes(ROADTYPE_ROAD) << 8);
-	for (uint id = 0; id < MAX_BRIDGES; id++) {
-		CommandCost r = DoCommand(head2, head1, type | id, DC_NONE, CMD_BUILD_BRIDGE);
-		if (r.Succeeded()) return DoCommandP(head2, head1, type | id, CMD_BUILD_BRIDGE);
-	}
-	return false;
-}
-
-/* Directed road builder from 'from' to 'to': step toward the goal, laying road
- * on land and bridging over water to the far shore. Turns to the other axis
- * when the preferred step is blocked. Not a full A* (it can be defeated by
- * concave coastlines), but it handles straight runs, L-turns and water gaps -
- * which is what most town pairs need. Returns true if it reached the goal. */
-static bool BuildRoadPath(TileIndex from, TileIndex to)
-{
-	TileIndex cur = from;
-	for (int guard = 0; guard < 400 && cur != to; guard++) {
-		int dx = (int)TileX(to) - (int)TileX(cur);
-		int dy = (int)TileY(to) - (int)TileY(cur);
-		if (dx == 0 && dy == 0) break;
-
-		/* candidate step directions, preferred (longer) axis first */
-		DiagDirection cand[2]; int nc = 0;
-		DiagDirection xd = dx > 0 ? DIAGDIR_SW : DIAGDIR_NE;
-		DiagDirection yd = dy > 0 ? DIAGDIR_SE : DIAGDIR_NW;
-		if (abs(dx) >= abs(dy)) { if (dx) cand[nc++] = xd; if (dy) cand[nc++] = yd; }
-		else                    { if (dy) cand[nc++] = yd; if (dx) cand[nc++] = xd; }
-
-		bool moved = false;
-		for (int i = 0; i < nc && !moved; i++) {
-			DiagDirection d = cand[i];
-			TileIndex next = cur + TileOffsByDiagDir(d);
-			if (!IsValidTile(next)) continue;
-
-			if (IsWaterTile(next)) {
-				/* find the far shore, within bridge length */
-				TileIndex probe = next; int span = 1;
-				while (IsValidTile(probe) && IsWaterTile(probe) && span <= 16) {
-					probe = probe + TileOffsByDiagDir(d); span++;
-				}
-				if (IsValidTile(probe) && !IsWaterTile(probe) && span <= 16 &&
-				    BuildBridgeSpan(cur, probe)) {
-					cur = probe; moved = true;
-				}
-			} else if (BuildLongRoad("path err", cur, next)) {
-				cur = next; moved = true;
-			}
-		}
-		if (!moved) return false;   /* stuck */
-	}
-	return DistanceManhattan(cur, to) <= 1;
-}
+/* The retired inter-town builder committed a greedy L one tile/leg at a time.
+ * Its attempted per-tile flattening changed shared terrain corners after earlier
+ * road pieces had already been laid, so later CMD_BUILD_LONG_ROAD calls saw
+ * different slopes and left paid partial roads on failure.  PlanRoadRoute now
+ * models the whole corner overlay, verifies every road/bridge first, and delays
+ * every real command until the complete route has passed its free trial. */
 
 /* Drive-through bus stop built directly on a straight town-road tile next to
  * houses. No separate clear bay is needed (bays are scarce in dense town
@@ -591,9 +519,47 @@ static byte TrackForEdges(DiagDirection e1, DiagDirection e2)
  * exporting them to the rest of OpenTTD. */
 #include "oldai_pathfinder.cpp"
 
-enum { OLDAI_MAX_RAIL_PLAN = 768 };
-static RailStep _oldai_rail_plan[MAX_COMPANIES][OLDAI_MAX_RAIL_PLAN];
+enum {
+	OLDAI_MAX_RAIL_PLAN = 768,
+	OLDAI_MAX_ROAD_PLAN = 512
+};
+
+/* One company can only be preparing one route kind at a time.  Overlay road
+ * plans with the existing rail-plan storage instead of adding another large
+ * per-company array on the 68k target. */
+union OldAIPlan {
+	RailStep rail[OLDAI_MAX_RAIL_PLAN];
+	RoadStep road[OLDAI_MAX_RAIL_PLAN];
+};
+typedef char OldAIPlanMustNotGrow[
+		(sizeof(OldAIPlan) == sizeof(RailStep) * OLDAI_MAX_RAIL_PLAN) ? 1 : -1];
+static OldAIPlan _oldai_plan[MAX_COMPANIES];
 static int _oldai_rail_plan_count[MAX_COMPANIES];
+static int _oldai_road_plan_count[MAX_COMPANIES];
+
+/* Count drivable tiles in the saved plan. LEVEL steps add no length; a bridge
+ * contributes both heads and every tile between them. */
+static int RoadPlanTileLength(const RoadStep *plan, int n)
+{
+	int length = 0;
+	for (int i = 0; i < n; i++) {
+		if (plan[i].kind == ROADSTEP_ROAD) {
+			length++;
+		} else if (plan[i].kind == ROADSTEP_BRIDGE) {
+			length += (int)DistanceManhattan(plan[i].tile, plan[i].other) + 1;
+		}
+	}
+	return length;
+}
+
+static byte BusCountForRoadLength(int road_tiles)
+{
+	int count = (road_tiles + OLDAI_BUS_ROAD_TILES_PER_BUS - 1) /
+			OLDAI_BUS_ROAD_TILES_PER_BUS;
+	if (count < OLDAI_BUS_MIN_COUNT) count = OLDAI_BUS_MIN_COUNT;
+	if (count > OLDAI_BUS_MAX_COUNT) count = OLDAI_BUS_MAX_COUNT;
+	return (byte)count;
+}
 
 static void ResetTrainAttempt(CompanyID cid, OldAICompany *a)
 {
@@ -855,7 +821,7 @@ static bool BuildRailLine(CompanyID cid, OldAICompany *a)
 	/* Mark ownership before execution.  If the executor's immediate prefix
 	 * rollback is ever incomplete, OAS_TCLEANUP retries the whole plan safely. */
 	a->attempt_line = true;
-	return ExecuteRailPlan(_oldai_rail_plan[cid], _oldai_rail_plan_count[cid]);
+	return ExecuteRailPlan(_oldai_plan[cid].rail, _oldai_rail_plan_count[cid]);
 }
 
 /* Plan the in-line depot beyond the producer station's OUTER end (the platform
@@ -953,7 +919,7 @@ static bool CleanupTrainAttempt(CompanyID cid, OldAICompany *a)
 		}
 	}
 	if (a->attempt_line) {
-		if (RemoveRailPlan(_oldai_rail_plan[cid], _oldai_rail_plan_count[cid])) {
+		if (RemoveRailPlan(_oldai_plan[cid].rail, _oldai_rail_plan_count[cid])) {
 			a->attempt_line = false;
 		} else {
 			ok = false;
@@ -1163,7 +1129,7 @@ static bool PrepareFreeRailPlan(CompanyID cid, OldAICompany *a)
 	_oldai_rail_plan_count[cid] = 0;
 	if (!PlanRailRoute(a->staP_exit, (DiagDirection)pdir, a->route_p_h,
 			a->staA_exit, (DiagDirection)adir, a->route_a_h,
-			_oldai_rail_plan[cid], &_oldai_rail_plan_count[cid], OLDAI_MAX_RAIL_PLAN)) return false;
+			_oldai_plan[cid].rail, &_oldai_rail_plan_count[cid], OLDAI_MAX_RAIL_PLAN)) return false;
 	OLn("tplan: free exact plan OK, steps = ", (uint)_oldai_rail_plan_count[cid]);
 	BeginCostedAttempt(cid, a);
 	a->tries = 0;
@@ -1209,12 +1175,14 @@ static bool PreparePassengerTrain(CompanyID cid, OldAICompany *a, uint min_dist,
 	return true;
 }
 
-static void ResetBusAttempt(OldAICompany *a)
+static void ResetBusAttempt(CompanyID cid, OldAICompany *a)
 {
 	a->attempt_bus_stop_a = false;
 	a->attempt_bus_stop_b = false;
 	a->attempt_bus_depot = false;
 	a->attempt_bus_road = false;
+	a->attempt_bus_line = false;
+	if (cid < MAX_COMPANIES) _oldai_road_plan_count[cid] = 0;
 }
 
 static bool PrepareTownBus(CompanyID cid, OldAICompany *a)
@@ -1222,33 +1190,62 @@ static bool PrepareTownBus(CompanyID cid, OldAICompany *a)
 	int town_count = 0;
 	const Town *t;
 	FOR_ALL_TOWNS(t) if (t->population >= 100) town_count++;
-	if (town_count == 0 || FindBusEngine(cid) == INVALID_ENGINE) return false;
+	/* One fixed queue is enough because another bus route is not selected until
+	 * the completed route's fleet has left its depot. Train work may continue. */
+	if (a->buses_waiting != 0 || town_count < 2 ||
+			FindBusEngine(cid) == INVALID_ENGINE || cid >= MAX_COMPANIES) return false;
 	int start = (int)RandomRange(town_count);
 	for (int i = 0; i < town_count; i++) {
-		t = FindTownForRoute(start + i);
-		if (t == NULL) continue;
-		if (!FindStopSpot(t->xy, INVALID_TILE, 0, &a->stopA, &a->frontA)) continue;
-		if (!FindStopSpot(t->xy, a->stopA, 10, &a->stopB, &a->frontB) || a->stopA == a->stopB) continue;
-		if (DistanceManhattan(t->xy, a->stopA) > 20 || DistanceManhattan(t->xy, a->stopB) > 20) continue;
+		const Town *ta = FindTownForRoute(start + i);
+		if (ta == NULL) continue;
+		/* Keep the proven partner selector and its RandomRange score term.  The
+		 * 16..80 band is long enough to be genuinely inter-town while keeping a
+		 * conservative 256-tile reconstructed-path cap useful on 68k. */
+		const Town *tb = FindPartnerTown(ta, 16, 80, 40);
+		if (tb == NULL) continue;
+		if (!FindStopSpot(ta->xy, INVALID_TILE, 0, &a->stopA, &a->frontA)) continue;
+		if (!FindStopSpot(tb->xy, INVALID_TILE, 0, &a->stopB, &a->frontB)) continue;
+		if (a->stopA == a->stopB) continue;
+		if (DistanceManhattan(ta->xy, a->stopA) > 20 ||
+				DistanceManhattan(tb->xy, a->stopB) > 20) continue;
 		if (!FindDepotSpot(a->frontA, a->stopA, a->stopB, &a->depot, &a->depot_front, &a->depot_dir)) continue;
+
+		ResetBusAttempt(cid, a);
+		if (!PlanRoadRoute(a->stopA, a->frontA, a->stopB, a->frontB, a->depot,
+				_oldai_plan[cid].road, &_oldai_road_plan_count[cid],
+				OLDAI_MAX_ROAD_PLAN)) continue;
+
+		/* The stops/depot are still free command tests.  Costing starts only
+		 * after the whole connecting road and every support object verifies. */
 		CommandCost sa = TestBusStop(a->stopA, a->frontA);
 		CommandCost sb = TestBusStop(a->stopB, a->frontB);
 		CommandCost dp = DoCommand(a->depot, EntranceDir(a->depot, a->depot_front), 0, DC_NONE, CMD_BUILD_ROAD_DEPOT);
-		if (sa.Failed() || sb.Failed() || dp.Failed()) continue;
+		if (sa.Failed() || sb.Failed() || dp.Failed()) {
+			_oldai_road_plan_count[cid] = 0;
+			continue;
+		}
 		RoadBits connector = DiagDirToRoadBits(a->depot_dir);
 		if ((GetRoadBits(a->depot_front, ROADTYPE_ROAD) & connector) == 0) {
 			CommandCost road = DoCommand(a->depot_front, connector | (ROADTYPE_ROAD << 4), 0, DC_NONE, CMD_BUILD_ROAD);
-			if (road.Failed() && road.GetErrorMessage() != 2699) continue;
+			if (road.Failed() && road.GetErrorMessage() != 2699) {
+				_oldai_road_plan_count[cid] = 0;
+				continue;
+			}
 		}
-		ResetBusAttempt(a);
 		a->stopA_road = GetRoadBits(a->stopA, ROADTYPE_ROAD);
 		a->stopB_road = GetRoadBits(a->stopB, ROADTYPE_ROAD);
 		a->route_kind = OARK_TOWN_BUS;
 		a->buses_on_route = 0;
+		int road_tiles = RoadPlanTileLength(_oldai_plan[cid].road,
+				_oldai_road_plan_count[cid]);
+		a->bus_target_count = BusCountForRoadLength(road_tiles);
 		a->tries = 0;
 		BeginCostedAttempt(cid, a);
-		a->state = OAS_BUILD_STOP_A;
-		OLn("tplan: free intra-town bus plan, stop distance = ", DistanceManhattan(a->stopA, a->stopB));
+		a->state = OAS_BUILD_ROAD;
+		OLn("tplan: free town-road plan steps = ", (uint)_oldai_road_plan_count[cid]);
+		OLn("tplan: planned road tiles = ", (uint)road_tiles);
+		OLn("tplan: buses required = ", (uint)a->bus_target_count);
+		OLn("tplan: inter-town bus distance = ", DistanceManhattan(ta->xy, tb->xy));
 		return true;
 	}
 	return false;
@@ -1259,13 +1256,18 @@ static bool RemoveAttemptRoadBit(TileIndex tile, RoadBits bit)
 	if (!IsNormalRoadTile(tile) || (GetRoadBits(tile, ROADTYPE_ROAD) & bit) == 0) return true;
 	/* 1.0.5 has no single-bit road-remove command; CMD_REMOVE_LONG_ROAD removes one
 	 * axis over a drag. Our connector is a SPUR perpendicular to the town road, so a
-	 * 1-tile drag along the spur's axis removes only the spur. p1 = end tile (= start,
-	 * single tile), p2 bit2 = axis, bits3-4 = roadtype (ROADTYPE_ROAD = 0). */
+	 * 1-tile full drag along the spur's axis removes that axis, then cleanup restores
+	 * the exact pre-connector bits. p1 = end tile (= start), p2 bit0 selects a
+	 * full single-tile drag, bit2 = axis, bits3-4 = roadtype. */
 	Axis axis = (bit & (ROAD_NE | ROAD_SW)) ? AXIS_X : AXIS_Y;
-	uint32 p2 = ((uint32)axis << 2) | ((uint32)ROADTYPE_ROAD << 3);
-	CommandCost test = DoCommand(tile, tile, p2, DC_NONE, CMD_REMOVE_LONG_ROAD);
-	if (test.Failed()) { OLn("cleanup bus road err ", (uint32)test.GetErrorMessage()); return false; }
-	return DoCommandP(tile, tile, p2, CMD_REMOVE_LONG_ROAD);
+	uint32 p2 = 1u | ((uint32)axis << 2) | ((uint32)ROADTYPE_ROAD << 3);
+	/* 1.0.5 marks CMD_REMOVE_LONG_ROAD CMD_NO_TEST: a connected town-road bit
+	 * can be refused in test mode although its execute-mode removal is legal. */
+	if (!DoCommandP(tile, tile, p2, CMD_REMOVE_LONG_ROAD)) {
+		OL("cleanup bus road execute failed");
+		return false;
+	}
+	return true;
 }
 
 static bool RestoreAttemptRoad(TileIndex tile, RoadBits original)
@@ -1277,16 +1279,37 @@ static bool RestoreAttemptRoad(TileIndex tile, RoadBits original)
 			missing | (ROADTYPE_ROAD << 4), 0, CMD_BUILD_ROAD);
 }
 
-static bool CleanupBusAttempt(OldAICompany *a)
+static bool CleanupBusAttempt(CompanyID cid, OldAICompany *a)
 {
 	bool ok = true;
+	/* A failed fleet build can leave several buses stopped in the depot. Sell
+	 * every one before removing it; CmdSellRoadVeh requires this exact state. */
+	if (a->buses_on_route != 0) {
+		int buses_left = 0;
+		for (int i = 0; i < a->buses_on_route; i++) {
+			VehicleID id = a->dispatch_bus[i];
+			Vehicle *v = Vehicle::GetIfValid(id);
+			if (v == NULL || v->type != VEH_ROAD || v->owner != cid) continue;
+			CommandCost test = DoCommand(0, id, 0, DC_NONE, GetCmdSellVeh(VEH_ROAD));
+			if (test.Failed() || !DoCommandP(0, id, 0, GetCmdSellVeh(VEH_ROAD))) {
+				if (test.Failed()) OLn("cleanup bus vehicle err ", (uint32)test.GetErrorMessage());
+				a->dispatch_bus[buses_left++] = id;
+				ok = false;
+			}
+		}
+		a->buses_on_route = buses_left;
+	}
 	if (a->attempt_bus_depot) {
 		if (!IsTileType(a->depot, MP_ROAD) || ClearAttemptTile(a->depot, "cleanup bus depot err ")) a->attempt_bus_depot = false;
 		else ok = false;
 	}
 	if (a->attempt_bus_road) {
-		if (RemoveAttemptRoadBit(a->depot_front, DiagDirToRoadBits(a->depot_dir))) a->attempt_bus_road = false;
-		else ok = false;
+		bool removed = RemoveAttemptRoadBit(a->depot_front, DiagDirToRoadBits(a->depot_dir));
+		if (removed && RestoreAttemptRoad(a->depot_front, (RoadBits)a->depot_front_road)) {
+			a->attempt_bus_road = false;
+		} else {
+			ok = false;
+		}
 	}
 	if (a->attempt_bus_stop_b) {
 		bool cleared = !IsTileType(a->stopB, MP_STATION) || ClearAttemptTile(a->stopB, "cleanup bus stop B err ");
@@ -1298,6 +1321,15 @@ static bool CleanupBusAttempt(OldAICompany *a)
 		if (cleared && RestoreAttemptRoad(a->stopA, a->stopA_road)) a->attempt_bus_stop_a = false;
 		else ok = false;
 	}
+	if (a->attempt_bus_line) {
+		if (cid < MAX_COMPANIES &&
+				RemoveRoadPlan(_oldai_plan[cid].road, _oldai_road_plan_count[cid])) {
+			a->attempt_bus_line = false;
+			_oldai_road_plan_count[cid] = 0;
+		} else {
+			ok = false;
+		}
+	}
 	return ok;
 }
 
@@ -1305,12 +1337,54 @@ static void AbandonBusAttempt(CompanyID cid, OldAICompany *a)
 {
 	a->tries = 0;
 	a->town_skip++;
-	if (CleanupBusAttempt(a)) {
+	if (CleanupBusAttempt(cid, a)) {
 		RefundFailedAttempt(cid, a);
 		a->state = OAS_TPLAN;
 	} else {
 		a->state = OAS_BCLEANUP;
 	}
+}
+
+static void GiveBusOrders(VehicleID bus, StationID sta_a, StationID sta_b)
+{
+	/* Orders A then B; FAR_END is required for road vehicles. */
+	Order oa; oa.MakeGoToStation(sta_a); oa.SetStopLocation(OSL_PLATFORM_FAR_END); oa.SetNonStopType(ONSF_STOP_EVERYWHERE);
+	Order ob; ob.MakeGoToStation(sta_b); ob.SetStopLocation(OSL_PLATFORM_FAR_END); ob.SetNonStopType(ONSF_STOP_EVERYWHERE);
+	DoCommandP(0, bus | (0 << 16), oa.Pack(), CMD_INSERT_ORDER);
+	DoCommandP(0, bus | (1 << 16), ob.Pack(), CMD_INSERT_ORDER);
+}
+
+/* This is independent of the route-building state machine: completed routes
+ * drain one stopped bus at a time while the company plans and builds elsewhere. */
+static void DispatchQueuedBus(CompanyID cid, OldAICompany *a)
+{
+	if (a->buses_waiting == 0 || _oldai_tick < a->next_bus_release_tick) return;
+	int index = (int)a->bus_target_count - (int)a->buses_waiting;
+	if (index < 0 || index >= a->bus_target_count ||
+			index >= OLDAI_BUS_MAX_COUNT) {
+		OL("bus dispatch queue corrupt; dropping queue");
+		a->buses_waiting = 0;
+		return;
+	}
+
+	VehicleID id = a->dispatch_bus[index];
+	Vehicle *v = Vehicle::GetIfValid(id);
+	if (v == NULL || v->type != VEH_ROAD || v->owner != cid) {
+		OL("queued bus disappeared; advancing dispatch queue");
+		a->buses_waiting--;
+		a->next_bus_release_tick = _oldai_tick + OLDAI_BUS_DISPATCH_INTERVAL;
+		return;
+	}
+	/* A prior command may have succeeded despite a lost return path. Never
+	 * toggle an already-running vehicle back to stopped on retry. */
+	if ((v->vehstatus & VS_STOPPED) != 0 &&
+			!DoCommandP(0, id, 0, CMD_START_STOP_VEHICLE)) {
+		if ((_oldai_tick & 255) == 0) OL("queued bus start failed; will retry");
+		return;
+	}
+	a->buses_waiting--;
+	a->next_bus_release_tick = _oldai_tick + OLDAI_BUS_DISPATCH_INTERVAL;
+	OLn("bus dispatched; still waiting = ", (uint)a->buses_waiting);
 }
 
 static void RunCompany(CompanyID cid)
@@ -1330,9 +1404,20 @@ static void RunCompany(CompanyID cid)
 		}
 
 		case OAS_BUILD_ROAD:
-			/* Deliberately unused: unlocked buses are intra-town and reuse the
-			 * selected town's road network; never revive the inter-town road path. */
-			a->state = OAS_TPLAN;
+			OL("laying saved free-trial town-to-town road");
+			/* Mark ownership before execution.  ExecuteRoadPlan rolls its built
+			 * prefix back immediately; cleanup retries the saved plan if that
+			 * rollback was incomplete. */
+			a->attempt_bus_line = true;
+			if (cid < MAX_COMPANIES && _oldai_road_plan_count[cid] > 0 &&
+					ExecuteRoadPlan(_oldai_plan[cid].road, _oldai_road_plan_count[cid])) {
+				OL("town-to-town road built");
+				a->tries = 0;
+				a->state = OAS_BUILD_STOP_A;
+			} else {
+				OL("town-to-town road failed; cleaning attempt");
+				AbandonBusAttempt(cid, a);
+			}
 			break;
 
 		case OAS_BUILD_STOP_A:
@@ -1363,6 +1448,7 @@ static void RunCompany(CompanyID cid)
 				/* Connect it: add a road piece on the road tile toward the depot,
 				 * else the depot is a dead end the bus can never leave. */
 				RoadBits connector = DiagDirToRoadBits(a->depot_dir);
+				a->depot_front_road = (byte)GetRoadBits(a->depot_front, ROADTYPE_ROAD);
 				bool connector_missing = (GetRoadBits(a->depot_front, ROADTYPE_ROAD) & connector) == 0;
 				if (connector_missing && !TryCmd("connect err", a->depot_front,
 						connector | (ROADTYPE_ROAD << 4), 0, CMD_BUILD_ROAD)) {
@@ -1377,42 +1463,49 @@ static void RunCompany(CompanyID cid)
 			break;
 
 		case OAS_BUILD_BUS: {
-			/* One local bus is a complete route; later planner passes interleave
-			 * another town or a train rather than saturating this town. */
 			EngineID e = FindBusEngine(cid);
-			if (e == INVALID_ENGINE) { OL("bus engine disappeared; cleaning attempt"); AbandonBusAttempt(cid, a); break; }
-
-			/* plain DoCommandP (no test-first) so _new_vehicle_id is the real id */
-			if (!DoCommandP(a->depot, e, 0, GetCmdBuildVeh(VEH_ROAD))) {
-				if (++a->tries > 8) { OL("bus build failed; cleaning attempt"); AbandonBusAttempt(cid, a); }
+			if (e == INVALID_ENGINE) {
+				/* Before a vehicle exists this is a normal refundable failure.
+				 * Once a bus exists, keep its depot and wait rather than orphaning
+				 * a vehicle by tearing the route out from under it. */
+				if (a->buses_on_route == 0) {
+					OL("bus engine disappeared; cleaning attempt");
+					AbandonBusAttempt(cid, a);
+				} else if ((++a->tries & 7) == 1) {
+					OL("fleet bus engine unavailable; waiting");
+				}
+				if (a->buses_on_route != 0 && a->tries > 8) {
+					OL("fleet bus engine stayed unavailable; cleaning attempt");
+					AbandonBusAttempt(cid, a);
+				}
 				break;
 			}
-			VehicleID bus = _new_vehicle_id;
 
-			/* orders A then B; FAR_END is required for road vehicles */
-			Order oa; oa.MakeGoToStation(a->staA); oa.SetStopLocation(OSL_PLATFORM_FAR_END); oa.SetNonStopType(ONSF_STOP_EVERYWHERE);
-			Order ob; ob.MakeGoToStation(a->staB); ob.SetStopLocation(OSL_PLATFORM_FAR_END); ob.SetNonStopType(ONSF_STOP_EVERYWHERE);
-			DoCommandP(0, bus | (0 << 16), oa.Pack(), CMD_INSERT_ORDER);
-			DoCommandP(0, bus | (1 << 16), ob.Pack(), CMD_INSERT_ORDER);
-			DoCommandP(0, bus, 0, CMD_START_STOP_VEHICLE);
-
-			a->bus = bus;
-			a->buses_on_route = 1;
-			/* Put a SECOND bus on the same route - one bus barely serves a town.
-			 * Best-effort: if the second fails to build, the route still stands. */
-			if (DoCommandP(a->depot, e, 0, GetCmdBuildVeh(VEH_ROAD))) {
-				VehicleID bus2 = _new_vehicle_id;
-				Order o2a; o2a.MakeGoToStation(a->staA); o2a.SetStopLocation(OSL_PLATFORM_FAR_END); o2a.SetNonStopType(ONSF_STOP_EVERYWHERE);
-				Order o2b; o2b.MakeGoToStation(a->staB); o2b.SetStopLocation(OSL_PLATFORM_FAR_END); o2b.SetNonStopType(ONSF_STOP_EVERYWHERE);
-				DoCommandP(0, bus2 | (0 << 16), o2a.Pack(), CMD_INSERT_ORDER);
-				DoCommandP(0, bus2 | (1 << 16), o2b.Pack(), CMD_INSERT_ORDER);
-				DoCommandP(0, bus2, 0, CMD_START_STOP_VEHICLE);
-				a->buses_on_route = 2;
+			/* Build the entire proportional fleet stopped in the depot. The count
+			 * makes retries idempotent: a failed build never duplicates a bus. */
+			if (!DoCommandP(a->depot, e, 0, GetCmdBuildVeh(VEH_ROAD))) {
+				if ((++a->tries & 7) == 1) OL("fleet bus build failed; retrying without duplication");
+				if (a->tries > 8) {
+					OL("fleet bus build stayed failed; cleaning attempt");
+					AbandonBusAttempt(cid, a);
+				}
+				break;
 			}
-			a->routes_done++;
+			VehicleID new_bus = _new_vehicle_id;
+			a->dispatch_bus[a->buses_on_route++] = new_bus;
+			GiveBusOrders(new_bus, a->staA, a->staB);
 			a->tries = 0;
+			OLn("fleet buses built = ", (uint)a->buses_on_route);
+			if (a->buses_on_route < a->bus_target_count) break;
+
+			/* The fleet is complete and still stopped. Queue it, release the first
+			 * bus now, and let later ticks drain the rest without blocking work. */
+			a->buses_waiting = a->bus_target_count;
+			a->next_bus_release_tick = _oldai_tick;
+			a->routes_done++;
 			a->attempt_costing = false;
-			ResetBusAttempt(a); /* completed objects are no longer attempt-owned */
+			ResetBusAttempt(cid, a); /* completed objects are no longer attempt-owned */
+			DispatchQueuedBus(cid, a);
 			OLn("BUS ROUTE COMPLETE, total routes = ", a->routes_done);
 			a->cooldown_until = _oldai_tick + ((uint)8192 << (4 - _settings_game.difficulty.competitor_speed));
 			a->state = OAS_TPLAN;
@@ -1420,7 +1513,7 @@ static void RunCompany(CompanyID cid)
 		}
 
 		case OAS_BCLEANUP:
-			if (CleanupBusAttempt(a)) {
+			if (CleanupBusAttempt(cid, a)) {
 				RefundFailedAttempt(cid, a);
 				a->tries = 0;
 				a->state = OAS_TPLAN;
@@ -1478,10 +1571,21 @@ static void RunCompany(CompanyID cid)
 			 * (~27000/year), incremented every OldAI_GameLoop call. */
 			if (_oldai_tick < a->cooldown_until) break;
 			if (a->routes_done >= 32) { OL("tplan: overall route cap reached"); a->state = OAS_DONE; break; }
+			/* THROTTLE the pathfinding. A full A* (rail up to 12288 nodes, road up to
+			 * 4096) is far too heavy to run every AI tick: on a real 030 it would
+			 * stutter, and even under warp it dominates the frame and slows the whole
+			 * game. The AI only builds a line every year or so, so it does NOT need to
+			 * SEARCH more than occasionally. Only begin a fresh planning attempt every
+			 * ~2048 game-ticks (~28 game-days), which also bounds the retry-after-
+			 * failure loop. Node budgets are UNCHANGED - identical-quality search, just
+			 * far less often. ~512 ticks (~7 game-days) keeps the AI building actively
+			 * while still cutting the search rate ~128x versus every-few-ticks. */
+			if (_oldai_tick < a->next_plan_tick) break;
+			a->next_plan_tick = _oldai_tick + 512;
 			/* Short cargo is always candidate zero. Richer tiers append long cargo,
-			 * three passenger-train bands, then intra-town buses. Start at a random
-			 * candidate and wrap through the others, so unavailable or unbuildable
-			 * choices fall through without grinding one type/pair forever. */
+			 * three passenger-train bands, then free-planned town-to-town buses.
+			 * Start at a random candidate and wrap through the others, so unavailable
+			 * or unbuildable choices fall through without grinding one pair forever. */
 			enum PlanChoice { PC_CARGO_SHORT, PC_CARGO_LONG, PC_PASS_SHORT, PC_PASS_2X, PC_PASS_3X, PC_TOWN_BUS };
 			PlanChoice choices[6];
 			int choice_count = 0;
@@ -1672,7 +1776,7 @@ void OldAI_GameLoop()
 {
 	_oldai_tick++;
 	uint8 speed = _settings_game.difficulty.competitor_speed;
-	if ((_oldai_tick & ((1u << (4 - speed)) - 1)) != 0) return;
+	bool run_company = (_oldai_tick & ((1u << (4 - speed)) - 1)) == 0;
 
 	CompanyByte old_company = _current_company;
 	const Company *c;
@@ -1681,8 +1785,11 @@ void OldAI_GameLoop()
 		CompanyID cid = c->index;
 		if (!_oldai[cid].active) continue;
 		_current_company = cid;
-		_oldai[cid].age++;
-		RunCompany(cid);
+		DispatchQueuedBus(cid, &_oldai[cid]);
+		if (run_company) {
+			_oldai[cid].age++;
+			RunCompany(cid);
+		}
 	}
 	_current_company = old_company;
 }

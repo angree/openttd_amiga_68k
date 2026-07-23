@@ -25,12 +25,39 @@ struct RailStep {
 	int value;
 };
 
+enum RoadStepKind {
+	ROADSTEP_LEVEL  = 0,
+	ROADSTEP_ROAD   = 1,
+	ROADSTEP_BRIDGE = 2
+};
+
+/* LEVEL:  tile=first corner, other=opposite corner, low byte=target height.
+ * ROAD:   tile=tile, low nibble=bits added, bits 8..11=pre-attempt bits.
+ * BRIDGE: tile=near head, other=far head, low byte=bridge id.
+ * Bit 15 records that ExecuteRoadPlan really built this object.  It prevents
+ * cleanup from removing a road/bridge which appeared between plan and execute. */
+struct RoadStep {
+	TileIndex tile;
+	TileIndex other;
+	uint16 data;
+	byte kind;
+	byte unused;
+};
+typedef char RoadStepMustStay12Bytes[(sizeof(RoadStep) == 12) ? 1 : -1];
+
 enum {
 	PF_NODE_BUDGET = 12288,
 	PF_HASH_SIZE = 32768,       /* must be a power of two */
 	PF_REVERSE_CAPACITY = 1024,
 	PF_MAX_BRIDGE_WATER = 16,
-	PF_STATION_CORNER_CAPACITY = 32 /* two 1x7 strips have 16 corners each */
+	PF_STATION_CORNER_CAPACITY = 32, /* two 1x7 strips have 16 corners each */
+
+	/* The road search borrows the first part of the rail scratch arrays.  Rail
+	 * and road planning never overlap, so these limits add no second A* arena. */
+	RP_NODE_BUDGET = 4096,
+	RP_HASH_SIZE = 8192,        /* must be a power of two */
+	RP_REVERSE_CAPACITY = 256,
+	RP_MAX_BRIDGE_WATER = 16
 };
 
 enum PFTerrainMode {
@@ -756,6 +783,639 @@ bool ExecuteRailPlan(const RailStep *plan, int n)
 			PFRollbackPrefix(plan, i);
 			return false;
 		}
+	}
+	return true;
+}
+
+/* ------------------------------------------------------------------------- *
+ *  Road trial.  This is deliberately conservative around terraforming: every *
+ *  levelled route tile uses one common height, the resulting shared-corner    *
+ *  overlay is verified before execution, and ALL LEVEL steps precede roads.  *
+ *  That is the property the old build-as-you-go L road did not have.          *
+ * ------------------------------------------------------------------------- */
+
+enum RPTerrainMode {
+	RP_TERRAIN_NATURAL = 0,
+	RP_TERRAIN_LEVELLED = 1,
+	RP_TERRAIN_BRIDGE_HEAD = 2
+};
+
+enum RPAction {
+	RP_ACTION_NONE = 0,
+	RP_ACTION_LAND = 1,
+	RP_ACTION_BRIDGE = 2,
+	RP_ACTION_LEAVE_BRIDGE = 3
+};
+
+enum {
+	RP_STEP_BUILT = 0x8000,
+	RP_STEP_VALUE_MASK = 0x00FF,
+	RP_STEP_ORIGINAL_SHIFT = 8
+};
+
+static TileIndex _rp_start, _rp_goal;
+static TileIndex _rp_stop_a, _rp_stop_b, _rp_depot;
+static byte _rp_goal_out, _rp_level_height;
+
+static bool RPReserved(TileIndex tile)
+{
+	return tile == _rp_stop_a || tile == _rp_stop_b || tile == _rp_depot;
+}
+
+static bool RPNearReserved(TileIndex tile)
+{
+	int x = (int)TileX(tile), y = (int)TileY(tile);
+	TileIndex reserved[3] = { _rp_stop_a, _rp_stop_b, _rp_depot };
+	for (int i = 0; i < 3; i++) {
+		int dx = x - (int)TileX(reserved[i]);
+		int dy = y - (int)TileY(reserved[i]);
+		if (dx >= -1 && dx <= 1 && dy >= -1 && dy <= 1) return true;
+	}
+	return false;
+}
+
+static bool RPLandTile(TileIndex tile)
+{
+	return TileLevelable(tile) || IsNormalRoadTile(tile);
+}
+
+static uint32 RPHashValue(TileIndex tile, byte in_dir, byte terrain)
+{
+	uint32 h = (uint32)tile * 2654435761U;
+	h ^= (uint32)in_dir * 0x9E3779B9U;
+	h ^= (uint32)terrain * 0x85EBCA6BU;
+	return h & (RP_HASH_SIZE - 1);
+}
+
+static bool RPSameState(const PFNode &n, TileIndex tile, byte in_dir, byte terrain)
+{
+	return n.tile == tile && n.in_dir == in_dir && n.terrain == terrain;
+}
+
+static int RPFindSlot(TileIndex tile, byte in_dir, byte terrain, bool *found)
+{
+	uint32 slot = RPHashValue(tile, in_dir, terrain);
+	for (int probe = 0; probe < RP_HASH_SIZE; probe++) {
+		int v = _pf_hash[slot];
+		if (v == 0) {
+			*found = false;
+			return (int)slot;
+		}
+		if (RPSameState(_pf_nodes[v - 1], tile, in_dir, terrain)) {
+			*found = true;
+			return (int)slot;
+		}
+		slot = (slot + 1) & (RP_HASH_SIZE - 1);
+	}
+	*found = false;
+	return -1;
+}
+
+static bool RPAddNode(TileIndex tile, byte in_dir, byte terrain, uint32 g,
+		int parent, byte action, byte bridge_id)
+{
+	bool found;
+	int slot = RPFindSlot(tile, in_dir, terrain, &found);
+	if (slot < 0) return false;
+	if (found && _pf_nodes[_pf_hash[slot] - 1].g <= g) return true;
+	if (_pf_node_count >= RP_NODE_BUDGET) return false;
+
+	int index = _pf_node_count++;
+	PFNode &n = _pf_nodes[index];
+	n.tile = tile;
+	n.g = g;
+	n.parent = (int16)parent;
+	n.in_dir = in_dir;
+	n.height = _rp_level_height; /* lets the shared PF heap use its heuristic */
+	n.terrain = terrain;
+	n.action_grade = action;
+	n.track = 0;
+	n.bridge_id = bridge_id;
+	_pf_hash[slot] = index + 1;
+	return PFHeapPush(index);
+}
+
+static bool RPIsCurrentBest(int node)
+{
+	PFNode &n = _pf_nodes[node];
+	bool found;
+	int slot = RPFindSlot(n.tile, n.in_dir, n.terrain, &found);
+	return found && slot >= 0 && _pf_hash[slot] == node + 1;
+}
+
+static RoadBits RPPresentRoadBits(TileIndex tile)
+{
+	return IsNormalRoadTile(tile) ? GetRoadBits(tile, ROADTYPE_ROAD) : ROAD_NONE;
+}
+
+/* Exact raw-map command test for an unmodified tile.  Existing pieces and
+ * junctions are accepted; only the missing half-road bits are submitted. */
+static bool RPRoadLegalRaw(TileIndex tile, RoadBits required)
+{
+	RoadBits present = RPPresentRoadBits(tile);
+	RoadBits missing = (RoadBits)(required & ~present);
+	if (missing == ROAD_NONE) return true;
+	if (!RPLandTile(tile)) return false;
+	CommandCost r = DoCommand(tile, missing | (ROADTYPE_ROAD << 4), 0, DC_NONE, CMD_BUILD_ROAD);
+	return r.Succeeded() || r.GetErrorMessage() == 2699;
+}
+
+static bool RPLevelAllowed(TileIndex tile)
+{
+	if (!TileLevelable(tile) || RPNearReserved(tile)) return false;
+	int x = (int)TileX(tile), y = (int)TileY(tile);
+	if (x + 1 >= (int)MapSizeX() || y + 1 >= (int)MapSizeY()) return false;
+	TileIndex end = TileXY(x + 1, y + 1);
+	int delta = (int)_rp_level_height - (int)TileHeight(tile);
+	uint32 p2 = (uint32)(uint8)(int8)delta;
+	/* CmdLevelLand operates on TileHeight corner coordinates.  A 2x2 corner
+	 * rectangle is therefore the exact four-corner footprint of one road tile. */
+	CommandCost r = DoCommand(end, tile, p2, DC_NONE, CMD_LEVEL_LAND);
+	return r.Succeeded() || r.GetErrorMessage() == 2699;
+}
+
+static bool RPAddLandCandidates(int parent, TileIndex tile, byte move_dir,
+		uint32 edge_cost, byte action)
+{
+	if (RPReserved(tile) || PFInAncestry(parent, tile) || !RPLandTile(tile)) return true;
+
+	/* Keep the exact natural terrain candidate.  Its road-bit command is tested
+	 * when the outgoing direction makes the complete shape known. */
+	if (!RPAddNode(tile, move_dir, RP_TERRAIN_NATURAL,
+			_pf_nodes[parent].g + edge_cost, parent, action, 0)) return false;
+
+	/* A flat candidate is useful for steep/awkward clear land.  All such tiles
+	 * share one height so overlapping corner areas can never disagree. */
+	if (TileLevelable(tile) && GetTileSlope(tile, NULL) != SLOPE_FLAT && RPLevelAllowed(tile)) {
+		int dh = (int)TileHeight(tile) - (int)_rp_level_height;
+		if (dh < 0) dh = -dh;
+		if (!RPAddNode(tile, move_dir, RP_TERRAIN_LEVELLED,
+				_pf_nodes[parent].g + edge_cost + 28 + (uint32)dh * 8,
+				parent, action, 0)) return false;
+	}
+	return true;
+}
+
+static bool RPTryBridge(int node, byte d)
+{
+	PFNode &cur = _pf_nodes[node];
+	/* Bridge heads and their slopes are owned by CMD_BUILD_BRIDGE.  Test that
+	 * exact 1.0.5 command on untouched terrain and store the accepted bridge id. */
+	if (cur.terrain != RP_TERRAIN_NATURAL || cur.parent < 0 || cur.in_dir != d ||
+			!TileLevelable(cur.tile)) return true;
+	TileIndex probe;
+	if (!PFNeighbour(cur.tile, d, &probe) || !IsWaterTile(probe)) return true;
+
+	int water = 0;
+	while (water < RP_MAX_BRIDGE_WATER && IsValidTile(probe) && IsWaterTile(probe)) {
+		water++;
+		if (!PFNeighbour(probe, d, &probe)) return true;
+	}
+	if (water == 0 || water > RP_MAX_BRIDGE_WATER || IsWaterTile(probe)) return true;
+	if (RPReserved(probe) || !TileLevelable(probe) || PFInAncestry(node, probe)) return true;
+
+	uint32 base = ((uint32)TRANSPORT_ROAD << 15) |
+			(RoadTypeToRoadTypes(ROADTYPE_ROAD) << 8);
+	for (uint id = 0; id < MAX_BRIDGES; id++) {
+		CommandCost r = DoCommand(probe, cur.tile, base | id, DC_NONE, CMD_BUILD_BRIDGE);
+		if (r.Failed()) continue;
+		uint32 g = cur.g + 18 + (uint32)(water + 1) * 8;
+		return RPAddNode(probe, d, RP_TERRAIN_BRIDGE_HEAD, g,
+				node, RP_ACTION_BRIDGE, (byte)id);
+	}
+	return true;
+}
+
+static bool RPBuildPath(int goal, int *count)
+{
+	int n = 0;
+	for (int p = goal; p >= 0; p = _pf_nodes[p].parent) {
+		if (n >= RP_REVERSE_CAPACITY) return false;
+		_pf_reverse[n++] = p;
+	}
+	for (int i = 0; i < n / 2; i++) {
+		int t = _pf_reverse[i];
+		_pf_reverse[i] = _pf_reverse[n - 1 - i];
+		_pf_reverse[n - 1 - i] = t;
+	}
+	*count = n;
+	return true;
+}
+
+static bool RPLevelOwnsCorner(int cx, int cy, int path_count)
+{
+	for (int i = 0; i < path_count; i++) {
+		const PFNode &n = _pf_nodes[_pf_reverse[i]];
+		if (n.terrain != RP_TERRAIN_LEVELLED) continue;
+		int x = (int)TileX(n.tile), y = (int)TileY(n.tile);
+		if ((cx == x || cx == x + 1) && (cy == y || cy == y + 1)) return true;
+	}
+	return false;
+}
+
+static bool RPTileTouchedByLevel(TileIndex tile, int path_count)
+{
+	int x = (int)TileX(tile), y = (int)TileY(tile);
+	return RPLevelOwnsCorner(x, y, path_count) ||
+			RPLevelOwnsCorner(x + 1, y, path_count) ||
+			RPLevelOwnsCorner(x, y + 1, path_count) ||
+			RPLevelOwnsCorner(x + 1, y + 1, path_count);
+}
+
+static int RPVirtualCornerHeight(int x, int y, int path_count)
+{
+	if (RPLevelOwnsCorner(x, y, path_count)) return (int)_rp_level_height;
+	return (int)TileHeight(TileXY(x, y));
+}
+
+/* We use the game's exact DoCommand test for untouched natural slopes.  For a
+ * natural tile whose corners a future LEVEL changes, accept only an exactly
+ * flat virtual result.  This is conservative, but cannot guess wrong about
+ * CheckRoadSlope or foundations. */
+static bool RPVirtualFlat(TileIndex tile, int path_count)
+{
+	int x = (int)TileX(tile), y = (int)TileY(tile);
+	int h = RPVirtualCornerHeight(x, y, path_count);
+	return RPVirtualCornerHeight(x + 1, y, path_count) == h &&
+			RPVirtualCornerHeight(x, y + 1, path_count) == h &&
+			RPVirtualCornerHeight(x + 1, y + 1, path_count) == h;
+}
+
+/* If the final virtual corner field contains a >1 step at the edge of the
+ * levelled union, CmdTerraformLand would recursively alter an unmodelled
+ * outside corner. Reject that trial instead of pretending the 2x2 LEVEL is
+ * local. */
+static bool RPLevelBoundarySafe(int path_count)
+{
+	for (int i = 0; i < path_count; i++) {
+		const PFNode &n = _pf_nodes[_pf_reverse[i]];
+		if (n.terrain != RP_TERRAIN_LEVELLED) continue;
+		int x = (int)TileX(n.tile), y = (int)TileY(n.tile);
+		for (int cy = y; cy <= y + 1; cy++) {
+			for (int cx = x; cx <= x + 1; cx++) {
+				int h = RPVirtualCornerHeight(cx, cy, path_count);
+				for (int d = 0; d < 4; d++) {
+					int nx = cx + (d == 0 ? -1 : (d == 1 ? 1 : 0));
+					int ny = cy + (d == 2 ? -1 : (d == 3 ? 1 : 0));
+					if (nx < 0 || ny < 0 || nx >= (int)MapSizeX() || ny >= (int)MapSizeY()) return false;
+					int nh = RPVirtualCornerHeight(nx, ny, path_count);
+					if (h - nh > 1 || nh - h > 1) return false;
+				}
+			}
+		}
+	}
+	return true;
+}
+
+static RoadBits RPEdgeBits(byte incoming_move, byte outgoing)
+{
+	return (RoadBits)(DiagDirToRoadBits((DiagDirection)PFReverseDir(incoming_move)) |
+			DiagDirToRoadBits((DiagDirection)outgoing));
+}
+
+static bool RPValidateModelledPath(int path_count)
+{
+	for (int i = 0; i < path_count; i++) {
+		PFNode &cur = _pf_nodes[_pf_reverse[i]];
+		if (cur.terrain == RP_TERRAIN_BRIDGE_HEAD) {
+			if (RPTileTouchedByLevel(cur.tile, path_count)) return false;
+			continue;
+		}
+
+		if (i + 1 < path_count &&
+				_pf_nodes[_pf_reverse[i + 1]].action_grade == RP_ACTION_BRIDGE) {
+			/* CMD_BUILD_BRIDGE owns this near head. */
+			if (RPTileTouchedByLevel(cur.tile, path_count)) return false;
+			continue;
+		}
+
+		byte out_dir = (i + 1 < path_count)
+				? _pf_nodes[_pf_reverse[i + 1]].in_dir : _rp_goal_out;
+		RoadBits bits = RPEdgeBits(cur.in_dir, out_dir);
+		if (cur.terrain == RP_TERRAIN_NATURAL) {
+			if (RPTileTouchedByLevel(cur.tile, path_count)) {
+				if (!RPVirtualFlat(cur.tile, path_count)) return false;
+			} else if (!RPRoadLegalRaw(cur.tile, bits)) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+static bool RPEmit(RoadStep *out, int *count, int max_out, byte kind,
+		TileIndex tile, TileIndex other, uint16 data)
+{
+	if (*count >= max_out) return false;
+	RoadStep &s = out[*count];
+	s.tile = tile;
+	s.other = other;
+	s.data = data;
+	s.kind = kind;
+	s.unused = 0;
+	(*count)++;
+	return true;
+}
+
+static bool RPEmitRoadTile(RoadStep *out, int *count, int max_out,
+		TileIndex tile, RoadBits required)
+{
+	RoadBits original = RPPresentRoadBits(tile);
+	RoadBits missing = (RoadBits)(required & ~original);
+	if (missing == ROAD_NONE) return true;
+	uint16 data = (uint16)missing | ((uint16)original << RP_STEP_ORIGINAL_SHIFT);
+	return RPEmit(out, count, max_out, ROADSTEP_ROAD, tile, tile, data);
+}
+
+static bool RPPreflight(const RoadStep *plan, int n, int path_count)
+{
+	uint32 bridge_base = ((uint32)TRANSPORT_ROAD << 15) |
+			(RoadTypeToRoadTypes(ROADTYPE_ROAD) << 8);
+	for (int i = 0; i < n; i++) {
+		const RoadStep &s = plan[i];
+		CommandCost r;
+		if (s.kind == ROADSTEP_LEVEL) {
+			int delta = (int)(s.data & RP_STEP_VALUE_MASK) - (int)TileHeight(s.tile);
+			r = DoCommand(s.other, s.tile, (uint32)(uint8)(int8)delta, DC_NONE, CMD_LEVEL_LAND);
+		} else if (s.kind == ROADSTEP_ROAD) {
+			/* Raw terrain is deliberately not used to judge a road which follows
+			 * virtual earthworks; RPValidateModelledPath proved it flat. */
+			if (RPTileTouchedByLevel(s.tile, path_count)) continue;
+			RoadBits bits = (RoadBits)(s.data & 0x0F);
+			r = DoCommand(s.tile, bits | (ROADTYPE_ROAD << 4), 0, DC_NONE, CMD_BUILD_ROAD);
+		} else if (s.kind == ROADSTEP_BRIDGE) {
+			r = DoCommand(s.other, s.tile,
+					bridge_base | (uint32)(s.data & RP_STEP_VALUE_MASK),
+					DC_NONE, CMD_BUILD_BRIDGE);
+		} else {
+			OLn("road preflight bad kind ", (uint32)i);
+			return false;
+		}
+		if (r.Failed() && r.GetErrorMessage() != 2699) {
+			OLn("road preflight step ", (uint32)i);
+			OLn("road preflight err ", (uint32)r.GetErrorMessage());
+			return false;
+		}
+	}
+	return true;
+}
+
+/*
+ * stopA-frontA and frontB-stopB are existing straight town-road edges.  The
+ * planned line runs frontA..frontB, with synthetic endpoint directions forcing
+ * it to connect to both future drive-through stops without modifying their
+ * pure-straight road tiles.  depot is reserved from both road and earthworks.
+ */
+bool PlanRoadRoute(TileIndex stopA, TileIndex frontA,
+		TileIndex stopB, TileIndex frontB, TileIndex depot,
+		RoadStep *out, int *nout, int max_out)
+{
+	if (nout == NULL) return false;
+	*nout = 0;
+	if (out == NULL || max_out <= 0 || frontA == frontB) return false;
+	byte start_in = DiagDirBetween(stopA, frontA);
+	byte goal_out = DiagDirBetween(frontB, stopB);
+	if (start_in == 0xFF || goal_out == 0xFF) return false;
+	if (!IsNormalRoadTile(stopA) || !IsNormalRoadTile(frontA) ||
+			!IsNormalRoadTile(stopB) || !IsNormalRoadTile(frontB)) return false;
+
+	_rp_start = frontA;
+	_rp_goal = frontB;
+	_rp_stop_a = stopA;
+	_rp_stop_b = stopB;
+	_rp_depot = depot;
+	_rp_goal_out = goal_out;
+	_rp_level_height = (byte)TileHeight(frontA);
+
+	/* Reuse the rail A* buffers.  PFHeapLess reads _pf_a_start/_pf_a_height. */
+	_pf_a_start = _rp_goal;
+	_pf_a_height = _rp_level_height;
+	memset(_pf_hash, 0, RP_HASH_SIZE * sizeof(_pf_hash[0]));
+	_pf_node_count = 0;
+	_pf_heap_count = 0;
+
+	if (!RPAddNode(_rp_start, start_in, RP_TERRAIN_NATURAL,
+			0, -1, RP_ACTION_NONE, 0)) return false;
+
+	int goal = -1;
+	while (_pf_heap_count != 0) {
+		int ni = PFHeapPop();
+		if (ni < 0 || !RPIsCurrentBest(ni)) continue;
+		PFNode &cur = _pf_nodes[ni];
+
+		if (cur.tile == _rp_goal && cur.terrain != RP_TERRAIN_BRIDGE_HEAD) {
+			RoadBits last_bits = RPEdgeBits(cur.in_dir, _rp_goal_out);
+			if (cur.terrain == RP_TERRAIN_LEVELLED || RPRoadLegalRaw(cur.tile, last_bits)) {
+				goal = ni;
+				break;
+			}
+		}
+
+		for (byte d = 0; d < 4; d++) {
+			if (d == PFReverseDir(cur.in_dir)) continue; /* U-turn */
+			if (cur.terrain == RP_TERRAIN_BRIDGE_HEAD && d != cur.in_dir) continue;
+			TileIndex next;
+			if (!PFNeighbour(cur.tile, d, &next)) continue;
+
+			if (IsWaterTile(next)) {
+				if (cur.terrain != RP_TERRAIN_BRIDGE_HEAD && !RPTryBridge(ni, d)) goto road_exhausted;
+				continue;
+			}
+			if (!RPLandTile(next) || RPReserved(next)) continue;
+
+			uint32 edge_cost = 10 + (d != cur.in_dir ? 3 : 0);
+			if (cur.terrain == RP_TERRAIN_BRIDGE_HEAD) {
+				if (!RPAddLandCandidates(ni, next, d, edge_cost,
+						RP_ACTION_LEAVE_BRIDGE)) goto road_exhausted;
+				continue;
+			}
+
+			RoadBits current_bits = RPEdgeBits(cur.in_dir, d);
+			if (cur.terrain == RP_TERRAIN_NATURAL &&
+					!RPRoadLegalRaw(cur.tile, current_bits)) continue;
+			if (!RPAddLandCandidates(ni, next, d, edge_cost,
+					RP_ACTION_LAND)) goto road_exhausted;
+		}
+	}
+
+road_exhausted:
+	if (goal < 0) {
+		OLn("road A* nodes, no route ", (uint32)_pf_node_count);
+		return false;
+	}
+
+	int path_count = 0;
+	if (!RPBuildPath(goal, &path_count)) {
+		OL("road route reconstruction too long");
+		return false;
+	}
+	if (!RPValidateModelledPath(path_count)) {
+		OL("road model rejected shared-corner earthworks");
+		return false;
+	}
+	if (!RPLevelBoundarySafe(path_count)) {
+		OL("road model rejected cascading earthworks");
+		return false;
+	}
+
+	int count = 0;
+	/* All earthworks first.  They have one target height and their complete
+	 * shared-corner result was checked above before a road object can exist. */
+	for (int i = 0; i < path_count; i++) {
+		PFNode &n = _pf_nodes[_pf_reverse[i]];
+		if (n.terrain != RP_TERRAIN_LEVELLED) continue;
+		TileIndex end = TileXY((int)TileX(n.tile) + 1, (int)TileY(n.tile) + 1);
+		if (!RPEmit(out, &count, max_out, ROADSTEP_LEVEL,
+				n.tile, end, (uint16)_rp_level_height)) return false;
+	}
+
+	for (int i = 0; i + 1 < path_count; i++) {
+		PFNode &cur = _pf_nodes[_pf_reverse[i]];
+		PFNode &child = _pf_nodes[_pf_reverse[i + 1]];
+		if (child.action_grade == RP_ACTION_BRIDGE) {
+			if (!RPEmit(out, &count, max_out, ROADSTEP_BRIDGE,
+					cur.tile, child.tile, (uint16)child.bridge_id)) return false;
+		} else if (cur.terrain != RP_TERRAIN_BRIDGE_HEAD) {
+			RoadBits bits = RPEdgeBits(cur.in_dir, child.in_dir);
+			if (!RPEmitRoadTile(out, &count, max_out, cur.tile, bits)) return false;
+		}
+	}
+	PFNode &last = _pf_nodes[_pf_reverse[path_count - 1]];
+	if (last.terrain == RP_TERRAIN_BRIDGE_HEAD) return false;
+	if (!RPEmitRoadTile(out, &count, max_out, last.tile,
+			RPEdgeBits(last.in_dir, _rp_goal_out))) return false;
+
+	if (!RPPreflight(out, count, path_count)) return false;
+	*nout = count;
+	OLn("road A* nodes used ", (uint32)_pf_node_count);
+	OLn("road plan path tiles ", (uint32)path_count);
+	OLn("road plan steps ", (uint32)count);
+	return true;
+}
+
+static bool RPRemoveRoadStep(RoadStep &s, int index)
+{
+	if ((s.data & RP_STEP_BUILT) == 0 || s.kind == ROADSTEP_LEVEL) return true;
+
+	if (s.kind == ROADSTEP_BRIDGE) {
+		if (!IsTileType(s.other, MP_TUNNELBRIDGE)) {
+			s.data &= (uint16)~RP_STEP_BUILT;
+			return true;
+		}
+		CommandCost test = DoCommand(s.other, 0, 0, DC_NONE, CMD_LANDSCAPE_CLEAR);
+		if (test.Failed()) {
+			OLn("road bridge rollback err ", (uint32)test.GetErrorMessage());
+			return false;
+		}
+		if (!DoCommandP(s.other, 0, 0, CMD_LANDSCAPE_CLEAR)) return false;
+		s.data &= (uint16)~RP_STEP_BUILT;
+		return true;
+	}
+
+	if (s.kind != ROADSTEP_ROAD) {
+		OLn("road rollback bad kind ", (uint32)index);
+		return false;
+	}
+
+	RoadBits added = (RoadBits)(s.data & 0x0F);
+	bool ok = true;
+	for (int axis_value = 0; axis_value < 2; axis_value++) {
+		Axis axis = (Axis)axis_value;
+		RoadBits axis_bits = (axis == AXIS_X) ? (RoadBits)(ROAD_NE | ROAD_SW)
+				: (RoadBits)(ROAD_SE | ROAD_NW);
+		if ((added & axis_bits) == 0) continue;
+		RoadBits present = RPPresentRoadBits(s.tile);
+		if ((present & axis_bits) == 0) continue;
+		/* For start==end, bit0 selects the full-axis single-tile drag.
+		 * Without it 1.0.5 removes only the northern half-road bit. */
+		uint32 p2 = 1u | ((uint32)axis << 2) | ((uint32)ROADTYPE_ROAD << 3);
+		/* CMD_REMOVE_LONG_ROAD is CMD_NO_TEST in 1.0.5 because connected town
+		 * roads can fail a dry test but are legal once execute removes the bits. */
+		if (!DoCommandP(s.tile, s.tile, p2, CMD_REMOVE_LONG_ROAD)) ok = false;
+	}
+
+	RoadBits original = (RoadBits)((s.data >> RP_STEP_ORIGINAL_SHIFT) & 0x0F);
+	RoadBits present = RPPresentRoadBits(s.tile);
+	RoadBits missing = (RoadBits)(original & ~present);
+	if (missing != ROAD_NONE) {
+		CommandCost test = DoCommand(s.tile,
+				missing | (ROADTYPE_ROAD << 4), 0, DC_NONE, CMD_BUILD_ROAD);
+		if (test.Failed() && test.GetErrorMessage() != 2699) {
+			OLn("road rollback restore err ", (uint32)test.GetErrorMessage());
+			ok = false;
+		} else if (test.Succeeded() &&
+				!DoCommandP(s.tile, missing | (ROADTYPE_ROAD << 4), 0, CMD_BUILD_ROAD)) {
+			ok = false;
+		}
+	}
+	if (ok) s.data &= (uint16)~RP_STEP_BUILT;
+	return ok;
+}
+
+static bool RPRollbackPrefix(RoadStep *plan, int built_prefix)
+{
+	bool ok = true;
+	for (int i = built_prefix - 1; i >= 0; i--) {
+		if (!RPRemoveRoadStep(plan[i], i)) ok = false;
+	}
+	if (!ok) OL("road rollback incomplete");
+	return ok;
+}
+
+bool RemoveRoadPlan(RoadStep *plan, int n)
+{
+	if (plan == NULL || n < 0) return false;
+	return RPRollbackPrefix(plan, n);
+}
+
+bool ExecuteRoadPlan(RoadStep *plan, int n)
+{
+	if (plan == NULL || n < 0) return false;
+	uint32 bridge_base = ((uint32)TRANSPORT_ROAD << 15) |
+			(RoadTypeToRoadTypes(ROADTYPE_ROAD) << 8);
+
+	for (int i = 0; i < n; i++) {
+		RoadStep &s = plan[i];
+		TileIndex command_tile = s.tile;
+		uint32 p1 = 0, p2 = 0, cmd = 0;
+		if (s.kind == ROADSTEP_LEVEL) {
+			int delta = (int)(s.data & RP_STEP_VALUE_MASK) - (int)TileHeight(s.tile);
+			p1 = s.tile;
+			p2 = (uint32)(uint8)(int8)delta;
+			cmd = CMD_LEVEL_LAND;
+			command_tile = s.other;
+		} else if (s.kind == ROADSTEP_ROAD) {
+			p1 = (s.data & 0x0F) | (ROADTYPE_ROAD << 4);
+			cmd = CMD_BUILD_ROAD;
+		} else if (s.kind == ROADSTEP_BRIDGE) {
+			command_tile = s.other;
+			p1 = s.tile;
+			p2 = bridge_base | (uint32)(s.data & RP_STEP_VALUE_MASK);
+			cmd = CMD_BUILD_BRIDGE;
+		} else {
+			OLn("road execute bad kind ", (uint32)i);
+			RPRollbackPrefix(plan, i);
+			return false;
+		}
+
+		CommandCost test = DoCommand(command_tile, p1, p2, DC_NONE, cmd);
+		if (test.Failed()) {
+			/* 2699 means the requested state is already present.  It is usable
+			 * but not attempt-owned, so leave RP_STEP_BUILT clear. */
+			if (test.GetErrorMessage() == 2699) continue;
+			OLn("road execute test step ", (uint32)i);
+			OLn("road execute test err ", (uint32)test.GetErrorMessage());
+			RPRollbackPrefix(plan, i);
+			return false;
+		}
+		if (!DoCommandP(command_tile, p1, p2, cmd)) {
+			OLn("road execute real step ", (uint32)i);
+			CommandCost after = DoCommand(command_tile, p1, p2, DC_NONE, cmd);
+			if (after.Failed()) OLn("road execute real err ", (uint32)after.GetErrorMessage());
+			RPRollbackPrefix(plan, i);
+			return false;
+		}
+		if (s.kind != ROADSTEP_LEVEL) s.data |= RP_STEP_BUILT;
 	}
 	return true;
 }

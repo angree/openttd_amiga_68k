@@ -31,6 +31,7 @@ mkdir -p src/music && cp native/openttd/amiga_m.cpp native/openttd/amiga_m.h src
 mkdir -p src/ai_old && cp native/openttd/ai_old/oldai.cpp native/openttd/ai_old/oldai.h \
                           native/openttd/ai_old/oldai_log.c src/ai_old/
 cp native/openttd/fp_conv.c    src/
+cp native/openttd/amiga_ttd_version.h src/   # single-source port version, #included by rev.cpp.in
 cp native/c2p1x1_6_c5_bm_040.s native/c2p_rect.s native/c2p_glue.s src/video/
 ```
 

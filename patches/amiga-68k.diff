@@ -1,6 +1,6 @@
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/3rdparty/squirrel/squirrel/sqcompiler.cpp b/3rdparty/squirrel/squirrel/sqcompiler.cpp
---- a/3rdparty/squirrel/squirrel/sqcompiler.cpp	2009-08-15 23:21:52.000000000 +0200
-+++ b/3rdparty/squirrel/squirrel/sqcompiler.cpp	2026-07-21 23:45:28.315792800 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/3rdparty/squirrel/squirrel/sqcompiler.cpp b/3rdparty/squirrel/squirrel/sqcompiler.cpp
+--- a/3rdparty/squirrel/squirrel/sqcompiler.cpp	2026-07-23 16:51:17.898977900 +0200
++++ b/3rdparty/squirrel/squirrel/sqcompiler.cpp	2026-07-23 16:51:22.886073000 +0200
 @@ -4,6 +4,7 @@
  #include <squirrel.h>
  #include "sqpcheader.h"
@@ -58,9 +58,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  };
  
  bool Compile(SQVM *vm,SQLEXREADFUNC rg, SQUserPointer up, const SQChar *sourcename, SQObjectPtr &out, bool raiseerror, bool lineinfo)
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/3rdparty/squirrel/squirrel/sqvm.cpp.ehdiag_orig b/3rdparty/squirrel/squirrel/sqvm.cpp.ehdiag_orig
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/3rdparty/squirrel/squirrel/sqvm.cpp.ehdiag_orig b/3rdparty/squirrel/squirrel/sqvm.cpp.ehdiag_orig
 --- a/3rdparty/squirrel/squirrel/sqvm.cpp.ehdiag_orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/3rdparty/squirrel/squirrel/sqvm.cpp.ehdiag_orig	2010-07-17 13:45:42.000000000 +0200
++++ b/3rdparty/squirrel/squirrel/sqvm.cpp.ehdiag_orig	2026-07-23 16:51:23.010676400 +0200
 @@ -0,0 +1,1591 @@
 +/*
 +	see copyright notice in squirrel.h
@@ -1653,9 +1653,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +
 +
 +#endif
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/ai/ai_core.cpp b/ai/ai_core.cpp
---- a/ai/ai_core.cpp	2010-01-29 22:38:55.000000000 +0100
-+++ b/ai/ai_core.cpp	2026-07-22 11:13:02.155714900 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/ai/ai_core.cpp b/ai/ai_core.cpp
+--- a/ai/ai_core.cpp	2026-07-23 16:51:14.639291800 +0200
++++ b/ai/ai_core.cpp	2026-07-23 16:51:30.408025200 +0200
 @@ -70,7 +70,9 @@
  
  	const Company *c;
@@ -1703,18 +1703,18 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  
  		CompanyID old_company = _current_company;
  		_current_company = company;
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/ai/ai_instance.cpp b/ai/ai_instance.cpp
---- a/ai/ai_instance.cpp	2010-01-18 16:41:38.000000000 +0100
-+++ b/ai/ai_instance.cpp	2026-07-22 10:21:33.415319300 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/ai/ai_instance.cpp b/ai/ai_instance.cpp
+--- a/ai/ai_instance.cpp	2026-07-23 16:51:14.771647900 +0200
++++ b/ai/ai_instance.cpp	2026-07-23 16:51:30.432188400 +0200
 @@ -1,4 +1,4 @@
 -/* $Id: ai_instance.cpp 18862 2010-01-18 15:41:38Z rubidium $ */
 +/* $Id$ */
  
  /*
   * This file is part of OpenTTD.
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/ai/ai_instance.cpp.ehdiag_orig b/ai/ai_instance.cpp.ehdiag_orig
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/ai/ai_instance.cpp.ehdiag_orig b/ai/ai_instance.cpp.ehdiag_orig
 --- a/ai/ai_instance.cpp.ehdiag_orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/ai/ai_instance.cpp.ehdiag_orig	2010-01-18 16:41:38.000000000 +0100
++++ b/ai/ai_instance.cpp.ehdiag_orig	2026-07-23 16:51:30.506951200 +0200
 @@ -0,0 +1,779 @@
 +/* $Id: ai_instance.cpp 18862 2010-01-18 15:41:38Z rubidium $ */
 +
@@ -2495,18 +2495,18 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +	sq_pop(vm, 4);
 +	return true;
 +}
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/ai/api/ai_object.cpp b/ai/api/ai_object.cpp
---- a/ai/api/ai_object.cpp	2010-01-18 23:57:21.000000000 +0100
-+++ b/ai/api/ai_object.cpp	2026-07-22 10:21:33.422848300 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/ai/api/ai_object.cpp b/ai/api/ai_object.cpp
+--- a/ai/api/ai_object.cpp	2026-07-23 16:51:12.073682600 +0200
++++ b/ai/api/ai_object.cpp	2026-07-23 16:51:30.680814400 +0200
 @@ -1,4 +1,4 @@
 -/* $Id: ai_object.cpp 18866 2010-01-18 22:57:21Z rubidium $ */
 +/* $Id$ */
  
  /*
   * This file is part of OpenTTD.
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/ai/api/ai_object.cpp.ehdiag_orig b/ai/api/ai_object.cpp.ehdiag_orig
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/ai/api/ai_object.cpp.ehdiag_orig b/ai/api/ai_object.cpp.ehdiag_orig
 --- a/ai/api/ai_object.cpp.ehdiag_orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/ai/api/ai_object.cpp.ehdiag_orig	2010-01-18 23:57:21.000000000 +0100
++++ b/ai/api/ai_object.cpp.ehdiag_orig	2026-07-23 16:51:31.807513300 +0200
 @@ -0,0 +1,249 @@
 +/* $Id: ai_object.cpp 18866 2010-01-18 22:57:21Z rubidium $ */
 +
@@ -2757,9 +2757,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +
 +	NOT_REACHED();
 +}
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/cargotype.cpp.orig b/cargotype.cpp.orig
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/cargotype.cpp.orig b/cargotype.cpp.orig
 --- a/cargotype.cpp.orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/cargotype.cpp.orig	2026-07-20 12:44:22.708524400 +0200
++++ b/cargotype.cpp.orig	2026-07-23 16:51:28.671120900 +0200
 @@ -0,0 +1,115 @@
 +/* $Id: cargotype.cpp 18413 2009-12-05 21:39:28Z alberth $ */
 +
@@ -2876,9 +2876,28 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +	return sprite;
 +}
 +
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/command.cpp.orig b/command.cpp.orig
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/command.cpp b/command.cpp
+--- a/command.cpp	2026-07-23 16:51:19.185859600 +0200
++++ b/command.cpp	2026-07-23 16:51:26.466767900 +0200
+@@ -187,6 +187,7 @@
+ CommandProc CmdSetVehicleOnTime;
+ CommandProc CmdAutofillTimetable;
+ CommandProc CmdSetTimetableStart;
++CommandProc CmdOldAIRefund;
+ 
+ #define DEF_CMD(proc, flags) {proc, #proc, flags}
+ 
+@@ -333,6 +334,7 @@
+ 	DEF_CMD(CmdSetVehicleOnTime,                               0), // CMD_SET_VEHICLE_ON_TIME
+ 	DEF_CMD(CmdAutofillTimetable,                              0), // CMD_AUTOFILL_TIMETABLE
+ 	DEF_CMD(CmdSetTimetableStart,                              0), // CMD_SET_TIMETABLE_START
++	DEF_CMD(CmdOldAIRefund,                                   0), // CMD_OLDAI_REFUND (109)
+ };
+ 
+ /*!
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/command.cpp.orig b/command.cpp.orig
 --- a/command.cpp.orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/command.cpp.orig	2026-07-20 13:23:30.125004300 +0200
++++ b/command.cpp.orig	2026-07-23 16:51:25.509053000 +0200
 @@ -0,0 +1,716 @@
 +/* $Id: command.cpp 19665 2010-04-17 22:27:49Z rubidium $ */
 +
@@ -3596,9 +3615,33 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +		this->success = false;
 +	}
 +}
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/company_cmd.cpp b/company_cmd.cpp
---- a/company_cmd.cpp	2010-08-09 23:53:44.000000000 +0200
-+++ b/company_cmd.cpp	2026-07-22 15:54:29.708998100 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/command_func.h b/command_func.h
+--- a/command_func.h	2026-07-23 16:51:04.468862700 +0200
++++ b/command_func.h	2026-07-23 16:51:28.664156800 +0200
+@@ -95,6 +95,9 @@
+ /* ai/ai_core.cpp */
+ CommandCallback CcAI;
+ 
++/* ai/oldai.cpp */
++CommandCallback CcOldAI;
++
+ /* airport_gui.cpp */
+ CommandCallback CcBuildAirport;
+ 
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/command_type.h b/command_type.h
+--- a/command_type.h	2026-07-23 16:51:10.187591700 +0200
++++ b/command_type.h	2026-07-23 16:51:34.941912000 +0200
+@@ -295,6 +295,7 @@
+ 	CMD_SET_VEHICLE_ON_TIME,          ///< set the vehicle on time feature (timetable)
+ 	CMD_AUTOFILL_TIMETABLE,           ///< autofill the timetable
+ 	CMD_SET_TIMETABLE_START,          ///< set the date that a timetable should start
++	CMD_OLDAI_REFUND,                 ///< synchronized refund of a failed native-AI attempt
+ };
+ 
+ /**
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/company_cmd.cpp b/company_cmd.cpp
+--- a/company_cmd.cpp	2026-07-23 16:51:16.068797700 +0200
++++ b/company_cmd.cpp	2026-07-23 16:51:34.874830600 +0200
 @@ -21,6 +21,7 @@
  #include "network/network_func.h"
  #include "network/network_base.h"
@@ -3619,9 +3662,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  
  	c->num_engines = CallocT<uint16>(Engine::GetPoolSize());
  
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/debug.cpp b/debug.cpp
---- a/debug.cpp	2010-04-11 12:57:21.000000000 +0200
-+++ b/debug.cpp	2026-07-20 00:14:13.461977700 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/debug.cpp b/debug.cpp
+--- a/debug.cpp	2026-07-23 16:51:04.173645200 +0200
++++ b/debug.cpp	2026-07-23 16:51:26.207904800 +0200
 @@ -86,7 +86,7 @@
  		_sntprintf(tbuf, sizeof(tbuf), _T("%s"), OTTD2FS(dbg));
  		NKDbgPrintfW(_T("dbg: [%s] %s\n"), tbuf, OTTD2FS(buf));
@@ -3631,9 +3674,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  #endif
  		IConsoleDebug(dbg, buf);
  	} else {
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/fileio.cpp b/fileio.cpp
---- a/fileio.cpp	2010-07-17 13:45:42.000000000 +0200
-+++ b/fileio.cpp	2026-07-20 01:45:09.685159700 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/fileio.cpp b/fileio.cpp
+--- a/fileio.cpp	2026-07-23 16:51:07.222566900 +0200
++++ b/fileio.cpp	2026-07-23 16:51:28.658020900 +0200
 @@ -22,11 +22,13 @@
  #include <Path.h>
  #include <storage/FindDirectory.h>
@@ -3658,9 +3701,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	char buf[MAX_PATH];
  	ttd_strlcpy(buf, name, MAX_PATH);
  
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/fios.cpp b/fios.cpp
---- a/fios.cpp	2009-10-04 19:16:41.000000000 +0200
-+++ b/fios.cpp	2026-07-20 01:45:09.685159700 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/fios.cpp b/fios.cpp
+--- a/fios.cpp	2026-07-23 16:51:11.288979300 +0200
++++ b/fios.cpp	2026-07-23 16:51:22.054618300 +0200
 @@ -110,7 +110,7 @@
  			s = strrchr(path, PATHSEPCHAR);
  			if (s != NULL) {
@@ -3679,9 +3722,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	if (_fios_path != NULL) {
  		unsigned char sepchar = _fios_path[(strlen(_fios_path) - 1)];
  
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/fontcache.cpp b/fontcache.cpp
---- a/fontcache.cpp	2010-05-18 23:38:09.000000000 +0200
-+++ b/fontcache.cpp	2026-07-20 12:05:04.898139300 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/fontcache.cpp b/fontcache.cpp
+--- a/fontcache.cpp	2026-07-23 16:51:04.895892200 +0200
++++ b/fontcache.cpp	2026-07-23 16:51:30.066611800 +0200
 @@ -22,6 +22,9 @@
  /** Semi-constant for the height of the different sizes of fonts. */
  int _font_height[FS_END];
@@ -3739,9 +3782,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	}
  }
  
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/fontcache.h b/fontcache.h
---- a/fontcache.h	2010-08-09 23:48:19.000000000 +0200
-+++ b/fontcache.h	2026-07-20 12:05:04.891137300 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/fontcache.h b/fontcache.h
+--- a/fontcache.h	2026-07-23 16:51:15.737637800 +0200
++++ b/fontcache.h	2026-07-23 16:51:28.477492200 +0200
 @@ -73,12 +73,23 @@
  }
  
@@ -3767,9 +3810,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  }
  
  #endif /* WITH_FREETYPE */
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/genworld.cpp b/genworld.cpp
---- a/genworld.cpp	2010-10-02 16:51:33.000000000 +0200
-+++ b/genworld.cpp	2026-07-21 13:15:01.539617100 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/genworld.cpp b/genworld.cpp
+--- a/genworld.cpp	2026-07-23 16:51:04.341623000 +0200
++++ b/genworld.cpp	2026-07-23 16:51:28.997974400 +0200
 @@ -97,6 +97,7 @@
  {
  	try {
@@ -3894,9 +3937,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  		_genworld_mapgen_mutex->BeginCritical();
  		return;
  	}
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/gfx.cpp b/gfx.cpp
---- a/gfx.cpp	2010-10-27 22:15:18.000000000 +0200
-+++ b/gfx.cpp	2026-07-22 22:31:21.519080500 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/gfx.cpp b/gfx.cpp
+--- a/gfx.cpp	2026-07-23 16:51:04.255683500 +0200
++++ b/gfx.cpp	2026-07-23 16:51:33.809763100 +0200
 @@ -29,6 +29,11 @@
  #include "table/sprites.h"
  #include "table/control_codes.h"
@@ -4020,9 +4063,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	Blitter *blitter = BlitterFactoryBase::GetCurrentBlitter();
  	int x;
  	int y;
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/gfx_func.h b/gfx_func.h
---- a/gfx_func.h	2010-08-09 23:48:19.000000000 +0200
-+++ b/gfx_func.h	2026-07-20 22:12:02.892105500 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/gfx_func.h b/gfx_func.h
+--- a/gfx_func.h	2026-07-23 16:51:03.852489300 +0200
++++ b/gfx_func.h	2026-07-23 16:51:34.140948300 +0200
 @@ -64,6 +64,14 @@
  extern DrawPixelInfo _screen;
  extern bool _screen_disable_anim;   ///< Disable palette animation (important for 32bpp-anim blitter during giant screenshot)
@@ -4038,9 +4081,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  extern int _pal_first_dirty;
  extern int _pal_count_dirty;
  extern int _num_resolutions;
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/gfxinit.cpp b/gfxinit.cpp
---- a/gfxinit.cpp	2010-08-09 23:48:19.000000000 +0200
-+++ b/gfxinit.cpp	2026-07-21 13:14:48.255042500 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/gfxinit.cpp b/gfxinit.cpp
+--- a/gfxinit.cpp	2026-07-23 16:51:05.036987600 +0200
++++ b/gfxinit.cpp	2026-07-23 16:51:26.773590700 +0200
 @@ -41,6 +41,10 @@
  	_landscape_spriteindexes_3,
  };
@@ -4078,9 +4121,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  }
  
  bool GraphicsSet::FillSetDetails(IniFile *ini, const char *path, const char *full_filename)
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/intro_gui.cpp b/intro_gui.cpp
---- a/intro_gui.cpp	2010-02-10 21:20:18.000000000 +0100
-+++ b/intro_gui.cpp	2026-07-22 23:01:50.868640100 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/intro_gui.cpp b/intro_gui.cpp
+--- a/intro_gui.cpp	2026-07-23 16:51:03.910368900 +0200
++++ b/intro_gui.cpp	2026-07-23 16:51:34.193422100 +0200
 @@ -61,6 +61,15 @@
  	SelectGameWindow(const WindowDesc *desc) : Window()
  	{
@@ -4097,9 +4140,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  		this->LowerWidget(_settings_newgame.game_creation.landscape + SGI_TEMPERATE_LANDSCAPE);
  		this->SetLandscapeButtons();
  	}
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/landscape.cpp b/landscape.cpp
---- a/landscape.cpp	2010-05-18 23:44:47.000000000 +0200
-+++ b/landscape.cpp	2026-07-20 01:36:10.996950900 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/landscape.cpp b/landscape.cpp
+--- a/landscape.cpp	2026-07-23 16:51:07.309729900 +0200
++++ b/landscape.cpp	2026-07-23 16:51:28.313394600 +0200
 @@ -871,6 +871,8 @@
  	};
  	uint steps = (_settings_game.game_creation.landscape == LT_TROPIC) ? GLS_TROPIC : GLS_OTHER;
@@ -4123,9 +4166,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  
  	if (_settings_game.game_creation.landscape == LT_TROPIC) CreateDesertOrRainForest();
  }
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/lang/english.txt b/lang/english.txt
---- a/lang/english.txt	2010-11-14 10:31:31.000000000 +0100
-+++ b/lang/english.txt	2026-07-22 22:31:09.710344300 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/lang/english.txt b/lang/english.txt
+--- a/lang/english.txt	2026-07-23 16:51:09.224503800 +0200
++++ b/lang/english.txt	2026-07-23 16:51:23.796726200 +0200
 @@ -1297,7 +1297,11 @@
  STR_CONFIG_SETTING_LARGER_TOWNS_DISABLED                        :{LTBLUE}Proportion of towns that will become cities: {ORANGE}None
  STR_CONFIG_SETTING_CITY_SIZE_MULTIPLIER                         :{LTBLUE}Initial city size multiplier: {ORANGE}{STRING1}
@@ -4138,9 +4181,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  STR_CONFIG_SETTING_GUI                                          :{ORANGE}Interface
  STR_CONFIG_SETTING_CONSTRUCTION                                 :{ORANGE}Construction
  STR_CONFIG_SETTING_VEHICLES                                     :{ORANGE}Vehicles
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/main_gui.cpp b/main_gui.cpp
---- a/main_gui.cpp	2010-08-30 18:52:37.000000000 +0200
-+++ b/main_gui.cpp	2026-07-23 10:18:09.440590800 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/main_gui.cpp b/main_gui.cpp
+--- a/main_gui.cpp	2026-07-23 16:51:07.376098000 +0200
++++ b/main_gui.cpp	2026-07-23 16:51:34.911520200 +0200
 @@ -30,6 +30,7 @@
  #include "toolbar_gui.h"
  #include "statusbar_gui.h"
@@ -4197,7 +4240,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  			case 'R' | WKC_CTRL: MarkWholeScreenDirty(); break;
  
  #if defined(_DEBUG)
-@@ -408,6 +428,48 @@
+@@ -408,6 +428,80 @@
  		memcpy(_colour_gradient[i], b + 0xC6, sizeof(_colour_gradient[i]));
  	}
  
@@ -4240,15 +4283,47 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +		for (uint i = 0; i < lengthof(_ehb_chrome); i++) {
 +			memcpy(_colour_gradient[_ehb_chrome[i].scheme], _ehb_chrome[i].grad, 8);
 +		}
++
++		/* Competitor (company livery) colours under EHB. Unlike the chrome above,
++		 * these values are DIRECT EHB register numbers (0..63), NOT remap pre-
++		 * images: a company colour reaches the screen as a recoloured SPRITE (the
++		 * bus in the company window, company_gui.cpp) and as the minimap owner
++		 * fill (smallmap_gui.cpp) - both write _colour_gradient[c][shade] straight
++		 * into the 6-bitplane buffer, so the register shows as-is. The default
++		 * 256->64 reduction picked muddy nearest-matches; these are the
++		 * hand-chosen registers (G. Korycki, from the EHB register chart). Each
++		 * row is [dark x3, main x3, light x2]; main = shade[4]/[5] (company text +
++		 * minimap), so it is the dominant read. BROWN/ORANGE/MAUVE/GREY are
++		 * DELIBERATELY absent: they double as the window chrome schemes above and
++		 * the shared _colour_gradient slot cannot serve both a remapped fill and a
++		 * direct sprite; the window theme wins for those four. */
++		static const struct { byte scheme; byte grad[8]; } _ehb_company[] = {
++			/*                     [0] [1] [2] [3] [4] [5] [6] [7]  main/dark/light */
++			{ COLOUR_DARK_BLUE,  { 59, 59, 59, 27, 27, 27, 26, 26 } }, /* 27/59/26 */
++			{ COLOUR_PALE_GREEN, { 55, 55, 55, 52, 52, 52, 23, 23 } }, /* 52/55/23 */
++			{ COLOUR_PINK,       { 59, 59, 59, 63, 63, 63, 31, 31 } }, /* 63/59/31 */
++			{ COLOUR_YELLOW,     { 45, 45, 45, 15, 15, 15, 15, 15 } }, /* 15/45/15 */
++			{ COLOUR_RED,        { 41, 41, 41,  9,  9,  9, 11, 11 } }, /*  9/41/11 */
++			{ COLOUR_LIGHT_BLUE, { 56, 56, 56, 25, 25, 25, 24, 24 } }, /* 25/56/24 */
++			{ COLOUR_GREEN,      { 51, 51, 51, 19, 19, 19, 20, 20 } }, /* 19/51/20 */
++			{ COLOUR_DARK_GREEN, { 40, 40, 40, 51, 51, 51, 52, 52 } }, /* 51/40/52 */
++			{ COLOUR_BLUE,       { 58, 58, 58, 26, 26, 26, 24, 24 } }, /* 26/58/24 */
++			{ COLOUR_CREAM,      { 43, 43, 43, 11, 11, 11,  2,  2 } }, /* 11/43/2  */
++			{ COLOUR_PURPLE,     { 63, 63, 63, 31, 31, 31, 31, 31 } }, /* 31/63/31 */
++			{ COLOUR_WHITE,      { 34, 34, 34,  2,  2,  2,  1,  1 } }, /*  2/34/1  */
++		};
++		for (uint i = 0; i < lengthof(_ehb_company); i++) {
++			memcpy(_colour_gradient[_ehb_company[i].scheme], _ehb_company[i].grad, 8);
++		}
 +	}
 +#endif /* __AMIGA__ */
 +
  	new MainWindow;
  
  	/* XXX: these are not done */
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/music.cpp b/music.cpp
---- a/music.cpp	2010-04-30 23:01:21.000000000 +0200
-+++ b/music.cpp	2026-07-22 14:20:13.608932500 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/music.cpp b/music.cpp
+--- a/music.cpp	2026-07-23 16:51:15.545775900 +0200
++++ b/music.cpp	2026-07-23 16:51:33.109517100 +0200
 @@ -57,41 +57,37 @@
  	return BaseMedia<Tbase_set>::used_set != NULL;
  }
@@ -4318,9 +4393,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +	this->valid_files = NUM_SONGS_AVAILABLE;
 +	return true;
  }
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/music_gui.cpp b/music_gui.cpp
---- a/music_gui.cpp	2010-01-30 19:34:48.000000000 +0100
-+++ b/music_gui.cpp	2026-07-23 10:48:09.787484200 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/music_gui.cpp b/music_gui.cpp
+--- a/music_gui.cpp	2026-07-23 16:51:05.410003800 +0200
++++ b/music_gui.cpp	2026-07-23 16:51:29.927244300 +0200
 @@ -46,8 +46,9 @@
  	return BaseMusic::GetUsedSet()->track_nr[index];
  }
@@ -4375,9 +4450,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	if (!msf.playing && _song_is_active) {
  		StopMusic();
  	} else if (msf.playing && !_song_is_active) {
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/network/core/os_abstraction.h b/network/core/os_abstraction.h
---- a/network/core/os_abstraction.h	2010-05-18 23:49:59.000000000 +0200
-+++ b/network/core/os_abstraction.h	2026-07-19 05:57:51.835092600 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/network/core/os_abstraction.h b/network/core/os_abstraction.h
+--- a/network/core/os_abstraction.h	2026-07-23 16:51:20.306661500 +0200
++++ b/network/core/os_abstraction.h	2026-07-23 16:51:24.978322100 +0200
 @@ -158,7 +158,7 @@
  #		include <arpa/inet.h>
  #		include <net/if.h>
@@ -4387,9 +4462,24 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  		   && !(defined(__GLIBC__) && (__GLIBC__ <= 2) && (__GLIBC_MINOR__ <= 2)) && !defined(__dietlibc__) && !defined(HPUX)
  /* If for any reason ifaddrs.h does not exist on your system, comment out
   *   the following two lines and an alternative way will be used to fetch
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/newgrf.cpp.orig b/newgrf.cpp.orig
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/network/network_command.cpp b/network/network_command.cpp
+--- a/network/network_command.cpp	2026-07-23 16:51:20.687736700 +0200
++++ b/network/network_command.cpp	2026-07-23 16:51:24.850572400 +0200
+@@ -47,6 +47,11 @@
+ 	/* 0x14 */ CcGiveMoney,
+ 	/* 0x15 */ CcCreateGroup,
+ 	/* 0x16 */ CcFoundRandomTown,
++#ifdef ENABLE_AI
++	/* 0x17 */ CcOldAI,
++#else
++	/* 0x17 */ NULL,
++#endif /* ENABLE_AI */
+ };
+ 
+ /** Local queue of packets */
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/newgrf.cpp.orig b/newgrf.cpp.orig
 --- a/newgrf.cpp.orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/newgrf.cpp.orig	2026-07-20 12:44:22.715527000 +0200
++++ b/newgrf.cpp.orig	2026-07-23 16:51:26.708669700 +0200
 @@ -0,0 +1,6876 @@
 +/* $Id: newgrf.cpp 21181 2010-11-14 09:31:31Z rubidium $ */
 +
@@ -11267,9 +11357,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +{
 +	return HasBit(_misc_grf_features, bit);
 +}
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/news_type.h b/news_type.h
---- a/news_type.h	2010-02-12 17:42:29.000000000 +0100
-+++ b/news_type.h	2026-07-20 12:44:29.045714100 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/news_type.h b/news_type.h
+--- a/news_type.h	2026-07-23 16:51:11.233754500 +0200
++++ b/news_type.h	2026-07-23 16:51:30.282456500 +0200
 @@ -123,7 +123,7 @@
  		name(name),
  		age(age),
@@ -11279,9 +11369,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  		description(description)
  	{
  	}
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/openttd.cpp b/openttd.cpp
---- a/openttd.cpp	2010-08-30 18:52:37.000000000 +0200
-+++ b/openttd.cpp	2026-07-22 10:19:50.896148100 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/openttd.cpp b/openttd.cpp
+--- a/openttd.cpp	2026-07-23 16:51:03.740246700 +0200
++++ b/openttd.cpp	2026-07-23 16:51:26.131852600 +0200
 @@ -42,6 +42,7 @@
  #include "network/network_func.h"
  #include "signs_base.h"
@@ -11377,9 +11467,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  
  		CallWindowTickEvent();
  		NewsLoop();
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/order_cmd.cpp.orig b/order_cmd.cpp.orig
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/order_cmd.cpp.orig b/order_cmd.cpp.orig
 --- a/order_cmd.cpp.orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/order_cmd.cpp.orig	2026-07-20 13:15:57.793056200 +0200
++++ b/order_cmd.cpp.orig	2026-07-23 16:51:21.694156700 +0200
 @@ -0,0 +1,1864 @@
 +/* $Id: order_cmd.cpp 20608 2010-08-24 00:03:26Z rubidium $ */
 +
@@ -13245,9 +13335,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +
 +	_backup_orders_tile = 0;
 +}
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/order_gui.cpp.orig b/order_gui.cpp.orig
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/order_gui.cpp.orig b/order_gui.cpp.orig
 --- a/order_gui.cpp.orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/order_gui.cpp.orig	2026-07-20 13:08:53.990361000 +0200
++++ b/order_gui.cpp.orig	2026-07-23 16:51:30.327476600 +0200
 @@ -0,0 +1,1460 @@
 +/* $Id: order_gui.cpp 20916 2010-10-12 17:19:42Z rubidium $ */
 +
@@ -14709,9 +14799,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +		new OrdersWindow((v->type == VEH_TRAIN || v->type == VEH_ROAD) ? &_orders_train_desc : &_orders_desc, v);
 +	}
 +}
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/os/unix/crashlog_unix.cpp b/os/unix/crashlog_unix.cpp
---- a/os/unix/crashlog_unix.cpp	2010-05-18 23:49:59.000000000 +0200
-+++ b/os/unix/crashlog_unix.cpp	2026-07-19 11:21:41.457308900 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/os/unix/crashlog_unix.cpp b/os/unix/crashlog_unix.cpp
+--- a/os/unix/crashlog_unix.cpp	2026-07-23 16:51:16.211712200 +0200
++++ b/os/unix/crashlog_unix.cpp	2026-07-23 16:51:32.676782700 +0200
 @@ -19,6 +19,10 @@
  #include <signal.h>
  #include <sys/utsname.h>
@@ -14723,9 +14813,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  #if defined(__GLIBC__)
  /* Execinfo (and thus making stacktraces) is a GNU extension */
  #	include <execinfo.h>
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/os/unix/unix.cpp b/os/unix/unix.cpp
---- a/os/unix/unix.cpp	2010-05-18 23:44:47.000000000 +0200
-+++ b/os/unix/unix.cpp	2026-07-22 10:24:19.372936400 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/os/unix/unix.cpp b/os/unix/unix.cpp
+--- a/os/unix/unix.cpp	2026-07-23 16:51:16.239012800 +0200
++++ b/os/unix/unix.cpp	2026-07-23 16:51:32.662805200 +0200
 @@ -1,4 +1,4 @@
 -/* $Id: unix.cpp 19857 2010-05-18 21:44:47Z rubidium $ */
 +/* $Id$ */
@@ -14864,9 +14954,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +#if defined(__AMIGA__)
 +unsigned long __stack = 1024 * 1024; /* OpenTTD needs a large stack on AmigaOS */
 +#endif
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/os/unix/unix.cpp.ehdiag_orig b/os/unix/unix.cpp.ehdiag_orig
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/os/unix/unix.cpp.ehdiag_orig b/os/unix/unix.cpp.ehdiag_orig
 --- a/os/unix/unix.cpp.ehdiag_orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/os/unix/unix.cpp.ehdiag_orig	2026-07-20 01:54:32.529875900 +0200
++++ b/os/unix/unix.cpp.ehdiag_orig	2026-07-23 16:51:32.639672900 +0200
 @@ -0,0 +1,373 @@
 +/* $Id: unix.cpp 19857 2010-05-18 21:44:47Z rubidium $ */
 +
@@ -15241,9 +15331,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +#if defined(__AMIGA__)
 +unsigned long __stack = 1024 * 1024; /* OpenTTD needs a large stack on AmigaOS */
 +#endif
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/rail_cmd.cpp b/rail_cmd.cpp
---- a/rail_cmd.cpp	2010-08-17 01:15:33.000000000 +0200
-+++ b/rail_cmd.cpp	2026-07-20 20:51:46.272284900 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/rail_cmd.cpp b/rail_cmd.cpp
+--- a/rail_cmd.cpp	2026-07-23 16:51:18.895891700 +0200
++++ b/rail_cmd.cpp	2026-07-23 16:51:26.200388700 +0200
 @@ -11,6 +11,7 @@
  
  #include "stdafx.h"
@@ -15277,9 +15367,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  		ret = DoCommand(tile, railtype, TrackdirToTrack(trackdir), flags, remove ? CMD_REMOVE_SINGLE_RAIL : CMD_BUILD_SINGLE_RAIL);
  
  		if (ret.Failed()) {
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/rev.cpp.in b/rev.cpp.in
---- a/rev.cpp.in	2010-11-20 21:25:53.000000000 +0100
-+++ b/rev.cpp.in	2026-07-23 10:53:53.767140100 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/rev.cpp.in b/rev.cpp.in
+--- a/rev.cpp.in	2026-07-23 16:51:10.536508400 +0200
++++ b/rev.cpp.in	2026-07-23 16:51:29.083810200 +0200
 @@ -11,6 +11,7 @@
  
  #include "stdafx.h"
@@ -15297,9 +15387,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  
  /**
   * The text version of OpenTTD's build date.
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/saveload/afterload.cpp.orig b/saveload/afterload.cpp.orig
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/saveload/afterload.cpp.orig b/saveload/afterload.cpp.orig
 --- a/saveload/afterload.cpp.orig	1970-01-01 01:00:00.000000000 +0100
-+++ b/saveload/afterload.cpp.orig	2026-07-20 13:11:24.730916900 +0200
++++ b/saveload/afterload.cpp.orig	2026-07-23 16:51:27.645848600 +0200
 @@ -0,0 +1,2146 @@
 +/* $Id: afterload.cpp 20872 2010-10-02 14:51:33Z rubidium $ */
 +
@@ -17447,10 +17537,26 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +	MarkWholeScreenDirty();
 +	CheckTrainsLengths();
 +}
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/saveload/saveload.cpp b/saveload/saveload.cpp
---- a/saveload/saveload.cpp	2010-10-27 22:15:18.000000000 +0200
-+++ b/saveload/saveload.cpp	2026-07-20 01:50:08.923657900 +0200
-@@ -192,6 +192,9 @@
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/saveload/saveload.cpp b/saveload/saveload.cpp
+--- a/saveload/saveload.cpp	2026-07-23 16:51:06.215774500 +0200
++++ b/saveload/saveload.cpp	2026-07-23 16:51:27.888000600 +0200
+@@ -122,6 +122,7 @@
+ extern const ChunkHandler _economy_chunk_handlers[];
+ extern const ChunkHandler _subsidy_chunk_handlers[];
+ extern const ChunkHandler _ai_chunk_handlers[];
++extern const ChunkHandler _oldai_chunk_handlers[];
+ extern const ChunkHandler _animated_tile_chunk_handlers[];
+ extern const ChunkHandler _newgrf_chunk_handlers[];
+ extern const ChunkHandler _group_chunk_handlers[];
+@@ -149,6 +150,7 @@
+ 	_station_chunk_handlers,
+ 	_company_chunk_handlers,
+ 	_ai_chunk_handlers,
++	_oldai_chunk_handlers,
+ 	_animated_tile_chunk_handlers,
+ 	_newgrf_chunk_handlers,
+ 	_group_chunk_handlers,
+@@ -192,6 +194,9 @@
   * pretty ugly, and seriously interferes with any multithreaded approaches */
  static void NORETURN SlError(StringID string, const char *extra_msg = NULL)
  {
@@ -17460,7 +17566,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	_sl.error_str = string;
  	free(_sl.extra_msg);
  	_sl.extra_msg = (extra_msg == NULL) ? NULL : strdup(extra_msg);
-@@ -1738,6 +1741,7 @@
+@@ -1738,6 +1743,7 @@
  /** Set the error message from outside of the actual loading/saving of the game (AfterLoadGame and friends) */
  void SetSaveLoadError(StringID str)
  {
@@ -17468,7 +17574,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	_sl.error_str = str;
  }
  
-@@ -1769,12 +1773,15 @@
+@@ -1769,12 +1775,15 @@
  	try {
  		byte compression;
  		const SaveLoadFormat *fmt = GetSavegameFormat(_savegame_format, &compression);
@@ -17484,7 +17590,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  
  		{
  			uint i;
-@@ -1790,11 +1797,13 @@
+@@ -1790,11 +1799,13 @@
  			_sl.buf = _memory_savegame[i];
  			fmt->writer(_ts.count % MEMORY_CHUNK_SIZE);
  		}
@@ -17498,7 +17604,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  
  		if (threaded) SetAsyncSaveFinish(SaveFileDone);
  
-@@ -1843,6 +1852,8 @@
+@@ -1843,6 +1854,8 @@
  {
  	uint32 hdr[2];
  
@@ -17507,7 +17613,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	/* An instance of saving is already active, so don't go saving again */
  	if (_ts.saveinprogress && mode == SL_SAVE) {
  		/* if not an autosave, but a user action, show error message */
-@@ -1888,6 +1899,8 @@
+@@ -1888,6 +1901,8 @@
  		if (_sl.fh == NULL && mode == SL_LOAD) _sl.fh = FioFOpenFile(filename, "rb", SAVE_DIR);
  		if (_sl.fh == NULL && mode == SL_LOAD) _sl.fh = FioFOpenFile(filename, "rb", BASE_DIR);
  
@@ -17516,7 +17622,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  		if (_sl.fh == NULL) {
  			SlError(mode == SL_SAVE ? STR_GAME_SAVELOAD_ERROR_FILE_NOT_WRITEABLE : STR_GAME_SAVELOAD_ERROR_FILE_NOT_READABLE);
  		}
-@@ -2018,7 +2031,9 @@
+@@ -2018,7 +2033,9 @@
  				ClearGRFConfigList(&_grfconfig);
  			}
  
@@ -17526,7 +17632,7 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  			SlFixPointers();
  			fmt->uninit_read();
  			fclose(_sl.fh);
-@@ -2027,14 +2042,17 @@
+@@ -2027,14 +2044,17 @@
  
  			_savegame_type = SGT_OTTD;
  
@@ -17544,9 +17650,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  		}
  
  		return SL_OK;
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/settings.cpp b/settings.cpp
---- a/settings.cpp	2010-11-14 10:27:20.000000000 +0100
-+++ b/settings.cpp	2026-07-22 13:52:21.255819500 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/settings.cpp b/settings.cpp
+--- a/settings.cpp	2026-07-23 16:51:18.950672800 +0200
++++ b/settings.cpp	2026-07-23 16:51:32.890966500 +0200
 @@ -697,6 +697,19 @@
  	return true;
  }
@@ -17580,9 +17686,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  };
  
  void SetDifficultyLevel(int mode, DifficultySettings *gm_opt)
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/settings_gui.cpp b/settings_gui.cpp
---- a/settings_gui.cpp	2010-10-27 22:17:45.000000000 +0200
-+++ b/settings_gui.cpp	2026-07-22 22:30:50.925111800 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/settings_gui.cpp b/settings_gui.cpp
+--- a/settings_gui.cpp	2026-07-23 16:51:07.150004000 +0200
++++ b/settings_gui.cpp	2026-07-23 16:51:32.912291700 +0200
 @@ -88,10 +88,27 @@
  	return STR_UNDEFINED;
  }
@@ -17657,9 +17763,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	SettingEntry(&_settings_ui_page,           STR_CONFIG_SETTING_GUI),
  	SettingEntry(&_settings_construction_page, STR_CONFIG_SETTING_CONSTRUCTION),
  	SettingEntry(&_settings_vehicles_page,     STR_CONFIG_SETTING_VEHICLES),
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/settings_type.h b/settings_type.h
---- a/settings_type.h	2010-04-03 22:19:26.000000000 +0200
-+++ b/settings_type.h	2026-07-22 22:30:33.180914600 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/settings_type.h b/settings_type.h
+--- a/settings_type.h	2026-07-23 16:51:19.742227100 +0200
++++ b/settings_type.h	2026-07-23 16:51:29.235061800 +0200
 @@ -392,11 +392,39 @@
  	LocaleSettings       locale;             ///< settings related to used currency/unit system in the current game
  };
@@ -17700,9 +17806,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  };
  
  /** The current settings for this game. */
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/sound.cpp b/sound.cpp
---- a/sound.cpp	2010-02-24 00:26:37.000000000 +0100
-+++ b/sound.cpp	2026-07-21 10:40:22.359575100 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/sound.cpp b/sound.cpp
+--- a/sound.cpp	2026-07-23 16:51:04.059193600 +0200
++++ b/sound.cpp	2026-07-23 16:51:21.994485600 +0200
 @@ -168,6 +168,9 @@
  	/* Empty sound? */
  	if (sound->rate == 0) return;
@@ -17713,9 +17819,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	MixerChannel *mc = MxAllocateChannel();
  	if (mc == NULL) return;
  
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/spritecache.cpp b/spritecache.cpp
---- a/spritecache.cpp	2010-01-15 17:41:15.000000000 +0100
-+++ b/spritecache.cpp	2026-07-21 17:34:18.210586800 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/spritecache.cpp b/spritecache.cpp
+--- a/spritecache.cpp	2026-07-23 16:51:05.171029800 +0200
++++ b/spritecache.cpp	2026-07-23 16:51:32.934673900 +0200
 @@ -21,6 +21,24 @@
  
  #include "table/sprites.h"
@@ -17827,9 +17933,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	sc->ptr = BlitterFactoryBase::GetCurrentBlitter()->Encode(&sprite, &AllocSprite);
  
  	return sc->ptr;
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/string_func.h b/string_func.h
---- a/string_func.h	2010-10-27 22:15:18.000000000 +0200
-+++ b/string_func.h	2026-07-19 11:14:58.380076000 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/string_func.h b/string_func.h
+--- a/string_func.h	2026-07-23 16:51:05.302928700 +0200
++++ b/string_func.h	2026-07-23 16:51:25.537792000 +0200
 @@ -282,7 +282,10 @@
  #endif /* strndup is available */
  
@@ -17842,9 +17948,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  #	undef DEFINE_STRCASESTR
  #else
  #	define DEFINE_STRCASESTR
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/strings.cpp b/strings.cpp
---- a/strings.cpp	2010-10-27 22:17:45.000000000 +0200
-+++ b/strings.cpp	2026-07-21 15:16:52.767277500 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/strings.cpp b/strings.cpp
+--- a/strings.cpp	2026-07-23 16:51:07.341783800 +0200
++++ b/strings.cpp	2026-07-23 16:51:33.027170200 +0200
 @@ -1242,9 +1242,25 @@
  	/* resolution size? */
  	if (IsInsideMM(ind, (SPECSTR_RESOLUTION_START - 0x70E4), (SPECSTR_RESOLUTION_END - 0x70E4) + 1)) {
@@ -17871,9 +17977,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  		return buff;
  	}
  
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/table/settings.h b/table/settings.h
---- a/table/settings.h	2010-11-14 10:27:20.000000000 +0100
-+++ b/table/settings.h	2026-07-22 22:40:48.511563500 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/table/settings.h b/table/settings.h
+--- a/table/settings.h	2026-07-23 16:51:09.549316800 +0200
++++ b/table/settings.h	2026-07-23 16:51:27.306738900 +0200
 @@ -36,6 +36,9 @@
  static bool ChangeDynamicEngines(int32 p1);
  static bool StationCatchmentChanged(int32 p1);
@@ -17953,9 +18059,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	SDT_END()
  };
  
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/tgp.cpp b/tgp.cpp
---- a/tgp.cpp	2009-12-20 15:18:22.000000000 +0100
-+++ b/tgp.cpp	2026-07-20 23:30:02.322170600 +0200
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/tgp.cpp b/tgp.cpp
+--- a/tgp.cpp	2026-07-23 16:51:09.469520300 +0200
++++ b/tgp.cpp	2026-07-23 16:51:26.403334600 +0200
 @@ -669,6 +669,10 @@
  		if (water_tiles >= desired_water_tiles) break;
  	}
@@ -18086,9 +18192,9 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  	FreeHeightMap();
  	GenerateWorldSetAbortCallback(NULL);
  }
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/video/amiga_ehb_data.h b/video/amiga_ehb_data.h
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/video/amiga_ehb_data.h b/video/amiga_ehb_data.h
 --- a/video/amiga_ehb_data.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/amiga_ehb_data.h	2026-07-21 17:25:06.894178300 +0200
++++ b/video/amiga_ehb_data.h	2026-07-23 16:51:29.669828700 +0200
 @@ -0,0 +1,83 @@
 +/* Generated by tools/gen_ehb_data.py from the "sat20" EHB assets
 + * (saturation x1.2).  DO NOT EDIT BY HAND - re-run the generator.
@@ -18173,1022 +18279,52 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
 +
 +#endif /* AMIGA_EHB_DATA_DEFINED */
 +#endif /* AMIGA_EHB_DATA_DEFINE */
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/video/cgx-include/clib/cybergraphics_protos.h b/video/cgx-include/clib/cybergraphics_protos.h
---- a/video/cgx-include/clib/cybergraphics_protos.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/cgx-include/clib/cybergraphics_protos.h	2026-07-21 15:10:18.493591700 +0200
-@@ -0,0 +1,53 @@
-+/*
-+**	$VER: cybergraphics_protos.h 41.18 (21.02.1998)
-+**
-+**	C prototypes for cybergraphics.library
-+**
-+**	Copyright © 1996-1998 by phase5 digital products
-+**      All Rights reserved.
-+**
-+*/
-+
-+#ifndef CLIB_CYBERGRAPHICS_H
-+#define CLIB_CYBERGRAPHICS_H 1
-+
-+#ifndef UTILITY_TAGITEM_H
-+#include <utility/tagitem.h>
-+#endif
-+
-+struct List *AllocCModeListTagList(struct TagItem *);
-+struct List *AllocCModeListTags(Tag, ...);
-+ULONG        BestCModeIDTagList(struct TagItem *);
-+ULONG        BestCModeIDTags(Tag, ...);
-+ULONG        CModeRequestTagList(APTR, struct TagItem *);
-+ULONG        CModeRequestTags(APTR, Tag, ...);
-+void         CVideoCtrlTagList(struct ViewPort *, struct TagItem *);
-+void         CVideoCtrlTags(struct ViewPort *, Tag tag1, ...);
-+void         DoCDrawMethodTagList(struct Hook *, struct RastPort *, struct TagItem *);
-+void         DoCDrawMethodTags(struct Hook *, struct RastPort *, Tag, ...);
-+ULONG	     ExtractColor(struct RastPort *,struct BitMap *,ULONG,ULONG,ULONG,ULONG,ULONG);
-+ULONG        FillPixelArray(struct RastPort *, UWORD, UWORD, UWORD, UWORD, ULONG);
-+void         FreeCModeList(struct List *);
-+ULONG        GetCyberIDAttr(ULONG, ULONG);
-+ULONG        GetCyberMapAttr(struct BitMap *, ULONG);
-+ULONG        InvertPixelArray(struct RastPort *, UWORD, UWORD, UWORD, UWORD);
-+BOOL         IsCyberModeID(ULONG);
-+APTR         LockBitMapTagList(APTR,struct TagItem *);
-+APTR         LockBitMapTags(APTR, Tag, ...);
-+ULONG        MovePixelArray(UWORD, UWORD, struct RastPort *, UWORD, UWORD, UWORD,
-+                            UWORD);
-+ULONG        ReadPixelArray(APTR, UWORD, UWORD, UWORD, struct RastPort *, UWORD,
-+                            UWORD, UWORD, UWORD, UBYTE);
-+ULONG        ReadRGBPixel(struct RastPort *, UWORD, UWORD);
-+LONG         ScalePixelArray(APTR,UWORD,UWORD,UWORD,struct RastPort *,UWORD,
-+			     UWORD,UWORD,UWORD,UBYTE);
-+void         UnLockBitMap(APTR);
-+ULONG        WritePixelArray(APTR, UWORD, UWORD, UWORD, struct RastPort *, UWORD,
-+                             UWORD, UWORD, UWORD, UBYTE);
-+ULONG        WriteLUTPixelArray(APTR, UWORD, UWORD, UWORD, struct RastPort *, APTR,
-+			        UWORD, UWORD, UWORD, UWORD, UBYTE);
-+LONG         WriteRGBPixel(struct RastPort *, UWORD, UWORD, ULONG);
-+void         UnLockBitMapTagList(APTR, struct TagItem *);
-+void         UnLockBitMapTags(APTR, Tag, ...);
-+
-+#endif /* !CLIB_CYBERGRAPHICS_H */
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/video/cgx-include/cybergraphx/cybergraphics.h b/video/cgx-include/cybergraphx/cybergraphics.h
---- a/video/cgx-include/cybergraphx/cybergraphics.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/cgx-include/cybergraphx/cybergraphics.h	2026-07-21 15:10:18.501215800 +0200
-@@ -0,0 +1,202 @@
-+/*
-+**	$VER: cybergraphics.h 41.18 (21.02.1998)
-+**
-+**	include file for cybergraphics.library
-+**
-+**	Copyright © 1996-1998 by phase5 digital products
-+**      All Rights reserved.
-+**
-+*/
-+
-+#ifndef CYBERGRAPHX_CYBERGRAPHICS_H
-+#define CYBERGRAPHX_CYBERGRAPHICS_H 1
-+
-+#ifndef UTILITY_TAGITEM_H
-+#include <utility/tagitem.h>
-+#endif
-+
-+#ifndef GRAPHICS_DISPLAYINFO_H
-+#include <graphics/displayinfo.h>
-+#endif
-+
-+
-+#define CYBERGFXNAME	"cybergraphics.library"
-+#define CYBERGFX_INCLUDE_VERSION  (41UL)
-+
-+/*                                                          *
-+ *  Definition of CyberModeNode (Returned in AllocModeList) *
-+ *                                                          */
-+
-+struct CyberModeNode
-+ {
-+  struct Node Node;
-+  char   ModeText[DISPLAYNAMELEN];	/* name for this mode */
-+  ULONG  DisplayID;			/* display id associated with the node */
-+  UWORD  Width;				/* visible width */
-+  UWORD  Height;			/* visible height */
-+  UWORD  Depth;				/* display depth */
-+  struct TagItem *DisplayTagList;	/* taglist with extended ModeID information */
-+ };
-+
-+
-+/*                                  *
-+ * Parameters for GetCyberMapAttr() *
-+ *                                  */
-+
-+#define CYBRMATTR_XMOD        (0x80000001) /* function returns BytesPerRow if its called with this parameter */
-+#define CYBRMATTR_BPPIX       (0x80000002) /* BytesPerPixel shall be returned */
-+#define CYBRMATTR_DISPADR     (0x80000003) /* do not use this ! private tag */
-+#define CYBRMATTR_PIXFMT      (0x80000004) /* the pixel format is returned */
-+#define CYBRMATTR_WIDTH       (0x80000005) /* returns width in pixels */
-+#define CYBRMATTR_HEIGHT      (0x80000006) /* returns height in lines */
-+#define CYBRMATTR_DEPTH       (0x80000007) /* returns bits per pixel */
-+#define CYBRMATTR_ISCYBERGFX  (0x80000008) /* returns -1 if supplied bitmap is a cybergfx one */
-+#define CYBRMATTR_ISLINEARMEM (0x80000009) /* returns -1 if supplied bitmap is linear accessable */
-+
-+/*                                 *
-+ * Parameters for GetCyberIDAttr() *
-+ *                                 */
-+
-+#define CYBRIDATTR_PIXFMT (0x80000001) /* the pixel format is returned */
-+#define CYBRIDATTR_WIDTH  (0x80000002) /* returns visible width in pixels */
-+#define CYBRIDATTR_HEIGHT (0x80000003) /* returns visible height in lines */
-+#define CYBRIDATTR_DEPTH  (0x80000004) /* returns bits per pixel */
-+#define CYBRIDATTR_BPPIX  (0x80000005) /* BytesPerPixel shall be returned */
-+
-+/*                              *
-+ * Tags for CyberModeRequest()  *
-+ *                              */
-+
-+#define CYBRMREQ_TB          (TAG_USER+0x40000)
-+
-+/*            *
-+ * FilterTags *
-+ *            */
-+
-+#define CYBRMREQ_MinDepth    (CYBRMREQ_TB+0)  /* Minimum depth for displayed screenmode */
-+#define CYBRMREQ_MaxDepth    (CYBRMREQ_TB+1)  /* Maximum depth  "       "        " */
-+#define CYBRMREQ_MinWidth    (CYBRMREQ_TB+2)  /* Minumum width  "       "        " */
-+#define CYBRMREQ_MaxWidth    (CYBRMREQ_TB+3)  /* Maximum width  "       "        " */
-+#define CYBRMREQ_MinHeight   (CYBRMREQ_TB+4)  /* Minumum height "       "        " */
-+#define CYBRMREQ_MaxHeight   (CYBRMREQ_TB+5)  /* Minumum height "       "        " */
-+#define CYBRMREQ_CModelArray (CYBRMREQ_TB+6)
-+
-+#define CYBRMREQ_WinTitle    (CYBRMREQ_TB+20)
-+#define CYBRMREQ_OKText      (CYBRMREQ_TB+21)
-+#define CYBRMREQ_CancelText  (CYBRMREQ_TB+22)
-+
-+#define CYBRMREQ_Screen      (CYBRMREQ_TB+30)  /* Screen you wish the Requester to open on */
-+
-+/*                            *
-+ * Tags for BestCyberModeID() *
-+ *                            */
-+
-+#define CYBRBIDTG_TB  (TAG_USER+0x50000)
-+
-+/* FilterTags */
-+
-+#define CYBRBIDTG_Depth         (CYBRBIDTG_TB+0)
-+#define CYBRBIDTG_NominalWidth  (CYBRBIDTG_TB+1)
-+#define CYBRBIDTG_NominalHeight (CYBRBIDTG_TB+2)
-+#define CYBRBIDTG_MonitorID     (CYBRBIDTG_TB+3)
-+#define CYBRBIDTG_BoardName     (CYBRBIDTG_TB+5)
-+
-+/*                                    *
-+ * definition of divers pixel formats *
-+ *                                    */
-+
-+#define PIXFMT_LUT8	(0UL)
-+#define PIXFMT_RGB15	(1UL)
-+#define PIXFMT_BGR15	(2UL)
-+#define PIXFMT_RGB15PC	(3UL)
-+#define PIXFMT_BGR15PC	(4UL)
-+#define PIXFMT_RGB16	(5UL)
-+#define PIXFMT_BGR16	(6UL)
-+#define PIXFMT_RGB16PC	(7UL)
-+#define PIXFMT_BGR16PC	(8UL)
-+#define PIXFMT_RGB24	(9UL)
-+#define PIXFMT_BGR24	(10UL)
-+#define PIXFMT_ARGB32	(11UL)
-+#define PIXFMT_BGRA32	(12UL)
-+#define PIXFMT_RGBA32	(13UL)
-+
-+/*                                                        *
-+ * SrcRectangle formats defines for xxxPixelArray calls() * 
-+ *                                                        */
-+
-+#define RECTFMT_RGB	(0UL)
-+#define RECTFMT_RGBA	(1UL)
-+#define RECTFMT_ARGB	(2UL)
-+#define RECTFMT_LUT8	(3UL)
-+#define RECTFMT_GREY8	(4UL)
-+
-+/*                                    *
-+ * Parameters for CVideoCtrlTagList() *
-+ *                                    */
-+
-+#define SETVC_DPMSLevel  (0x88002001)
-+
-+#define DPMS_ON      (0UL)   /* Full operation                             */
-+#define DPMS_STANDBY (1UL)   /* Optional state of minimal power reduction  */
-+#define DPMS_SUSPEND (2UL)   /* Significant reduction of power consumption */
-+#define DPMS_OFF     (3UL)   /* Lowest level of power consumption          */
-+
-+/*                              *
-+ * Tags for LockBitMapTagList() *
-+ *                              */
-+
-+#define LBMI_WIDTH       (0x84001001)
-+#define LBMI_HEIGHT      (0x84001002)
-+#define LBMI_DEPTH       (0x84001003)
-+#define LBMI_PIXFMT      (0x84001004)
-+#define LBMI_BYTESPERPIX (0x84001005)
-+#define LBMI_BYTESPERROW (0x84001006)
-+#define LBMI_BASEADDRESS (0x84001007)
-+
-+/*                                *
-+ * Tags for UnLockBitMapTagList() *
-+ *                                */
-+
-+#define	UBMI_UPDATERECTS	(0x85001001)
-+#define	UBMI_REALLYUNLOCK	(0x85001002)
-+
-+
-+
-+/*								*
-+ * Message passed to the DoCDrawMethodTagList() hook function	*
-+ *								*/
-+
-+
-+struct  CDrawMsg
-+{
-+        APTR    cdm_MemPtr;
-+        ULONG   cdm_offx;
-+        ULONG   cdm_offy;
-+        ULONG   cdm_xsize;
-+        ULONG   cdm_ysize;
-+        UWORD   cdm_BytesPerRow;
-+        UWORD   cdm_BytesPerPix;
-+        UWORD   cdm_ColorModel;
-+};
-+
-+/*							*
-+ * Colour Table source formats for WriteLUTPixelArray()	*
-+ *							*/
-+
-+#define CTABFMT_XRGB8	(0UL)	/* ULONG [] table */
-+
-+
-+/*							*
-+ *	graphics.library/AllocBitMap() extended flags	*
-+ *							*/
-+
-+#ifndef BMB_SPECIALFMT
-+#define BMB_SPECIALFMT (7UL)
-+#define BMF_SPECIALFMT (1UL << BMB_SPECIALFMT)
-+#endif /* BMB_SPECIALFMT */
-+
-+#define SHIFT_PIXFMT( fmt ) (((ULONG)(fmt)) << 24UL)
-+
-+
-+
-+#endif  /* !CYBERGRAPHX_CYBERGRAPHICS_H */
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/video/cgx-include/inline/cybergraphics.h b/video/cgx-include/inline/cybergraphics.h
---- a/video/cgx-include/inline/cybergraphics.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/cgx-include/inline/cybergraphics.h	2026-07-21 15:10:18.507259400 +0200
-@@ -0,0 +1,485 @@
-+/*
-+ *   GCC interfaces for cybergraphics.library.
-+ *   Use it for generating lib files or for direct inclusion.
-+ *   Based on the output of 'FD2Inline' (12/04/95)
-+ *
-+ *   Reinhard Haslbeck
-+ *   (haslbeck@informatik.tu-muenchen.de)
-+*/
-+
-+#include <sys/cdefs.h>
-+#include <inline/stubs.h>
-+
-+#include <stdarg.h>
-+#include <libraries/cybergraphics.h>
-+__BEGIN_DECLS
-+
-+#ifndef BASE_EXT_DECL
-+#define BASE_EXT_DECL extern struct Library*  CyberGfxBase;
-+#endif
-+#ifndef BASE_PAR_DECL
-+#define BASE_PAR_DECL
-+#define BASE_PAR_DECL0 void
-+#endif
-+#ifndef BASE_NAME
-+#define BASE_NAME CyberGfxBase
-+#endif
-+
-+static __inline struct List  *AllocCModeTagList( BASE_PAR_DECL struct TagItem *  ModeListTags )
-+{
-+        BASE_EXT_DECL
-+        register unsigned long _res __asm("d0");
-+        register void *a6 __asm("a6");
-+        register struct TagItem * a1 __asm("a1");
-+
-+        a6 = BASE_NAME;
-+        a1 = ModeListTags;
-+        __asm __volatile ("jsr a6@(-0x48)"
-+        : "=r" (_res), "+r" (a1)
-+        : "r" (a6)
-+        : "d1", "a0", "cc", "memory");
-+        return (struct List *) _res;
-+}
-+#ifndef NO_INLINE_STDARG
-+#define AllocCModeListTags( tags...) \
-+  ({ struct TagItem _tags[] = { tags };  AllocCModeTagList( _tags ); })
-+#endif /* not NO_INLINE_STDARG */
-+
-+static __inline ULONG BestCModeIDTagList( BASE_PAR_DECL struct TagItem *  BestModeIDTags )
-+{
-+        BASE_EXT_DECL
-+        register unsigned long _res __asm("d0");
-+        register void *a6 __asm("a6");
-+        register struct TagItem * a0 __asm("a0");
-+
-+        a6 = BASE_NAME;
-+        a0 = BestModeIDTags;
-+        __asm __volatile ("jsr a6@(-0x3c)"
-+        : "=r" (_res), "+r" (a0)
-+        : "r" (a6)
-+        : "d1", "a1", "cc", "memory");
-+        return _res;
-+}
-+#ifndef NO_INLINE_STDARG
-+#define BestCModeIDTags( tags...) \
-+  ({ struct TagItem _tags[] = { tags }; BestCModeIDTagList ( _tags ); })
-+#endif /* not NO_INLINE_STDARG */
-+static __inline ULONG CModeRequestTagList( BASE_PAR_DECL APTR  ModeRequest, struct TagItem *  ModeRequestTags )
-+{
-+        BASE_EXT_DECL
-+        register unsigned long _res __asm("d0");
-+        register void *a6 __asm("a6");
-+        register APTR a0 __asm("a0");
-+        register struct TagItem * a1 __asm("a1");
-+
-+        a6 = BASE_NAME;
-+        a0 = ModeRequest;
-+        a1 = ModeRequestTags;
-+        __asm __volatile ("jsr a6@(-0x42)"
-+        : "=r" (_res), "+r" (a0), "+r" (a1)
-+        : "r" (a6)
-+        : "d1", "cc", "memory");
-+        return _res;
-+}
-+#ifndef NO_INLINE_STDARG
-+#define CModeRequestTags(a0, tags...) \
-+  ({ struct TagItem _tags[] = { tags }; CModeRequestTagList ((a0), _tags); })
-+#endif /* not NO_INLINE_STDARG */
-+
-+static __inline void CVideoCtrlTagList( BASE_PAR_DECL struct ViewPort *  ViewPort, struct TagItem *  TagList )
-+{
-+        BASE_EXT_DECL
-+        register void *a6 __asm("a6");
-+        register struct ViewPort * a0 __asm("a0");
-+        register struct TagItem * a1 __asm("a1");
-+
-+        a6 = BASE_NAME;
-+        a0 = ViewPort;
-+        a1 = TagList;
-+        __asm __volatile ("jsr a6@(-0xa2)"
-+        : "+r" (a0), "+r" (a1)
-+        : "r" (a6)
-+        : "d0", "d1", "cc", "memory");
-+}
-+#ifndef NO_INLINE_STDARG
-+#define CVideoCtrlTags(a0, tags...) \
-+  ({ struct TagItem _tags[] = { tags }; CVideoCtrlTagList ((a0), _tags); })
-+#endif /* not NO_INLINE_STDARG */
-+
-+static __inline void DoCDrawMethodTagList( BASE_PAR_DECL struct Hook *  Hook, struct RastPort *  RastPort, struct TagItem *  TagList )
-+{
-+        BASE_EXT_DECL
-+        register void *a6 __asm("a6");
-+        register struct Hook * a0 __asm("a0");
-+        register struct RastPort * a1 __asm("a1");
-+        register struct TagItem * a2 __asm("a2");
-+
-+        a6 = BASE_NAME;
-+        a0 = Hook;
-+        a1 = RastPort;
-+        a2 = TagList;
-+        __asm __volatile ("jsr a6@(-0x9c)"
-+        : "+r" (a0), "+r" (a1)
-+        : "r" (a6), "r" (a2)
-+        : "d0", "d1", "cc", "memory");
-+}
-+#ifndef NO_INLINE_STDARG
-+#define DoCDrawMethodTags(a0, a1, tags...) \
-+  ({ struct TagItem _tags[] = { tags }; DoCDrawMethodTagList ((a0), (a1), _tags); })
-+#endif /* not NO_INLINE_STDARG */
-+
-+static __inline ULONG FillPixelArray( BASE_PAR_DECL struct RastPort *  RastPort, UWORD  DestX, UWORD  DestY, UWORD  SizeX, UWORD  SizeY, ULONG  ARGB )
-+{
-+        BASE_EXT_DECL
-+        register unsigned long _res __asm("d0");
-+        register void *a6 __asm("a6");
-+        register struct RastPort * a1 __asm("a1");
-+        register UWORD d0 __asm("d0");
-+        register UWORD d1 __asm("d1");
-+        register UWORD d2 __asm("d2");
-+        register UWORD d3 __asm("d3");
-+        register ULONG d4 __asm("d4");
-+
-+        a6 = BASE_NAME;
-+        a1 = RastPort;
-+        d0 = DestX;
-+        d1 = DestY;
-+        d2 = SizeX;
-+        d3 = SizeY;
-+        d4 = ARGB;
-+        __asm __volatile ("jsr a6@(-0x96)"
-+        : "=r" (_res), "+r" (a1), "+r" (d1)
-+        : "r" (a6), "r" (d0), "r" (d2), "r" (d3), "r" (d4)
-+        : "a0", "cc", "memory");
-+        return _res;
-+}
-+static __inline void FreeCModeList( BASE_PAR_DECL struct List *  ModeList )
-+{
-+        BASE_EXT_DECL
-+        register void *a6 __asm("a6");
-+        register struct List * a0 __asm("a0");
-+
-+        a6 = BASE_NAME;
-+        a0 = ModeList;
-+        __asm __volatile ("jsr a6@(-0x4e)"
-+        : "+r" (a0)
-+        : "r" (a6)
-+        : "d0", "d1", "a1", "cc", "memory");
-+}
-+static __inline ULONG GetCyberIDAttr( BASE_PAR_DECL ULONG  CyberIDAttr, ULONG  CyberDisplayModeID )
-+{
-+        BASE_EXT_DECL
-+        register unsigned long _res __asm("d0");
-+        register void *a6 __asm("a6");
-+        register ULONG d0 __asm("d0");
-+        register ULONG d1 __asm("d1");
-+
-+        a6 = BASE_NAME;
-+        d0 = CyberIDAttr;
-+        d1 = CyberDisplayModeID;
-+        __asm __volatile ("jsr a6@(-0x66)"
-+        : "=r" (_res), "+r" (d1)
-+        : "r" (a6), "r" (d0)
-+        : "a0", "a1", "cc", "memory");
-+        return _res;
-+}
-+static __inline ULONG GetCyberMapAttr( BASE_PAR_DECL struct BitMap *  CyberGfxBitmap, ULONG  CyberAttrTag )
-+{
-+        BASE_EXT_DECL
-+        register unsigned long _res __asm("d0");
-+        register void *a6 __asm("a6");
-+        register struct BitMap * a0 __asm("a0");
-+        register ULONG d0 __asm("d0");
-+
-+        a6 = BASE_NAME;
-+        a0 = CyberGfxBitmap;
-+        d0 = CyberAttrTag;
-+        __asm __volatile ("jsr a6@(-0x60)"
-+        : "=r" (_res), "+r" (a0)
-+        : "r" (a6), "r" (d0)
-+        : "d1", "a1", "cc", "memory");
-+        return _res;
-+}
-+static __inline ULONG InvertPixelArray( BASE_PAR_DECL struct RastPort *  RastPort, UWORD  DestX, UWORD  DestY, UWORD  SizeX, UWORD  SizeY )
-+{
-+        BASE_EXT_DECL
-+        register unsigned long _res __asm("d0");
-+        register void *a6 __asm("a6");
-+        register struct RastPort * a1 __asm("a1");
-+        register UWORD d0 __asm("d0");
-+        register UWORD d1 __asm("d1");
-+        register UWORD d2 __asm("d2");
-+        register UWORD d3 __asm("d3");
-+
-+        a6 = BASE_NAME;
-+        a1 = RastPort;
-+        d0 = DestX;
-+        d1 = DestY;
-+        d2 = SizeX;
-+        d3 = SizeY;
-+        __asm __volatile ("jsr a6@(-0x90)"
-+        : "=r" (_res), "+r" (a1), "+r" (d1)
-+        : "r" (a6), "r" (d0), "r" (d2), "r" (d3)
-+        : "a0", "cc", "memory");
-+        return _res;
-+}
-+static __inline BOOL IsCyberModeID( BASE_PAR_DECL ULONG  displayID )
-+{
-+        BASE_EXT_DECL
-+        register unsigned long _res __asm("d0");
-+        register void *a6 __asm("a6");
-+        register ULONG d0 __asm("d0");
-+
-+        a6 = BASE_NAME;
-+        d0 = displayID;
-+        __asm __volatile ("jsr a6@(-0x36)"
-+        : "=r" (_res)
-+        : "r" (a6), "r" (d0)
-+        : "d1", "a0", "a1", "cc", "memory");
-+        return _res;
-+}
-+static __inline APTR LockBitMapTagList( BASE_PAR_DECL APTR  BitMap, struct TagItem *  TagList )
-+{
-+        BASE_EXT_DECL
-+        register unsigned long _res __asm("d0");
-+        register void *a6 __asm("a6");
-+        register APTR a0 __asm("a0");
-+        register struct TagItem * a1 __asm("a1");
-+
-+        a6 = BASE_NAME;
-+        a0 = BitMap;
-+        a1 = TagList;
-+        __asm __volatile ("jsr a6@(-0xa8)"
-+        : "=r" (_res), "+r" (a0), "+r" (a1)
-+        : "r" (a6)
-+        : "d1", "cc", "memory");
-+        return (APTR) _res;
-+}
-+#ifndef NO_INLINE_STDARG
-+#define LockBitMapTags(a0, tags...) \
-+  ({ struct TagItem _tags[] = { tags }; LockBitMapTagList ((a0), _tags); })
-+#endif /* not NO_INLINE_STDARG */
-+
-+static __inline ULONG MovePixelArray( BASE_PAR_DECL UWORD  SrcX, UWORD  SrcY, struct RastPort *  RastPort, UWORD  DestX, UWORD  DestY, UWORD  SizeX, UWORD  SizeY )
-+{
-+        BASE_EXT_DECL
-+        register unsigned long _res __asm("d0");
-+        register void *a6 __asm("a6");
-+        register UWORD d0 __asm("d0");
-+        register UWORD d1 __asm("d1");
-+        register struct RastPort * a1 __asm("a1");
-+        register UWORD d2 __asm("d2");
-+        register UWORD d3 __asm("d3");
-+        register UWORD d4 __asm("d4");
-+        register UWORD d5 __asm("d5");
-+
-+        a6 = BASE_NAME;
-+        d0 = SrcX;
-+        d1 = SrcY;
-+        a1 = RastPort;
-+        d2 = DestX;
-+        d3 = DestY;
-+        d4 = SizeX;
-+        d5 = SizeY;
-+        __asm __volatile ("jsr a6@(-0x84)"
-+        : "=r" (_res), "+r" (d1), "+r" (a1)
-+        : "r" (a6), "r" (d0), "r" (d2), "r" (d3), "r" (d4), "r" (d5)
-+        : "a0", "cc", "memory");
-+        return _res;
-+}
-+static __inline ULONG ReadPixelArray( BASE_PAR_DECL APTR  destRect, UWORD  destX, UWORD  destY, UWORD  destMod, struct RastPort *  RastPort, UWORD  SrcX, UWORD  SrcY, UWORD  SizeX, UWORD  SizeY, UBYTE  DestFormat )
-+{
-+        BASE_EXT_DECL
-+        register unsigned long _res __asm("d0");
-+        register void *a6 __asm("a6");
-+        register APTR a0 __asm("a0");
-+        register UWORD d0 __asm("d0");
-+        register UWORD d1 __asm("d1");
-+        register UWORD d2 __asm("d2");
-+        register struct RastPort * a1 __asm("a1");
-+        register UWORD d3 __asm("d3");
-+        register UWORD d4 __asm("d4");
-+        register UWORD d5 __asm("d5");
-+        register UWORD d6 __asm("d6");
-+        register UBYTE d7 __asm("d7");
-+
-+        a6 = BASE_NAME;
-+        a0 = destRect;
-+        d0 = destX;
-+        d1 = destY;
-+        d2 = destMod;
-+        a1 = RastPort;
-+        d3 = SrcX;
-+        d4 = SrcY;
-+        d5 = SizeX;
-+        d6 = SizeY;
-+        d7 = DestFormat;
-+        __asm __volatile ("jsr a6@(-0x78)"
-+        : "=r" (_res), "+r" (a0), "+r" (d1), "+r" (a1)
-+        : "r" (a6), "r" (d0), "r" (d2), "r" (d3), "r" (d4), "r" (d5), "r" (d6), "r" (d7)
-+        : "cc", "memory");
-+        return _res;
-+}
-+static __inline ULONG ReadRGBPixel( BASE_PAR_DECL struct RastPort *  RastPort, UWORD  x, UWORD  y )
-+{
-+        BASE_EXT_DECL
-+        register unsigned long _res __asm("d0");
-+        register void *a6 __asm("a6");
-+        register struct RastPort * a1 __asm("a1");
-+        register UWORD d0 __asm("d0");
-+        register UWORD d1 __asm("d1");
-+
-+        a6 = BASE_NAME;
-+        a1 = RastPort;
-+        d0 = x;
-+        d1 = y;
-+        __asm __volatile ("jsr a6@(-0x6c)"
-+        : "=r" (_res), "+r" (a1), "+r" (d1)
-+        : "r" (a6), "r" (d0)
-+        : "a0", "cc", "memory");
-+        return _res;
-+}
-+static __inline LONG ScalePixelArray( BASE_PAR_DECL APTR  srcRect, UWORD  SrcW, UWORD  SrcH, UWORD  SrcMod, struct RastPort *  RastPort, UWORD  DestX, UWORD  DestY, UWORD  DestW, UWORD  DestH, UBYTE  SrcFormat )
-+{
-+        BASE_EXT_DECL
-+        register unsigned long _res __asm("d0");
-+        register void *a6 __asm("a6");
-+        register APTR a0 __asm("a0");
-+        register UWORD d0 __asm("d0");
-+        register UWORD d1 __asm("d1");
-+        register UWORD d2 __asm("d2");
-+        register struct RastPort * a1 __asm("a1");
-+        register UWORD d3 __asm("d3");
-+        register UWORD d4 __asm("d4");
-+        register UWORD d5 __asm("d5");
-+        register UWORD d6 __asm("d6");
-+        register UBYTE d7 __asm("d7");
-+
-+        a6 = BASE_NAME;
-+        a0 = srcRect;
-+        d0 = SrcW;
-+        d1 = SrcH;
-+        d2 = SrcMod;
-+        a1 = RastPort;
-+        d3 = DestX;
-+        d4 = DestY;
-+        d5 = DestW;
-+        d6 = DestH;
-+        d7 = SrcFormat;
-+        __asm __volatile ("jsr a6@(-0x5a)"
-+        : "=r" (_res), "+r" (a0), "+r" (d1), "+r" (a1)
-+        : "r" (a6), "r" (d0), "r" (d2), "r" (d3), "r" (d4), "r" (d5), "r" (d6), "r" (d7)
-+        : "cc", "memory");
-+        return _res;
-+}
-+static __inline void UnLockBitMap( BASE_PAR_DECL APTR  Handle )
-+{
-+        BASE_EXT_DECL
-+        register void *a6 __asm("a6");
-+        register APTR a0 __asm("a0");
-+
-+        a6 = BASE_NAME;
-+        a0 = Handle;
-+        __asm __volatile ("jsr a6@(-0xae)"
-+        : "+r" (a0)
-+        : "r" (a6)
-+        : "d0", "d1", "a1", "cc", "memory");
-+}
-+static __inline ULONG WritePixelArray( BASE_PAR_DECL APTR  srcRect, UWORD  SrcX, UWORD  SrcY, UWORD  SrcMod, struct RastPort *  RastPort, UWORD  DestX, UWORD  DestY, UWORD  SizeX, UWORD  SizeY, UBYTE  SrcFormat )
-+{
-+        BASE_EXT_DECL
-+        register unsigned long _res __asm("d0");
-+        register void *a6 __asm("a6");
-+        register APTR a0 __asm("a0");
-+        register UWORD d0 __asm("d0");
-+        register UWORD d1 __asm("d1");
-+        register UWORD d2 __asm("d2");
-+        register struct RastPort * a1 __asm("a1");
-+        register UWORD d3 __asm("d3");
-+        register UWORD d4 __asm("d4");
-+        register UWORD d5 __asm("d5");
-+        register UWORD d6 __asm("d6");
-+        register UBYTE d7 __asm("d7");
-+
-+        a6 = BASE_NAME;
-+        a0 = srcRect;
-+        d0 = SrcX;
-+        d1 = SrcY;
-+        d2 = SrcMod;
-+        a1 = RastPort;
-+        d3 = DestX;
-+        d4 = DestY;
-+        d5 = SizeX;
-+        d6 = SizeY;
-+        d7 = SrcFormat;
-+        __asm __volatile ("jsr a6@(-0x7e)"
-+        : "=r" (_res), "+r" (a0), "+r" (d1), "+r" (a1)
-+        : "r" (a6), "r" (d0), "r" (d2), "r" (d3), "r" (d4), "r" (d5), "r" (d6), "r" (d7)
-+        : "cc", "memory");
-+        return _res;
-+}
-+static __inline LONG WriteRGBPixel( BASE_PAR_DECL struct RastPort *  RastPort, UWORD  x, UWORD  y, ULONG  argb )
-+{
-+        BASE_EXT_DECL
-+        register unsigned long _res __asm("d0");
-+        register void *a6 __asm("a6");
-+        register struct RastPort * a1 __asm("a1");
-+        register UWORD d0 __asm("d0");
-+        register UWORD d1 __asm("d1");
-+        register ULONG d2 __asm("d2");
-+
-+        a6 = BASE_NAME;
-+        a1 = RastPort;
-+        d0 = x;
-+        d1 = y;
-+        d2 = argb;
-+        __asm __volatile ("jsr a6@(-0x72)"
-+        : "=r" (_res), "+r" (a1), "+r" (d1)
-+        : "r" (a6), "r" (d0), "r" (d2)
-+        : "a0", "cc", "memory");
-+        return _res;
-+}
-+
-+static __inline ULONG WriteLUTPixelArray( BASE_PAR_DECL APTR  srcRect, UWORD  SrcX, UWORD  SrcY, UWORD  SrcMod, struct RastPort *  RastPort, APTR  CTable, UWORD  DestX, UWORD  DestY, UWORD  SizeX, UWORD  SizeY, UBYTE  CTFormat )
-+{
-+        BASE_EXT_DECL
-+        register unsigned long _res __asm("d0");
-+        register void *a6 __asm("a6");
-+        register APTR a0 __asm("a0");
-+        register UWORD d0 __asm("d0");
-+        register UWORD d1 __asm("d1");
-+        register UWORD d2 __asm("d2");
-+        register struct RastPort * a1 __asm("a1");
-+        register APTR a2 __asm("a2");
-+        register UWORD d3 __asm("d3");
-+        register UWORD d4 __asm("d4");
-+        register UWORD d5 __asm("d5");
-+        register UWORD d6 __asm("d6");
-+        register UBYTE d7 __asm("d7");
-+
-+        a6 = BASE_NAME;
-+        a0 = srcRect;
-+        d0 = SrcX;
-+        d1 = SrcY;
-+        d2 = SrcMod;
-+        a1 = RastPort;
-+        a2 = CTable;
-+        d3 = DestX;
-+        d4 = DestY;
-+        d5 = SizeX;
-+        d6 = SizeY;
-+        d7 = CTFormat;
-+        __asm __volatile ("jsr a6@(-0xc6)"
-+        : "=r" (_res), "+r" (a0), "+r" (d1), "+r" (a1)
-+        : "r" (a6), "r" (d0), "r" (d2), "r" (a2), "r" (d3), "r" (d4), "r" (d5), "r" (d6), "r" (d7)
-+        : "cc", "memory");
-+        return _res;
-+}
-+
-+#undef BASE_EXT_DECL
-+#undef BASE_PAR_DECL
-+#undef BASE_PAR_DECL0
-+#undef BASE_NAME
-+
-+__END_DECLS
-+
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/video/cgx-include/libraries/cybergraphics.h b/video/cgx-include/libraries/cybergraphics.h
---- a/video/cgx-include/libraries/cybergraphics.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/cgx-include/libraries/cybergraphics.h	2026-07-21 15:10:18.515071300 +0200
-@@ -0,0 +1,202 @@
-+/*
-+**	$VER: cybergraphics.h 41.18 (21.02.1998)
-+**
-+**	include file for cybergraphics.library
-+**
-+**	Copyright © 1996-1998 by phase5 digital products
-+**      All Rights reserved.
-+**
-+*/
-+
-+#ifndef CYBERGRAPHX_CYBERGRAPHICS_H
-+#define CYBERGRAPHX_CYBERGRAPHICS_H 1
-+
-+#ifndef UTILITY_TAGITEM_H
-+#include <utility/tagitem.h>
-+#endif
-+
-+#ifndef GRAPHICS_DISPLAYINFO_H
-+#include <graphics/displayinfo.h>
-+#endif
-+
-+
-+#define CYBERGFXNAME	"cybergraphics.library"
-+#define CYBERGFX_INCLUDE_VERSION  (41UL)
-+
-+/*                                                          *
-+ *  Definition of CyberModeNode (Returned in AllocModeList) *
-+ *                                                          */
-+
-+struct CyberModeNode
-+ {
-+  struct Node Node;
-+  char   ModeText[DISPLAYNAMELEN];	/* name for this mode */
-+  ULONG  DisplayID;			/* display id associated with the node */
-+  UWORD  Width;				/* visible width */
-+  UWORD  Height;			/* visible height */
-+  UWORD  Depth;				/* display depth */
-+  struct TagItem *DisplayTagList;	/* taglist with extended ModeID information */
-+ };
-+
-+
-+/*                                  *
-+ * Parameters for GetCyberMapAttr() *
-+ *                                  */
-+
-+#define CYBRMATTR_XMOD        (0x80000001) /* function returns BytesPerRow if its called with this parameter */
-+#define CYBRMATTR_BPPIX       (0x80000002) /* BytesPerPixel shall be returned */
-+#define CYBRMATTR_DISPADR     (0x80000003) /* do not use this ! private tag */
-+#define CYBRMATTR_PIXFMT      (0x80000004) /* the pixel format is returned */
-+#define CYBRMATTR_WIDTH       (0x80000005) /* returns width in pixels */
-+#define CYBRMATTR_HEIGHT      (0x80000006) /* returns height in lines */
-+#define CYBRMATTR_DEPTH       (0x80000007) /* returns bits per pixel */
-+#define CYBRMATTR_ISCYBERGFX  (0x80000008) /* returns -1 if supplied bitmap is a cybergfx one */
-+#define CYBRMATTR_ISLINEARMEM (0x80000009) /* returns -1 if supplied bitmap is linear accessable */
-+
-+/*                                 *
-+ * Parameters for GetCyberIDAttr() *
-+ *                                 */
-+
-+#define CYBRIDATTR_PIXFMT (0x80000001) /* the pixel format is returned */
-+#define CYBRIDATTR_WIDTH  (0x80000002) /* returns visible width in pixels */
-+#define CYBRIDATTR_HEIGHT (0x80000003) /* returns visible height in lines */
-+#define CYBRIDATTR_DEPTH  (0x80000004) /* returns bits per pixel */
-+#define CYBRIDATTR_BPPIX  (0x80000005) /* BytesPerPixel shall be returned */
-+
-+/*                              *
-+ * Tags for CyberModeRequest()  *
-+ *                              */
-+
-+#define CYBRMREQ_TB          (TAG_USER+0x40000)
-+
-+/*            *
-+ * FilterTags *
-+ *            */
-+
-+#define CYBRMREQ_MinDepth    (CYBRMREQ_TB+0)  /* Minimum depth for displayed screenmode */
-+#define CYBRMREQ_MaxDepth    (CYBRMREQ_TB+1)  /* Maximum depth  "       "        " */
-+#define CYBRMREQ_MinWidth    (CYBRMREQ_TB+2)  /* Minumum width  "       "        " */
-+#define CYBRMREQ_MaxWidth    (CYBRMREQ_TB+3)  /* Maximum width  "       "        " */
-+#define CYBRMREQ_MinHeight   (CYBRMREQ_TB+4)  /* Minumum height "       "        " */
-+#define CYBRMREQ_MaxHeight   (CYBRMREQ_TB+5)  /* Minumum height "       "        " */
-+#define CYBRMREQ_CModelArray (CYBRMREQ_TB+6)
-+
-+#define CYBRMREQ_WinTitle    (CYBRMREQ_TB+20)
-+#define CYBRMREQ_OKText      (CYBRMREQ_TB+21)
-+#define CYBRMREQ_CancelText  (CYBRMREQ_TB+22)
-+
-+#define CYBRMREQ_Screen      (CYBRMREQ_TB+30)  /* Screen you wish the Requester to open on */
-+
-+/*                            *
-+ * Tags for BestCyberModeID() *
-+ *                            */
-+
-+#define CYBRBIDTG_TB  (TAG_USER+0x50000)
-+
-+/* FilterTags */
-+
-+#define CYBRBIDTG_Depth         (CYBRBIDTG_TB+0)
-+#define CYBRBIDTG_NominalWidth  (CYBRBIDTG_TB+1)
-+#define CYBRBIDTG_NominalHeight (CYBRBIDTG_TB+2)
-+#define CYBRBIDTG_MonitorID     (CYBRBIDTG_TB+3)
-+#define CYBRBIDTG_BoardName     (CYBRBIDTG_TB+5)
-+
-+/*                                    *
-+ * definition of divers pixel formats *
-+ *                                    */
-+
-+#define PIXFMT_LUT8	(0UL)
-+#define PIXFMT_RGB15	(1UL)
-+#define PIXFMT_BGR15	(2UL)
-+#define PIXFMT_RGB15PC	(3UL)
-+#define PIXFMT_BGR15PC	(4UL)
-+#define PIXFMT_RGB16	(5UL)
-+#define PIXFMT_BGR16	(6UL)
-+#define PIXFMT_RGB16PC	(7UL)
-+#define PIXFMT_BGR16PC	(8UL)
-+#define PIXFMT_RGB24	(9UL)
-+#define PIXFMT_BGR24	(10UL)
-+#define PIXFMT_ARGB32	(11UL)
-+#define PIXFMT_BGRA32	(12UL)
-+#define PIXFMT_RGBA32	(13UL)
-+
-+/*                                                        *
-+ * SrcRectangle formats defines for xxxPixelArray calls() * 
-+ *                                                        */
-+
-+#define RECTFMT_RGB	(0UL)
-+#define RECTFMT_RGBA	(1UL)
-+#define RECTFMT_ARGB	(2UL)
-+#define RECTFMT_LUT8	(3UL)
-+#define RECTFMT_GREY8	(4UL)
-+
-+/*                                    *
-+ * Parameters for CVideoCtrlTagList() *
-+ *                                    */
-+
-+#define SETVC_DPMSLevel  (0x88002001)
-+
-+#define DPMS_ON      (0UL)   /* Full operation                             */
-+#define DPMS_STANDBY (1UL)   /* Optional state of minimal power reduction  */
-+#define DPMS_SUSPEND (2UL)   /* Significant reduction of power consumption */
-+#define DPMS_OFF     (3UL)   /* Lowest level of power consumption          */
-+
-+/*                              *
-+ * Tags for LockBitMapTagList() *
-+ *                              */
-+
-+#define LBMI_WIDTH       (0x84001001)
-+#define LBMI_HEIGHT      (0x84001002)
-+#define LBMI_DEPTH       (0x84001003)
-+#define LBMI_PIXFMT      (0x84001004)
-+#define LBMI_BYTESPERPIX (0x84001005)
-+#define LBMI_BYTESPERROW (0x84001006)
-+#define LBMI_BASEADDRESS (0x84001007)
-+
-+/*                                *
-+ * Tags for UnLockBitMapTagList() *
-+ *                                */
-+
-+#define	UBMI_UPDATERECTS	(0x85001001)
-+#define	UBMI_REALLYUNLOCK	(0x85001002)
-+
-+
-+
-+/*								*
-+ * Message passed to the DoCDrawMethodTagList() hook function	*
-+ *								*/
-+
-+
-+struct  CDrawMsg
-+{
-+        APTR    cdm_MemPtr;
-+        ULONG   cdm_offx;
-+        ULONG   cdm_offy;
-+        ULONG   cdm_xsize;
-+        ULONG   cdm_ysize;
-+        UWORD   cdm_BytesPerRow;
-+        UWORD   cdm_BytesPerPix;
-+        UWORD   cdm_ColorModel;
-+};
-+
-+/*							*
-+ * Colour Table source formats for WriteLUTPixelArray()	*
-+ *							*/
-+
-+#define CTABFMT_XRGB8	(0UL)	/* ULONG [] table */
-+
-+
-+/*							*
-+ *	graphics.library/AllocBitMap() extended flags	*
-+ *							*/
-+
-+#ifndef BMB_SPECIALFMT
-+#define BMB_SPECIALFMT (7UL)
-+#define BMF_SPECIALFMT (1UL << BMB_SPECIALFMT)
-+#endif /* BMB_SPECIALFMT */
-+
-+#define SHIFT_PIXFMT( fmt ) (((ULONG)(fmt)) << 24UL)
-+
-+
-+
-+#endif  /* !CYBERGRAPHX_CYBERGRAPHICS_H */
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/video/cgx-include/proto/cybergraphics.h b/video/cgx-include/proto/cybergraphics.h
---- a/video/cgx-include/proto/cybergraphics.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/video/cgx-include/proto/cybergraphics.h	2026-07-21 15:17:43.112394200 +0200
-@@ -0,0 +1,32 @@
-+#ifndef PROTO_CYBERGRAPHICS_H
-+#define PROTO_CYBERGRAPHICS_H
-+
-+/* Repaired for GCC. The 1995 CGX developer kit shipped this header including
-+ * BOTH <clib/cybergraphics_protos.h> and <inline/cybergraphics.h>, which is a
-+ * straight contradiction under GCC: clib declares every entry point as an
-+ * ordinary extern function, inline then defines the same names "static
-+ * __inline", and GCC rejects all 21 of them with "static declaration of X
-+ * follows non-static declaration". The real NDK proto headers pick one or the
-+ * other, and so do we - the inline stubs, because those are what actually
-+ * generate the register-argument library calls this target needs. clib is kept
-+ * for the non-GCC case only, which never happens here but costs nothing to
-+ * leave correct.
-+ *
-+ * The inline/ header in this directory is itself already a repaired copy: the
-+ * FD2Inline original lists d0 both as the "=r" output operand and in the
-+ * clobber list, and declares "register _res" with no type at all.
-+ */
-+
-+#include <exec/types.h>
-+
-+#ifndef __NOLIBBASE__
-+extern struct Library *CyberGfxBase;
-+#endif
-+
-+#ifdef __GNUC__
-+#include <inline/cybergraphics.h>
-+#else
-+#include <clib/cybergraphics_protos.h>
-+#endif
-+
-+#endif
-diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' a/window.cpp b/window.cpp
---- a/window.cpp	2010-10-27 22:17:45.000000000 +0200
-+++ b/window.cpp	2026-07-23 10:39:28.616755200 +0200
-@@ -356,6 +356,26 @@
+diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=c2p*.s' '--exclude=oldai*' '--exclude=rev.cpp' '--exclude=config.*' '--exclude=.depend' '--exclude=*.o' '--exclude=*.a' '--exclude=objs' '--exclude=cgx-include' a/window.cpp b/window.cpp
+--- a/window.cpp	2026-07-23 16:51:04.229460400 +0200
++++ b/window.cpp	2026-07-23 16:51:32.983359700 +0200
+@@ -356,6 +356,50 @@
  			nw->SetDirty(w);
  			return;
  
 +		/* Amiga usability: allow moving a window by grabbing any
-+		 * non-interactive part of its body, not just the caption bar.
-+		 * This lets windows that are taller than a small Amiga screen be
-+		 * pulled up so their off-screen confirm/OK buttons become
-+		 * reachable. Only background widget types with no index (index
-+		 * < 0, i.e. the window OnClick is not interested in them) start a
-+		 * drag; indexed or interactive widgets keep their normal
-+		 * behaviour, so real clicks are never lost. */
-+		case WWT_PANEL:
-+		case WWT_FRAME:
++		 * non-interactive part of its body, not just the caption bar, so a
++		 * window taller than a small Amiga screen can be pulled up until
++		 * its off-screen confirm/OK buttons become reachable. The drag
++		 * begins on the mouse PRESS, exactly like WWT_CAPTION: this handler
++		 * runs on the press edge (MC_LEFT), StartWindowDrag() sets
++		 * WF_DRAGGING, and HandleWindowDragging() then moves the window on
++		 * the following mouse motion.
++		 *
++		 * WWT_LABEL/WWT_TEXT/WWT_EMPTY/NWID_SPACER have no inherent click
++		 * action, so they start a drag even when they carry a widget index.
++		 * This is required for the Difficulty window, whose setting labels
++		 * are indexed WWT_TEXT that fill each row (SetFill) yet are never
++		 * handled by OnClick - with an index gate the body never dragged.
++		 * WWT_PANEL/WWT_FRAME can be genuine click targets (e.g. the
++		 * Advanced Settings options panel dispatches clicks via OnClick),
++		 * so they only start a drag when they have no index, i.e. the
++		 * window is not interested in them. Interactive widgets - buttons,
++		 * dropdowns, scrollbars, matrices, editboxes, resize/close/shade/
++		 * sticky - are handled by their own cases above and never reach
++		 * here, so real clicks are never converted into drags.
++		 *
++		 * A window can only be dragged if it actually owns a caption:
++		 * HandleWindowDragging() asserts the caption exists and reads its
++		 * rectangle, so starting a body-drag on a caption-less window
++		 * (tooltips, toolbars) would crash. Guard on that. */
 +		case WWT_LABEL:
 +		case WWT_TEXT:
 +		case WWT_EMPTY:
 +		case NWID_SPACER:
-+			if (widget_index < 0) {
++			if (w->nested_root->GetWidgetOfType(WWT_CAPTION) != NULL) {
++				StartWindowDrag(w);
++				return;
++			}
++			break;
++
++		case WWT_PANEL:
++		case WWT_FRAME:
++			if (widget_index < 0 && w->nested_root->GetWidgetOfType(WWT_CAPTION) != NULL) {
 +				StartWindowDrag(w);
 +				return;
 +			}
@@ -19197,3 +18333,23 @@ diff -ruN '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' 
  		default:
  			break;
  	}
+@@ -1615,7 +1659,18 @@
+ 
+ 			/* Make sure the window doesn't leave the screen */
+ 			nx = Clamp(nx, MIN_VISIBLE_TITLE_BAR - caption_rect.right, _screen.width - MIN_VISIBLE_TITLE_BAR - caption_rect.left);
+-			ny = Clamp(ny, 0, _screen.height - MIN_VISIBLE_TITLE_BAR);
++			/* Amiga usability: on a small lores screen a window can be taller
++			 * than the play area, so its bottom OK/confirm buttons sit off the
++			 * bottom edge. Allow the window top to be dragged to a negative Y
++			 * (its top slides up past the toolbar line and partly off-screen)
++			 * so a too-tall window's bottom can be brought into view. Keep it
++			 * recoverable: never let the top go so high that less than two
++			 * caption bars' worth of the window remains on screen, so there is
++			 * always grabbable body left to pull it back down. For a normal
++			 * window that fits, the lower bound stays 0 (min() keeps the
++			 * original behaviour). */
++			int min_ny = min(0, 2 * (caption_rect.bottom - caption_rect.top) - w->height);
++			ny = Clamp(ny, min_ny, _screen.height - MIN_VISIBLE_TITLE_BAR);
+ 
+ 			/* Make sure the title bar isn't hidden behind the main tool bar or the status bar. */
+ 			PreventHiding(&nx, &ny, caption_rect, FindWindowById(WC_MAIN_TOOLBAR, 0), w->left, PHD_DOWN);

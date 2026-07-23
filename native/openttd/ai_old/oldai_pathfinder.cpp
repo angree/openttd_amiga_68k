@@ -129,9 +129,9 @@ static bool PFNeighbour(TileIndex t, byte d, TileIndex *out)
 	return IsValidTile(*out);
 }
 
-/* CMD_LEVEL_LAND is corner based.  LevelStationFootprint executes it on seven
- * collinear tiles at each end: inner exit, five platform tiles, outer exit.
- * Their union is a 2x8 set of 16 corners.  Store exactly those future corner
+/* CMD_LEVEL_LAND is corner based.  LevelStationFootprint executes the 2x8
+ * corner rectangle belonging to seven collinear tiles at each end: inner exit,
+ * five platform tiles, outer exit.  Store exactly those 16 future corner
  * heights so every terrain read during the free plan sees the post-station map.
  *
  * OpenTTD stores TileHeight(tile) at the tile's north corner.  The other three
@@ -518,6 +518,17 @@ static bool PFEmitPreparation(const PFNode &n, RailStep *out, int *count, int ma
 	return PFEmit(out, count, max_out, RAILSTEP_LEVEL, n.tile, n.tile, n.height);
 }
 
+static TileIndex PFLevelEnd(TileIndex tile)
+{
+	return TileXY((int)TileX(tile) + 1, (int)TileY(tile) + 1);
+}
+
+static bool PFLevelPostcondition(TileIndex tile, int height)
+{
+	return (int)TileHeight(tile) == height &&
+			GetTileSlope(tile, NULL) == SLOPE_FLAT;
+}
+
 /* Preflight every command which can be meaningfully tested against the raw
  * map.  TRACK after LEVEL deliberately uses the model + slope tables: DC_NONE
  * would still see the old slope, which is the bug this planner is replacing. */
@@ -530,7 +541,11 @@ static bool PFPreflight(const RailStep *plan, int n)
 		if (s.kind == RAILSTEP_LEVEL) {
 			int delta = s.value - PFPostStationTileHeight(s.tile);
 			uint32 p2 = (uint32)(uint8)(int8)delta;
-			r = DoCommand(s.tile, s.tile, p2, DC_NONE, CMD_LEVEL_LAND);
+			/* CmdLevelLand addresses north-corner coordinates.  A flat route
+			 * tile therefore needs its full 2x2 corner rectangle, exactly as
+			 * the road planner's ROADSTEP_LEVEL already does. */
+			r = DoCommand(PFLevelEnd(s.tile), s.tile, p2,
+					DC_NONE, CMD_LEVEL_LAND);
 		} else if (s.kind == RAILSTEP_TRACK) {
 			bool follows_level = i > 0 && plan[i - 1].kind == RAILSTEP_LEVEL && plan[i - 1].tile == s.tile;
 			/* Raw DC_NONE cannot test a slope which exists only after station
@@ -544,9 +559,11 @@ static bool PFPreflight(const RailStep *plan, int n)
 			OLn("rail preflight bad kind ", (uint32)i);
 			return false;
 		}
-		/* Levelling a tile already at the target height returns
-		 * STR_ERROR_ALREADY_LEVELLED (2699) - that is success, not failure. */
-		if (r.Failed() && !(s.kind == RAILSTEP_LEVEL && r.GetErrorMessage() == 2699)) {
+		/* An already-flat level operation is satisfied, not a terrain failure. */
+		if (r.Failed() && !(s.kind == RAILSTEP_LEVEL &&
+				OldAICommandAlreadySatisfied(CMD_LEVEL_LAND,
+						r.GetErrorMessage()) &&
+				PFLevelPostcondition(s.tile, s.value))) {
 			OLn("rail preflight step ", (uint32)i);
 			OLn("rail preflight err ", (uint32)r.GetErrorMessage());
 			return false;
@@ -685,68 +702,94 @@ exhausted:
 	return true;
 }
 
-/* Remove constructed objects in reverse dependency order.  LEVEL steps are
- * intentionally not reversed: OpenTTD terrain is corner-based, so trying to
- * reconstruct old heights tile-by-tile could damage neighbouring property.
- * TRACK uses command id 3 in the 1.0.x table; bridge demolition uses generic
- * landscape clear (id 4) on its far head. */
-static bool PFRemoveBuiltStep(const RailStep &s, int index)
+/* Execute and remove plans one synchronized command at a time.  The loops still
+ * run to completion in one call in single-player because CcOldAI is immediate;
+ * networking returns WAIT at the first queued command and resumes at the saved
+ * cursor after its synchronized execution frame. */
+OldAIWorkResult RemoveRailPlan(OldAICompany *a, const RailStep *plan, int n)
 {
-	TileIndex tile;
-	uint32 p1, p2, cmd;
-	if (s.kind == RAILSTEP_LEVEL) return true;
-	if (s.kind == RAILSTEP_TRACK) {
-		if (!IsTileType(s.tile, MP_RAILWAY)) return true; /* already removed */
-		tile = s.tile;
-		p1 = 0;
-		p2 = (uint32)s.value;
-		cmd = CMD_REMOVE_SINGLE_RAIL;
-	} else if (s.kind == RAILSTEP_BRIDGE) {
-		if (!IsTileType(s.other, MP_TUNNELBRIDGE)) return true; /* already removed */
-		tile = s.other;
-		p1 = 0;
-		p2 = 0;
-		cmd = CMD_LANDSCAPE_CLEAR;
-	} else {
-		OLn("rail rollback bad kind ", (uint32)index);
-		return false;
-	}
+	if (plan == NULL || n < 0) return OAI_WORK_FAILED;
+	if (a->cleanup_cursor < 0) a->cleanup_cursor = n - 1;
 
-	CommandCost test = DoCommand(tile, p1, p2, DC_NONE, cmd);
-	if (test.Failed()) {
-		OLn("rail rollback step ", (uint32)index);
-		OLn("rail rollback test err ", (uint32)test.GetErrorMessage());
-		return false;
-	}
-	if (!DoCommandP(tile, p1, p2, cmd)) {
-		OLn("rail rollback real step ", (uint32)index);
-		return false;
-	}
-	return true;
-}
-
-static bool PFRollbackPrefix(const RailStep *plan, int built_prefix)
-{
-	bool ok = true;
-	for (int i = built_prefix - 1; i >= 0; i--) {
-		if (!PFRemoveBuiltStep(plan[i], i)) ok = false;
-	}
-	if (!ok) OL("rail rollback incomplete");
-	return ok;
-}
-
-bool RemoveRailPlan(const RailStep *plan, int n)
-{
-	if (plan == NULL || n < 0) return false;
-	return PFRollbackPrefix(plan, n);
-}
-
-bool ExecuteRailPlan(const RailStep *plan, int n)
-{
-	if (plan == NULL || n < 0) return false;
-	uint32 bridge_base = ((uint32)TRANSPORT_RAIL << 15) | (0u << 8);
-	for (int i = 0; i < n; i++) {
+	while (a->cleanup_cursor >= 0) {
+		int i = a->cleanup_cursor;
 		const RailStep &s = plan[i];
+		if (a->pending_op == OAOP_RAIL_PLAN_REMOVE) {
+			OldAIWorkResult wr = OldAICommand(a, OAOP_RAIL_PLAN_REMOVE,
+					a->pending_tile, a->pending_p1, a->pending_p2, a->pending_cmd);
+			if (wr != OAI_WORK_DONE) return wr;
+			a->cleanup_cursor--;
+			continue;
+		}
+		TileIndex tile;
+		uint32 p1, p2, cmd;
+		if (s.kind == RAILSTEP_LEVEL) {
+			a->cleanup_cursor--;
+			continue;
+		}
+		if (s.kind == RAILSTEP_TRACK) {
+			if (!IsTileType(s.tile, MP_RAILWAY)) {
+				a->cleanup_cursor--;
+				continue;
+			}
+			tile = s.tile; p1 = 0; p2 = (uint32)s.value; cmd = CMD_REMOVE_SINGLE_RAIL;
+		} else if (s.kind == RAILSTEP_BRIDGE) {
+			if (!IsTileType(s.other, MP_TUNNELBRIDGE)) {
+				a->cleanup_cursor--;
+				continue;
+			}
+			tile = s.other; p1 = 0; p2 = 0; cmd = CMD_LANDSCAPE_CLEAR;
+		} else {
+			OLn("rail rollback bad kind ", (uint32)i);
+			return OAI_WORK_FAILED;
+		}
+
+		CommandCost test = DoCommand(tile, p1, p2, DC_NONE, cmd);
+		if (test.Failed()) {
+			OLn("rail rollback step ", (uint32)i);
+			OLn("rail rollback test err ", (uint32)test.GetErrorMessage());
+			return OAI_WORK_FAILED;
+		}
+		StringID error;
+		OldAIWorkResult wr = OldAICommand(a, OAOP_RAIL_PLAN_REMOVE,
+				tile, p1, p2, cmd, NULL, &error);
+		if (wr == OAI_WORK_WAIT) return wr;
+		if (wr == OAI_WORK_FAILED) {
+			OLn("rail rollback real step ", (uint32)i);
+			return wr;
+		}
+		a->cleanup_cursor--;
+	}
+	a->cleanup_cursor = -1;
+	return OAI_WORK_DONE;
+}
+
+OldAIWorkResult ExecuteRailPlan(OldAICompany *a, const RailStep *plan, int n)
+{
+	if (plan == NULL || n < 0) return OAI_WORK_FAILED;
+	uint32 bridge_base = ((uint32)TRANSPORT_RAIL << 15) | (0u << 8);
+	while (a->plan_cursor < n) {
+		int i = a->plan_cursor;
+		const RailStep &s = plan[i];
+		if (a->pending_op == OAOP_RAIL_PLAN_BUILD) {
+			StringID error;
+			OldAIWorkResult wr = OldAICommand(a, OAOP_RAIL_PLAN_BUILD,
+					a->pending_tile, a->pending_p1, a->pending_p2,
+					a->pending_cmd, NULL, &error);
+			if (wr == OAI_WORK_WAIT) return wr;
+			if (wr == OAI_WORK_FAILED) {
+				OLn("rail execute real step ", (uint32)i);
+				OLn("rail execute real err ", (uint32)error);
+				return wr;
+			}
+			if (s.kind == RAILSTEP_LEVEL &&
+					!PFLevelPostcondition(s.tile, s.value)) {
+				OLn("rail execute incomplete level step ", (uint32)i);
+				return OAI_WORK_FAILED;
+			}
+			a->plan_cursor++;
+			continue;
+		}
 		CommandCost test;
 		uint32 p1 = 0, p2 = 0, cmd = 0;
 		TileIndex command_tile = s.tile;
@@ -755,6 +798,7 @@ bool ExecuteRailPlan(const RailStep *plan, int n)
 			p1 = s.tile;
 			p2 = (uint32)(uint8)(int8)delta;
 			cmd = CMD_LEVEL_LAND;
+			command_tile = PFLevelEnd(s.tile);
 		} else if (s.kind == RAILSTEP_TRACK) {
 			p1 = 0; p2 = (uint32)s.value; cmd = CMD_BUILD_SINGLE_RAIL;
 		} else if (s.kind == RAILSTEP_BRIDGE) {
@@ -764,27 +808,48 @@ bool ExecuteRailPlan(const RailStep *plan, int n)
 			cmd = CMD_BUILD_BRIDGE;
 		} else {
 			OLn("rail execute bad kind ", (uint32)i);
-			PFRollbackPrefix(plan, i);
-			return false;
+			return OAI_WORK_FAILED;
 		}
 
 		test = DoCommand(command_tile, p1, p2, DC_NONE, cmd);
 		if (test.Failed()) {
-			if (s.kind == RAILSTEP_LEVEL && test.GetErrorMessage() == 2699) continue; /* already level */
+			if (s.kind == RAILSTEP_LEVEL &&
+					OldAICommandAlreadySatisfied(CMD_LEVEL_LAND,
+							test.GetErrorMessage()) &&
+					PFLevelPostcondition(s.tile, s.value)) {
+				a->plan_cursor++;
+				continue; /* already level */
+			}
 			OLn("rail execute test step ", (uint32)i);
+			OLn("rail execute test kind ", (uint32)s.kind);
 			OLn("rail execute test err ", (uint32)test.GetErrorMessage());
-			PFRollbackPrefix(plan, i);
-			return false;
+			return OAI_WORK_FAILED;
 		}
-		if (!DoCommandP(command_tile, p1, p2, cmd)) {
+		if (s.kind == RAILSTEP_LEVEL) {
+			const Company *co = Company::GetIfValid(_current_company);
+			if (co != NULL && test.GetCost() > co->money) {
+				OLn("rail level exceeds money at step ", (uint32)i);
+				return OAI_WORK_FAILED;
+			}
+		}
+		StringID error;
+		OldAIWorkResult wr = OldAICommand(a, OAOP_RAIL_PLAN_BUILD,
+				command_tile, p1, p2, cmd, NULL, &error);
+		if (wr == OAI_WORK_WAIT) return wr;
+		if (wr == OAI_WORK_FAILED) {
 			OLn("rail execute real step ", (uint32)i);
-			CommandCost after = DoCommand(command_tile, p1, p2, DC_NONE, cmd);
-			if (after.Failed()) OLn("rail execute real err ", (uint32)after.GetErrorMessage());
-			PFRollbackPrefix(plan, i);
-			return false;
+			OLn("rail execute real err ", (uint32)error);
+			return wr;
 		}
+		if (s.kind == RAILSTEP_LEVEL &&
+				!PFLevelPostcondition(s.tile, s.value)) {
+			OLn("rail execute incomplete level step ", (uint32)i);
+			return OAI_WORK_FAILED;
+		}
+		a->plan_cursor++;
 	}
-	return true;
+	a->plan_cursor = 0;
+	return OAI_WORK_DONE;
 }
 
 /* ------------------------------------------------------------------------- *
@@ -917,7 +982,8 @@ static bool RPRoadLegalRaw(TileIndex tile, RoadBits required)
 	if (missing == ROAD_NONE) return true;
 	if (!RPLandTile(tile)) return false;
 	CommandCost r = DoCommand(tile, missing | (ROADTYPE_ROAD << 4), 0, DC_NONE, CMD_BUILD_ROAD);
-	return r.Succeeded() || r.GetErrorMessage() == 2699;
+	return r.Succeeded() || OldAICommandAlreadySatisfied(
+			CMD_BUILD_ROAD, r.GetErrorMessage());
 }
 
 static bool RPLevelAllowed(TileIndex tile)
@@ -931,7 +997,8 @@ static bool RPLevelAllowed(TileIndex tile)
 	/* CmdLevelLand operates on TileHeight corner coordinates.  A 2x2 corner
 	 * rectangle is therefore the exact four-corner footprint of one road tile. */
 	CommandCost r = DoCommand(end, tile, p2, DC_NONE, CMD_LEVEL_LAND);
-	return r.Succeeded() || r.GetErrorMessage() == 2699;
+	return r.Succeeded() || OldAICommandAlreadySatisfied(
+			CMD_LEVEL_LAND, r.GetErrorMessage());
 }
 
 static bool RPAddLandCandidates(int parent, TileIndex tile, byte move_dir,
@@ -1151,7 +1218,10 @@ static bool RPPreflight(const RoadStep *plan, int n, int path_count)
 			OLn("road preflight bad kind ", (uint32)i);
 			return false;
 		}
-		if (r.Failed() && r.GetErrorMessage() != 2699) {
+		uint32 cmd = s.kind == ROADSTEP_LEVEL ? CMD_LEVEL_LAND :
+				(s.kind == ROADSTEP_ROAD ? CMD_BUILD_ROAD : CMD_BUILD_BRIDGE);
+		if (r.Failed() && !OldAICommandAlreadySatisfied(
+				cmd, r.GetErrorMessage())) {
 			OLn("road preflight step ", (uint32)i);
 			OLn("road preflight err ", (uint32)r.GetErrorMessage());
 			return false;
@@ -1293,89 +1363,129 @@ road_exhausted:
 	return true;
 }
 
-static bool RPRemoveRoadStep(RoadStep &s, int index)
+OldAIWorkResult RemoveRoadPlan(OldAICompany *a, RoadStep *plan, int n)
 {
-	if ((s.data & RP_STEP_BUILT) == 0 || s.kind == ROADSTEP_LEVEL) return true;
+	if (plan == NULL || n < 0) return OAI_WORK_FAILED;
+	if (a->cleanup_cursor < 0) {
+		a->cleanup_cursor = n - 1;
+		a->cleanup_phase = 0;
+	}
 
-	if (s.kind == ROADSTEP_BRIDGE) {
-		if (!IsTileType(s.other, MP_TUNNELBRIDGE)) {
+	while (a->cleanup_cursor >= 0) {
+		int i = a->cleanup_cursor;
+		RoadStep &s = plan[i];
+		if (a->pending_op == OAOP_ROAD_PLAN_REMOVE) {
+			OldAIWorkResult wr = OldAICommand(a, OAOP_ROAD_PLAN_REMOVE,
+					a->pending_tile, a->pending_p1, a->pending_p2, a->pending_cmd);
+			if (wr != OAI_WORK_DONE) return wr;
+			if (s.kind == ROADSTEP_BRIDGE) {
+				s.data &= (uint16)~RP_STEP_BUILT;
+				a->cleanup_cursor--;
+				a->cleanup_phase = 0;
+			} else if (a->cleanup_phase < 2) {
+				a->cleanup_phase++;
+			} else {
+				s.data &= (uint16)~RP_STEP_BUILT;
+				a->cleanup_cursor--;
+				a->cleanup_phase = 0;
+			}
+			continue;
+		}
+		if ((s.data & RP_STEP_BUILT) == 0 || s.kind == ROADSTEP_LEVEL) {
+			a->cleanup_cursor--;
+			a->cleanup_phase = 0;
+			continue;
+		}
+
+		if (s.kind == ROADSTEP_BRIDGE) {
+			if (!IsTileType(s.other, MP_TUNNELBRIDGE)) {
+				s.data &= (uint16)~RP_STEP_BUILT;
+				a->cleanup_cursor--;
+				continue;
+			}
+			CommandCost test = DoCommand(s.other, 0, 0, DC_NONE, CMD_LANDSCAPE_CLEAR);
+			if (test.Failed()) {
+				OLn("road bridge rollback err ", (uint32)test.GetErrorMessage());
+				return OAI_WORK_FAILED;
+			}
+			OldAIWorkResult wr = OldAICommand(a, OAOP_ROAD_PLAN_REMOVE,
+					s.other, 0, 0, CMD_LANDSCAPE_CLEAR);
+			if (wr != OAI_WORK_DONE) return wr;
 			s.data &= (uint16)~RP_STEP_BUILT;
-			return true;
+			a->cleanup_cursor--;
+			continue;
 		}
-		CommandCost test = DoCommand(s.other, 0, 0, DC_NONE, CMD_LANDSCAPE_CLEAR);
-		if (test.Failed()) {
-			OLn("road bridge rollback err ", (uint32)test.GetErrorMessage());
-			return false;
+		if (s.kind != ROADSTEP_ROAD) {
+			OLn("road rollback bad kind ", (uint32)i);
+			return OAI_WORK_FAILED;
 		}
-		if (!DoCommandP(s.other, 0, 0, CMD_LANDSCAPE_CLEAR)) return false;
+
+		RoadBits added = (RoadBits)(s.data & 0x0F);
+		if (a->cleanup_phase < 2) {
+			Axis axis = (Axis)a->cleanup_phase;
+			RoadBits axis_bits = axis == AXIS_X ? (RoadBits)(ROAD_NE | ROAD_SW)
+					: (RoadBits)(ROAD_SE | ROAD_NW);
+			if ((added & axis_bits) != 0 &&
+					(RPPresentRoadBits(s.tile) & axis_bits) != 0) {
+				uint32 p2 = 1u | ((uint32)axis << 2) |
+						((uint32)ROADTYPE_ROAD << 3);
+				OldAIWorkResult wr = OldAICommand(a, OAOP_ROAD_PLAN_REMOVE,
+						s.tile, s.tile, p2, CMD_REMOVE_LONG_ROAD);
+				if (wr != OAI_WORK_DONE) return wr;
+			}
+			a->cleanup_phase++;
+			continue;
+		}
+
+		RoadBits original = (RoadBits)((s.data >> RP_STEP_ORIGINAL_SHIFT) & 0x0F);
+		RoadBits missing = (RoadBits)(original & ~RPPresentRoadBits(s.tile));
+		if (a->cleanup_phase == 2 && missing != ROAD_NONE) {
+			CommandCost test = DoCommand(s.tile,
+					missing | (ROADTYPE_ROAD << 4), 0, DC_NONE, CMD_BUILD_ROAD);
+			if (test.Failed() && !OldAICommandAlreadySatisfied(
+					CMD_BUILD_ROAD, test.GetErrorMessage())) {
+				OLn("road rollback restore err ", (uint32)test.GetErrorMessage());
+				return OAI_WORK_FAILED;
+			}
+			if (test.Succeeded()) {
+				OldAIWorkResult wr = OldAICommand(a, OAOP_ROAD_PLAN_REMOVE,
+						s.tile, missing | (ROADTYPE_ROAD << 4), 0, CMD_BUILD_ROAD);
+				if (wr != OAI_WORK_DONE) return wr;
+			}
+		}
 		s.data &= (uint16)~RP_STEP_BUILT;
-		return true;
+		a->cleanup_cursor--;
+		a->cleanup_phase = 0;
 	}
-
-	if (s.kind != ROADSTEP_ROAD) {
-		OLn("road rollback bad kind ", (uint32)index);
-		return false;
-	}
-
-	RoadBits added = (RoadBits)(s.data & 0x0F);
-	bool ok = true;
-	for (int axis_value = 0; axis_value < 2; axis_value++) {
-		Axis axis = (Axis)axis_value;
-		RoadBits axis_bits = (axis == AXIS_X) ? (RoadBits)(ROAD_NE | ROAD_SW)
-				: (RoadBits)(ROAD_SE | ROAD_NW);
-		if ((added & axis_bits) == 0) continue;
-		RoadBits present = RPPresentRoadBits(s.tile);
-		if ((present & axis_bits) == 0) continue;
-		/* For start==end, bit0 selects the full-axis single-tile drag.
-		 * Without it 1.0.5 removes only the northern half-road bit. */
-		uint32 p2 = 1u | ((uint32)axis << 2) | ((uint32)ROADTYPE_ROAD << 3);
-		/* CMD_REMOVE_LONG_ROAD is CMD_NO_TEST in 1.0.5 because connected town
-		 * roads can fail a dry test but are legal once execute removes the bits. */
-		if (!DoCommandP(s.tile, s.tile, p2, CMD_REMOVE_LONG_ROAD)) ok = false;
-	}
-
-	RoadBits original = (RoadBits)((s.data >> RP_STEP_ORIGINAL_SHIFT) & 0x0F);
-	RoadBits present = RPPresentRoadBits(s.tile);
-	RoadBits missing = (RoadBits)(original & ~present);
-	if (missing != ROAD_NONE) {
-		CommandCost test = DoCommand(s.tile,
-				missing | (ROADTYPE_ROAD << 4), 0, DC_NONE, CMD_BUILD_ROAD);
-		if (test.Failed() && test.GetErrorMessage() != 2699) {
-			OLn("road rollback restore err ", (uint32)test.GetErrorMessage());
-			ok = false;
-		} else if (test.Succeeded() &&
-				!DoCommandP(s.tile, missing | (ROADTYPE_ROAD << 4), 0, CMD_BUILD_ROAD)) {
-			ok = false;
-		}
-	}
-	if (ok) s.data &= (uint16)~RP_STEP_BUILT;
-	return ok;
+	a->cleanup_cursor = -1;
+	a->cleanup_phase = 0;
+	return OAI_WORK_DONE;
 }
 
-static bool RPRollbackPrefix(RoadStep *plan, int built_prefix)
+OldAIWorkResult ExecuteRoadPlan(OldAICompany *a, RoadStep *plan, int n)
 {
-	bool ok = true;
-	for (int i = built_prefix - 1; i >= 0; i--) {
-		if (!RPRemoveRoadStep(plan[i], i)) ok = false;
-	}
-	if (!ok) OL("road rollback incomplete");
-	return ok;
-}
-
-bool RemoveRoadPlan(RoadStep *plan, int n)
-{
-	if (plan == NULL || n < 0) return false;
-	return RPRollbackPrefix(plan, n);
-}
-
-bool ExecuteRoadPlan(RoadStep *plan, int n)
-{
-	if (plan == NULL || n < 0) return false;
+	if (plan == NULL || n < 0) return OAI_WORK_FAILED;
 	uint32 bridge_base = ((uint32)TRANSPORT_ROAD << 15) |
 			(RoadTypeToRoadTypes(ROADTYPE_ROAD) << 8);
 
-	for (int i = 0; i < n; i++) {
+	while (a->plan_cursor < n) {
+		int i = a->plan_cursor;
 		RoadStep &s = plan[i];
+		if (a->pending_op == OAOP_ROAD_PLAN_BUILD) {
+			StringID error;
+			OldAIWorkResult wr = OldAICommand(a, OAOP_ROAD_PLAN_BUILD,
+					a->pending_tile, a->pending_p1, a->pending_p2,
+					a->pending_cmd, NULL, &error);
+			if (wr == OAI_WORK_WAIT) return wr;
+			if (wr == OAI_WORK_FAILED) {
+				OLn("road execute real step ", (uint32)i);
+				OLn("road execute real err ", (uint32)error);
+				return wr;
+			}
+			if (s.kind != ROADSTEP_LEVEL) s.data |= RP_STEP_BUILT;
+			a->plan_cursor++;
+			continue;
+		}
 		TileIndex command_tile = s.tile;
 		uint32 p1 = 0, p2 = 0, cmd = 0;
 		if (s.kind == ROADSTEP_LEVEL) {
@@ -1394,28 +1504,33 @@ bool ExecuteRoadPlan(RoadStep *plan, int n)
 			cmd = CMD_BUILD_BRIDGE;
 		} else {
 			OLn("road execute bad kind ", (uint32)i);
-			RPRollbackPrefix(plan, i);
-			return false;
+			return OAI_WORK_FAILED;
 		}
 
 		CommandCost test = DoCommand(command_tile, p1, p2, DC_NONE, cmd);
 		if (test.Failed()) {
-			/* 2699 means the requested state is already present.  It is usable
-			 * but not attempt-owned, so leave RP_STEP_BUILT clear. */
-			if (test.GetErrorMessage() == 2699) continue;
+			/* An already-present object is usable but not attempt-owned, so
+			 * leave RP_STEP_BUILT clear. */
+			if (OldAICommandAlreadySatisfied(cmd, test.GetErrorMessage())) {
+				a->plan_cursor++;
+				continue;
+			}
 			OLn("road execute test step ", (uint32)i);
 			OLn("road execute test err ", (uint32)test.GetErrorMessage());
-			RPRollbackPrefix(plan, i);
-			return false;
+			return OAI_WORK_FAILED;
 		}
-		if (!DoCommandP(command_tile, p1, p2, cmd)) {
+		StringID error;
+		OldAIWorkResult wr = OldAICommand(a, OAOP_ROAD_PLAN_BUILD,
+				command_tile, p1, p2, cmd, NULL, &error);
+		if (wr == OAI_WORK_WAIT) return wr;
+		if (wr == OAI_WORK_FAILED) {
 			OLn("road execute real step ", (uint32)i);
-			CommandCost after = DoCommand(command_tile, p1, p2, DC_NONE, cmd);
-			if (after.Failed()) OLn("road execute real err ", (uint32)after.GetErrorMessage());
-			RPRollbackPrefix(plan, i);
-			return false;
+			OLn("road execute real err ", (uint32)error);
+			return wr;
 		}
 		if (s.kind != ROADSTEP_LEVEL) s.data |= RP_STEP_BUILT;
+		a->plan_cursor++;
 	}
-	return true;
+	a->plan_cursor = 0;
+	return OAI_WORK_DONE;
 }

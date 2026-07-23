@@ -39,7 +39,8 @@
 #include "../order_base.h"
 #include "../industry.h"
 #include "../cargo_type.h"
-#include "../core/random_func.hpp"
+#include "table/strings.h"
+#include "../saveload/saveload.h"
 #include "oldai.h"
 
 #include <string.h>
@@ -59,19 +60,6 @@ static void OLn(const char *text, uint32 n)
 	while (j > 0) buf[i++] = num[--j];
 	buf[i] = '\0';
 	OL(buf);
-}
-
-/* Test a command; on failure log its error StringID and return false. On
- * success execute it for real. Lets us see WHY a build was refused. */
-static bool TryCmd(const char *what, TileIndex tile, uint32 p1, uint32 p2, uint32 cmd, const char *text = NULL)
-{
-	CommandCost r = DoCommand(tile, p1, p2, DC_NONE, cmd, text);
-	if (r.Failed()) {
-		if (r.GetErrorMessage() == 2699) return true; /* already in requested state */
-		OLn(what, (uint32)r.GetErrorMessage());
-		return false;
-	}
-	return DoCommandP(tile, p1, p2, cmd, NULL, text);
 }
 
 enum OldAIState {
@@ -104,16 +92,65 @@ enum OldAIRouteKind {
 	OARK_TOWN_BUS,
 };
 
+enum OldAIWorkResult {
+	OAI_WORK_WAIT = 0,
+	OAI_WORK_DONE,
+	OAI_WORK_FAILED,
+};
+
+/* A company may have at most one authoritative command in flight.  The
+ * callback is deliberately generic: the continuation is selected by this
+ * saved operation tag, not by process-local pointers or closures. */
+enum OldAIPendingOp {
+	OAOP_NONE = 0,
+	OAOP_RAIL_PLAN_BUILD,
+	OAOP_ROAD_PLAN_BUILD,
+	OAOP_RAIL_PLAN_REMOVE,
+	OAOP_ROAD_PLAN_REMOVE,
+	OAOP_CLEAR_TILE,
+	OAOP_REMOVE_TRACK,
+	OAOP_BUILD_BUS_STOP_A,
+	OAOP_BUILD_BUS_STOP_B,
+	OAOP_BUILD_BUS_DEPOT,
+	OAOP_BUILD_BUS_CONNECTOR,
+	OAOP_BUILD_BUS,
+	OAOP_BUS_ORDER_A,
+	OAOP_BUS_ORDER_B,
+	OAOP_BUS_DISPATCH,
+	OAOP_SELL_BUS,
+	OAOP_REMOVE_BUS_CONNECTOR,
+	OAOP_RESTORE_ROAD,
+	OAOP_LEVEL_STATION_P,
+	OAOP_LEVEL_STATION_A,
+	OAOP_BUILD_STATION_P,
+	OAOP_BUILD_STATION_A,
+	OAOP_LEVEL_TRAIN_DEPOT,
+	OAOP_BUILD_DEPOT_SPUR,
+	OAOP_BUILD_TRAIN_DEPOT,
+	OAOP_BUILD_LOCO,
+	OAOP_BUILD_WAGON,
+	OAOP_MOVE_WAGON,
+	OAOP_TRAIN_ORDER_P,
+	OAOP_TRAIN_ORDER_A,
+	OAOP_TRAIN_START,
+	OAOP_DECREASE_LOAN,
+	OAOP_INCREASE_LOAN,
+	OAOP_REFUND,
+};
+
 enum {
 	OLDAI_BUS_MIN_COUNT = 2,
 	OLDAI_BUS_MAX_COUNT = 8,
 	OLDAI_BUS_ROAD_TILES_PER_BUS = 16,
+	OLDAI_PLAN_MIN_GAP = 128,
+	OLDAI_PLAN_MAX_FAIL_STREAK = 5,
 	/* DAY_TICKS is 74; 18 game-days is about 40 seconds at normal speed. */
 	OLDAI_BUS_DISPATCH_INTERVAL = 18 * DAY_TICKS
 };
 
 struct OldAICompany {
 	bool active;
+	uint32 rng_state;       ///< private AI-only random stream; never touches _random
 	uint age;
 	OldAIState state;
 	int  tries;
@@ -166,19 +203,94 @@ struct OldAICompany {
 	byte      depot_front_road;   ///< 4-bit mask immediately before adding the connector
 	uint      cooldown_until;  ///< _oldai_tick before which no new line may start (per-line cooldown)
 	uint      next_plan_tick;  ///< _oldai_tick before which no new PLANNING attempt (A*) may run
+	byte      plan_fail_streak; ///< server-local planning backoff; deliberately not saved
 	VehicleID dispatch_bus[OLDAI_BUS_MAX_COUNT]; ///< stopped buses, in release order
 	uint      next_bus_release_tick; ///< earliest tick at which the queue may release one bus
 	byte      bus_target_count;      ///< fleet size selected from the planned road length
 	byte      buses_waiting;         ///< completed-route buses still queued in the depot
+
+	/* Network-command continuation.  pending_issued is process/queue state: it
+	 * is saved, but cleared on load so a save taken before execution safely
+	 * re-posts the command.  pending_done/result are saved for completeness.
+	 * plan_cursor and cleanup_cursor make multi-command plan work resumable. */
+	OldAIPendingOp pending_op;
+	TileIndex pending_tile;
+	uint32 pending_p1, pending_p2, pending_cmd;
+	bool pending_issued;
+	bool pending_done;
+	bool pending_success;
+	StringID pending_error;
+	VehicleID pending_vehicle;
+	int plan_cursor;
+	int cleanup_cursor;
+	byte cleanup_phase;
+	byte op_step;
+	bool depot_connector_was_missing;
 };
 
 static OldAICompany _oldai[MAX_COMPANIES];
 static uint _oldai_tick;
+static bool _oldai_logged_string_ids;
+static void OldAIResetPlans();
+static void OldAIResetCompanyPlan(CompanyID company);
+
+static void OldAILogStringIDs()
+{
+	if (_oldai_logged_string_ids) return;
+	OLn("StringID LAND_SLOPED = ", (uint32)STR_ERROR_LAND_SLOPED_IN_WRONG_DIRECTION);
+	OLn("StringID CAN_T_DO_THIS = ", (uint32)STR_ERROR_CAN_T_DO_THIS);
+	OLn("StringID ALREADY_BUILT = ", (uint32)STR_ERROR_ALREADY_BUILT);
+	OLn("StringID TOO_HIGH = ", (uint32)STR_ERROR_TOO_HIGH);
+	OLn("StringID ALREADY_LEVELLED = ", (uint32)STR_ERROR_ALREADY_LEVELLED);
+	_oldai_logged_string_ids = true;
+}
+
+static uint32 OldAISeed(uint32 game_seed, CompanyID company)
+{
+	uint32 x = game_seed ^ (0x9E3779B9U * ((uint32)company + 1U));
+	x ^= x >> 16;
+	x *= 0x85EBCA6BU;
+	x ^= x >> 13;
+	return x;
+}
+
+static uint32 OldAIRandom(OldAICompany *a)
+{
+	a->rng_state = a->rng_state * 1664525U + 1013904223U;
+	return a->rng_state;
+}
+
+static uint32 OldAIRandomRange(OldAICompany *a, uint32 limit)
+{
+	assert(limit != 0);
+	return OldAIRandom(a) % limit;
+}
+
+static uint8 OldAICompetitorSpeed()
+{
+	uint8 speed = _settings_game.difficulty.competitor_speed;
+	if (speed > 4) speed = 4;
+	return speed;
+}
+
+static uint OldAIPlanningGap(const OldAICompany *a)
+{
+	byte streak = a->plan_fail_streak;
+	if (streak > OLDAI_PLAN_MAX_FAIL_STREAK) {
+		streak = OLDAI_PLAN_MAX_FAIL_STREAK;
+	}
+	return (uint)OLDAI_PLAN_MIN_GAP << streak;
+}
 
 void OldAI_Initialize()
 {
 	memset(_oldai, 0, sizeof(_oldai));
+	for (CompanyID cid = COMPANY_FIRST; cid < MAX_COMPANIES; cid++) {
+		_oldai[cid].cleanup_cursor = -1;
+	}
 	_oldai_tick = 0;
+	_oldai_logged_string_ids = false;
+	OldAIResetPlans();
 }
 
 void OldAI_Start(CompanyID company)
@@ -188,6 +300,9 @@ void OldAI_Start(CompanyID company)
 	memset(a, 0, sizeof(*a));
 	a->active = true;
 	a->state  = OAS_IDLE;
+	a->rng_state = OldAISeed(_settings_game.game_creation.generation_seed, company);
+	a->cleanup_cursor = -1;
+	OldAIResetCompanyPlan(company);
 
 	/* is_ai=true but no Squirrel instance - null the pointers so the stock AI
 	 * save/load/tick code (guarded in ai_core.cpp) skips this company instead of
@@ -195,6 +310,10 @@ void OldAI_Start(CompanyID company)
 	Company *c = Company::GetIfValid(company);
 	if (c != NULL) { c->ai_instance = NULL; c->ai_info = NULL; }
 
+	/* Print the values compiled into this exact target.  The Amiga port has
+	 * extra strings relative to stock 1.0.5, so old numeric comments are not a
+	 * reliable decoder for command failures. */
+	OldAILogStringIDs();
 	OL("OldAI_Start: native C++ AI company created");
 	DEBUG(ai, 0, "OldAI: company %d started", (int)company);
 }
@@ -203,6 +322,158 @@ void OldAI_CompanyDied(CompanyID company)
 {
 	assert(company < MAX_COMPANIES);
 	_oldai[company].active = false;
+}
+
+/* Appended after CMD_SET_TIMETABLE_START in the 1.0.5 command enum/table.
+ * Keep this assertion beside the implementation so a later command table edit
+ * cannot silently make the AI post a different command. */
+typedef char OldAIRefundCommandMustBe109[(CMD_OLDAI_REFUND == 109) ? 1 : -1];
+
+CommandCost CmdOldAIRefund(TileIndex tile, DoCommandFlag flags, uint32 p1, uint32 p2, const char *text)
+{
+	(void)tile;
+	(void)flags;
+	(void)text;
+
+	/* This command deliberately has no CMD_SERVER table flag.  In 1.0.5 that
+	 * flag executes the procedure as COMPANY_SPECTATOR, so neither this native
+	 * AI check nor normal company accounting could succeed.  An ordinary
+	 * company command is still protected: the network layer authorizes the
+	 * packet's company, and this procedure accepts native-AI companies only. */
+	const Company *c = Company::GetIfValid(_current_company);
+	if (c == NULL || !c->is_ai || c->ai_instance != NULL) return CMD_ERROR;
+
+	uint64 encoded = ((uint64)p2 << 32) | (uint64)p1;
+	Money amount = (Money)encoded;
+	if (amount <= 0) return CMD_ERROR;
+
+	/* A negative command cost is income.  The normal command accounting path
+	 * changes both company money and this year's construction expenses. */
+	return CommandCost(EXPENSES_CONSTRUCTION, -amount);
+}
+
+static bool OldAIOpCreatesVehicle(OldAIPendingOp op)
+{
+	return op == OAOP_BUILD_BUS || op == OAOP_BUILD_LOCO || op == OAOP_BUILD_WAGON;
+}
+
+static bool OldAIIsNetworking()
+{
+#ifdef ENABLE_NETWORK
+	return _networking;
+#else
+	return false;
+#endif
+}
+
+static bool OldAICommandAlreadySatisfied(uint32 cmd, StringID error)
+{
+	if (cmd == CMD_LEVEL_LAND) return error == STR_ERROR_ALREADY_LEVELLED;
+	if (cmd == CMD_BUILD_ROAD || cmd == CMD_BUILD_SINGLE_RAIL ||
+			cmd == CMD_BUILD_BRIDGE) return error == STR_ERROR_ALREADY_BUILT;
+	return false;
+}
+
+static bool OldAIStationTerrainError(StringID error)
+{
+	return error == STR_ERROR_FLAT_LAND_REQUIRED ||
+			error == STR_ERROR_LAND_SLOPED_IN_WRONG_DIRECTION;
+}
+
+/* Consume "already present" as success only for idempotent pending operations
+ * which do not acquire attempt ownership.  In particular, do not apply this
+ * to plan road/rail builds: their callers mark successful real commands as
+ * attempt-owned. */
+static bool OldAIPendingErrorMeansDone(const OldAICompany *a, StringID error)
+{
+	return (a->pending_cmd == CMD_LEVEL_LAND ||
+			a->pending_op == OAOP_RESTORE_ROAD) &&
+			OldAICommandAlreadySatisfied(a->pending_cmd, error);
+}
+
+/* Registered as callback 0x17 in network/network_command.cpp.  On the server
+ * _current_company is the company stored in the CommandPacket while the
+ * callback runs, so no pointer or client-local lookup key crosses the wire. */
+void CcOldAI(const CommandCost &result, TileIndex tile, uint32 p1, uint32 p2)
+{
+	(void)tile;
+	(void)p1;
+	(void)p2;
+
+	if (_current_company >= MAX_COMPANIES) return;
+	OldAICompany *a = &_oldai[_current_company];
+	if (!a->active || a->pending_op == OAOP_NONE) return;
+
+	StringID error = result.Failed() ? result.GetErrorMessage() : INVALID_STRING_ID;
+	a->pending_success = result.Succeeded() || OldAIPendingErrorMeansDone(a, error);
+	a->pending_error = a->pending_success ? INVALID_STRING_ID : error;
+	if (result.Succeeded() && OldAIOpCreatesVehicle(a->pending_op)) {
+		a->pending_vehicle = _new_vehicle_id;
+	}
+	a->pending_done = true;
+}
+
+/* Post one command, or consume the completion of the matching command already
+ * in flight.  In single-player CcOldAI runs inside DoCommandP, so this function
+ * returns DONE/FAILED immediately and the old one-tick action topology is kept.
+ * In networking it returns WAIT until the synchronized command frame executes.
+ *
+ * A loaded in-flight record has pending_issued=false and is posted again.  The
+ * save represents the pre-command state, so this cannot duplicate an executed
+ * command from that save point. */
+static OldAIWorkResult OldAICommand(OldAICompany *a, OldAIPendingOp op,
+		TileIndex tile, uint32 p1, uint32 p2, uint32 cmd,
+		VehicleID *new_vehicle = NULL, StringID *error = NULL)
+{
+	if (a->pending_op == OAOP_NONE) {
+		a->pending_op = op;
+		a->pending_tile = tile;
+		a->pending_p1 = p1;
+		a->pending_p2 = p2;
+		a->pending_cmd = cmd;
+		a->pending_issued = false;
+		a->pending_done = false;
+		a->pending_success = false;
+		a->pending_error = INVALID_STRING_ID;
+		a->pending_vehicle = INVALID_VEHICLE;
+	} else if (a->pending_op != op) {
+		OL("OldAI pending command/state mismatch");
+		return OAI_WORK_WAIT;
+	}
+
+	if (!a->pending_issued) {
+		a->pending_issued = true;
+		bool accepted = DoCommandP(a->pending_tile, a->pending_p1, a->pending_p2,
+				a->pending_cmd, CcOldAI);
+		/* Outside networking DoCommandP has executed the command before it
+		 * returns.  CcOldAI normally records that result synchronously.  Keep
+		 * an explicit fallback for command paths which do not invoke a
+		 * callback (notably a rejected command): the boolean is the final
+		 * single-player result, and _new_vehicle_id is still the value which
+		 * the pre-D code consumed immediately after DoCommandP.
+		 *
+		 * Never synthesize completion while networking.  There "accepted"
+		 * only means queued; the synchronized callback remains authoritative. */
+		if (!a->pending_done && !OldAIIsNetworking()) {
+			StringID error = accepted ? INVALID_STRING_ID : _error_message;
+			a->pending_success = accepted || OldAIPendingErrorMeansDone(a, error);
+			a->pending_error = a->pending_success ? INVALID_STRING_ID : error;
+			if (accepted && OldAIOpCreatesVehicle(a->pending_op)) {
+				a->pending_vehicle = _new_vehicle_id;
+			}
+			a->pending_done = true;
+		}
+	}
+	if (!a->pending_done) return OAI_WORK_WAIT;
+
+	bool success = a->pending_success;
+	if (new_vehicle != NULL) *new_vehicle = a->pending_vehicle;
+	if (error != NULL) *error = a->pending_error;
+	a->pending_op = OAOP_NONE;
+	a->pending_issued = false;
+	a->pending_done = false;
+	a->pending_vehicle = INVALID_VEHICLE;
+	return success ? OAI_WORK_DONE : OAI_WORK_FAILED;
 }
 
 /* Cycle through the towns that have some population, so successive routes are
@@ -402,31 +673,10 @@ static bool FindBayAt(TileIndex road, TileIndex avoid, TileIndex *bay)
 	return false;
 }
 
-/* The DiagDirection d such that 'to' == 'from' + offset(d), for adjacent tiles. */
-static DiagDirection DirFromTo(TileIndex from, TileIndex to)
-{
-	for (DiagDirection d = DIAGDIR_BEGIN; d < DIAGDIR_END; d++) {
-		if ((TileIndex)(from + TileOffsByDiagDir(d)) == to) return d;
-	}
-	return INVALID_DIAGDIR;
-}
-
-/* Add a road piece on 'road' toward the adjacent 'bay' tile, so a stop or depot
- * bay actually joins the road. The game does NOT auto-connect a stop built by
- * command the way the player's GUI does, so we must add the bit ourselves;
- * without it the buses can never reach the stop and get lost. Harmless if the
- * piece already exists (STR_ERROR_ALREADY_BUILT). */
-static void ConnectBay(TileIndex road, TileIndex bay)
-{
-	DiagDirection d = DirFromTo(road, bay);
-	if (d == INVALID_DIAGDIR) return;
-	DoCommandP(road, DiagDirToRoadBits(d) | (ROADTYPE_ROAD << 4), 0, CMD_BUILD_ROAD);
-}
-
 /* A town other than 'from' in the requested distance band.  Bias toward the
  * target distance, but keep a random term so a bad pair is not selected forever.
  * Passenger rail uses progressively wider bands as the company becomes richer. */
-static const Town *FindPartnerTown(const Town *from, uint min_dist, uint max_dist, uint target_dist)
+static const Town *FindPartnerTown(OldAICompany *a, const Town *from, uint min_dist, uint max_dist, uint target_dist)
 {
 	const Town *best = NULL; uint bestscore = 0;
 	const Town *t;
@@ -434,7 +684,7 @@ static const Town *FindPartnerTown(const Town *from, uint min_dist, uint max_dis
 		if (t == from || t->population < 100) continue;
 		uint d = DistanceManhattan(from->xy, t->xy);
 		if (d < min_dist || d > max_dist) continue;
-		uint score = (d > target_dist ? d - target_dist : target_dist - d) + RandomRange(16);
+		uint score = (d > target_dist ? d - target_dist : target_dist - d) + OldAIRandomRange(a, 16);
 		if (best == NULL || score < bestscore) { best = t; bestscore = score; }
 	}
 	return best;
@@ -463,11 +713,19 @@ static CommandCost TestBusStop(TileIndex tile, TileIndex front)
 	return DoCommand(tile, entrance, p2, DC_NONE, CMD_BUILD_ROAD_STOP);
 }
 
-static bool BuildBusStop(TileIndex tile, TileIndex front)
+static OldAIWorkResult BuildBusStop(OldAICompany *a, OldAIPendingOp op,
+		TileIndex tile, TileIndex front)
 {
 	uint entrance = (TileY(tile) != TileY(front)) ? 1 : 0;
 	uint p2 = 32 | 2 | (RoadTypeToRoadTypes(ROADTYPE_ROAD) << 2) | ((uint)INVALID_STATION << 16);
-	return TryCmd("stop err", tile, entrance, p2, CMD_BUILD_ROAD_STOP);
+	if (a->pending_op != op) {
+		CommandCost test = DoCommand(tile, entrance, p2, DC_NONE, CMD_BUILD_ROAD_STOP);
+		if (test.Failed()) {
+			OLn("stop err", (uint32)test.GetErrorMessage());
+			return OAI_WORK_FAILED;
+		}
+	}
+	return OldAICommand(a, op, tile, entrance, p2, CMD_BUILD_ROAD_STOP);
 }
 
 /* ------------------------------------------------------------------------- *
@@ -537,6 +795,394 @@ static OldAIPlan _oldai_plan[MAX_COMPANIES];
 static int _oldai_rail_plan_count[MAX_COMPANIES];
 static int _oldai_road_plan_count[MAX_COMPANIES];
 
+static void OldAIResetPlans()
+{
+	memset(_oldai_plan, 0, sizeof(_oldai_plan));
+	memset(_oldai_rail_plan_count, 0, sizeof(_oldai_rail_plan_count));
+	memset(_oldai_road_plan_count, 0, sizeof(_oldai_road_plan_count));
+}
+
+static void OldAIResetCompanyPlan(CompanyID company)
+{
+	assert(company < MAX_COMPANIES);
+	memset(&_oldai_plan[company], 0, sizeof(_oldai_plan[company]));
+	_oldai_rail_plan_count[company] = 0;
+	_oldai_road_plan_count[company] = 0;
+}
+
+/* ------------------------------------------------------------------------- *
+ * Native OldAI save chunk.  This has its own format version because the port
+ * cannot spend a global OpenTTD savegame-version number for every native-AI
+ * state extension.  Every value is emitted bytewise in a defined order; no
+ * compiler padding, enum width, host endianness, or raw struct layout leaks
+ * into the savegame.
+ * ------------------------------------------------------------------------- */
+enum { OLDAI_CHUNK_VERSION = 1 };
+
+static bool _oldai_sl_count_only;
+static size_t _oldai_sl_length;
+
+static void OldAISaveU8(uint8 v)
+{
+	if (_oldai_sl_count_only) {
+		_oldai_sl_length++;
+	} else {
+		SlWriteByte(v);
+	}
+}
+
+static void OldAISaveU16(uint16 v)
+{
+	OldAISaveU8((uint8)(v >> 8));
+	OldAISaveU8((uint8)v);
+}
+
+static void OldAISaveU32(uint32 v)
+{
+	OldAISaveU8((uint8)(v >> 24));
+	OldAISaveU8((uint8)(v >> 16));
+	OldAISaveU8((uint8)(v >> 8));
+	OldAISaveU8((uint8)v);
+}
+
+static void OldAISaveU64(uint64 v)
+{
+	OldAISaveU32((uint32)(v >> 32));
+	OldAISaveU32((uint32)v);
+}
+
+static void OldAISaveCompany(CompanyID cid, const OldAICompany *a)
+{
+	OldAISaveU8((uint8)cid);
+	OldAISaveU32(a->rng_state);
+	OldAISaveU32((uint32)a->age);
+	OldAISaveU8((uint8)a->state);
+	OldAISaveU32((uint32)a->tries);
+
+	OldAISaveU32(a->stopA); OldAISaveU32(a->frontA);
+	OldAISaveU32(a->stopB); OldAISaveU32(a->frontB);
+	OldAISaveU8((uint8)a->stopA_road); OldAISaveU8((uint8)a->stopB_road);
+	OldAISaveU32(a->depot); OldAISaveU32(a->depot_front);
+	OldAISaveU8((uint8)a->depot_dir);
+	OldAISaveU32((uint32)a->staA); OldAISaveU32((uint32)a->staB);
+	OldAISaveU8((uint8)a->route_kind);
+	OldAISaveU32((uint32)a->routes_done);
+	OldAISaveU32((uint32)a->buses_on_route);
+	OldAISaveU32((uint32)a->town_skip);
+
+	OldAISaveU8((uint8)a->tr_cargo);
+	OldAISaveU32(a->prodP_tile); OldAISaveU32(a->prodA_tile);
+	OldAISaveU32(a->staP_tile); OldAISaveU32(a->staA_tile);
+	OldAISaveU8(a->staP_axis); OldAISaveU8(a->staA_axis);
+	OldAISaveU32(a->staP_exit); OldAISaveU32(a->staA_exit);
+	OldAISaveU32((uint32)a->trStaP); OldAISaveU32((uint32)a->trStaA);
+	OldAISaveU32(a->tdepot); OldAISaveU32(a->tdepot_front);
+	OldAISaveU32((uint32)a->train);
+	OldAISaveU8(a->route_p_h); OldAISaveU8(a->route_a_h);
+
+	OldAISaveU8(a->attempt_sta_p); OldAISaveU8(a->attempt_sta_a);
+	OldAISaveU8(a->attempt_line); OldAISaveU8(a->attempt_spur);
+	OldAISaveU8(a->attempt_depot); OldAISaveU8(a->attempt_train_vehicle);
+	OldAISaveU8(a->attempt_loose_wagon);
+	OldAISaveU32((uint32)a->loose_wagon);
+	OldAISaveU8(a->attempt_carriages);
+	OldAISaveU64((uint64)a->attempt_money0);
+	OldAISaveU8(a->attempt_costing);
+	OldAISaveU8(a->attempt_bus_stop_a); OldAISaveU8(a->attempt_bus_stop_b);
+	OldAISaveU8(a->attempt_bus_depot); OldAISaveU8(a->attempt_bus_road);
+	OldAISaveU8(a->attempt_bus_line);
+	OldAISaveU8(a->depot_front_road);
+	OldAISaveU32((uint32)a->cooldown_until);
+	OldAISaveU32((uint32)a->next_plan_tick);
+	/* plan_fail_streak is server-local scheduling state.  It intentionally
+	 * resets to zero on load and is not part of the synchronized save chunk. */
+	for (int i = 0; i < OLDAI_BUS_MAX_COUNT; i++) {
+		OldAISaveU32((uint32)a->dispatch_bus[i]);
+	}
+	OldAISaveU32((uint32)a->next_bus_release_tick);
+	OldAISaveU8(a->bus_target_count);
+	OldAISaveU8(a->buses_waiting);
+
+	OldAISaveU8((uint8)a->pending_op);
+	OldAISaveU32(a->pending_tile);
+	OldAISaveU32(a->pending_p1); OldAISaveU32(a->pending_p2);
+	OldAISaveU32(a->pending_cmd);
+	OldAISaveU8(a->pending_issued); OldAISaveU8(a->pending_done);
+	OldAISaveU8(a->pending_success);
+	OldAISaveU32((uint32)a->pending_error);
+	OldAISaveU32((uint32)a->pending_vehicle);
+	OldAISaveU32((uint32)a->plan_cursor);
+	OldAISaveU32((uint32)a->cleanup_cursor);
+	OldAISaveU8(a->cleanup_phase);
+	OldAISaveU8(a->op_step);
+	OldAISaveU8(a->depot_connector_was_missing);
+
+	int rail_count = _oldai_rail_plan_count[cid];
+	int road_count = _oldai_road_plan_count[cid];
+	assert(rail_count >= 0 && rail_count <= OLDAI_MAX_RAIL_PLAN);
+	assert(road_count >= 0 && road_count <= OLDAI_MAX_ROAD_PLAN);
+	assert(rail_count == 0 || road_count == 0);
+	OldAISaveU16((uint16)rail_count);
+	OldAISaveU16((uint16)road_count);
+	for (int i = 0; i < rail_count; i++) {
+		const RailStep &s = _oldai_plan[cid].rail[i];
+		OldAISaveU8(s.kind);
+		OldAISaveU32(s.tile);
+		OldAISaveU32(s.other);
+		OldAISaveU32((uint32)s.value);
+	}
+	for (int i = 0; i < road_count; i++) {
+		const RoadStep &s = _oldai_plan[cid].road[i];
+		OldAISaveU8(s.kind);
+		OldAISaveU32(s.tile);
+		OldAISaveU32(s.other);
+		OldAISaveU16(s.data);
+	}
+}
+
+static void OldAISaveData()
+{
+	OldAISaveU16(OLDAI_CHUNK_VERSION);
+	OldAISaveU32((uint32)_oldai_tick);
+	uint8 active_count = 0;
+	for (CompanyID cid = COMPANY_FIRST; cid < MAX_COMPANIES; cid++) {
+		if (_oldai[cid].active) active_count++;
+	}
+	OldAISaveU8(active_count);
+	for (CompanyID cid = COMPANY_FIRST; cid < MAX_COMPANIES; cid++) {
+		if (_oldai[cid].active) OldAISaveCompany(cid, &_oldai[cid]);
+	}
+}
+
+static void Save_OLAI()
+{
+	_oldai_sl_count_only = true;
+	_oldai_sl_length = 0;
+	OldAISaveData();
+	SlSetLength(_oldai_sl_length);
+	_oldai_sl_count_only = false;
+	OldAISaveData();
+}
+
+static uint8 OldAILoadU8(size_t *left)
+{
+	if (*left < 1) SlErrorCorrupt("truncated OLAI chunk");
+	(*left)--;
+	return SlReadByte();
+}
+
+static uint16 OldAILoadU16(size_t *left)
+{
+	uint16 hi = OldAILoadU8(left);
+	return (uint16)((hi << 8) | OldAILoadU8(left));
+}
+
+static uint32 OldAILoadU32(size_t *left)
+{
+	uint32 a = OldAILoadU8(left);
+	uint32 b = OldAILoadU8(left);
+	uint32 c = OldAILoadU8(left);
+	uint32 d = OldAILoadU8(left);
+	return (a << 24) | (b << 16) | (c << 8) | d;
+}
+
+static uint64 OldAILoadU64(size_t *left)
+{
+	uint64 hi = OldAILoadU32(left);
+	return (hi << 32) | OldAILoadU32(left);
+}
+
+static void OldAILoadCompany(size_t *left, uint32 *seen)
+{
+	CompanyID cid = (CompanyID)OldAILoadU8(left);
+	if (cid >= MAX_COMPANIES || HasBit(*seen, cid)) {
+		SlErrorCorrupt("invalid or duplicate OLAI company");
+	}
+	SetBit(*seen, cid);
+	OldAICompany *a = &_oldai[cid];
+	a->active = true;
+	a->rng_state = OldAILoadU32(left);
+	a->age = (uint)OldAILoadU32(left);
+	a->state = (OldAIState)OldAILoadU8(left);
+	a->tries = (int32)OldAILoadU32(left);
+	if (a->state < OAS_IDLE || a->state > OAS_GIVEUP) SlErrorCorrupt("invalid OLAI state");
+
+	a->stopA = OldAILoadU32(left); a->frontA = OldAILoadU32(left);
+	a->stopB = OldAILoadU32(left); a->frontB = OldAILoadU32(left);
+	a->stopA_road = (RoadBits)OldAILoadU8(left);
+	a->stopB_road = (RoadBits)OldAILoadU8(left);
+	a->depot = OldAILoadU32(left); a->depot_front = OldAILoadU32(left);
+	a->depot_dir = (DiagDirection)OldAILoadU8(left);
+	a->staA = (StationID)OldAILoadU32(left);
+	a->staB = (StationID)OldAILoadU32(left);
+	a->route_kind = (OldAIRouteKind)OldAILoadU8(left);
+	if (a->route_kind > OARK_TOWN_BUS) SlErrorCorrupt("invalid OLAI route kind");
+	a->routes_done = (int32)OldAILoadU32(left);
+	a->buses_on_route = (int32)OldAILoadU32(left);
+	a->town_skip = (int32)OldAILoadU32(left);
+
+	a->tr_cargo = (CargoID)OldAILoadU8(left);
+	a->prodP_tile = OldAILoadU32(left); a->prodA_tile = OldAILoadU32(left);
+	a->staP_tile = OldAILoadU32(left); a->staA_tile = OldAILoadU32(left);
+	a->staP_axis = OldAILoadU8(left); a->staA_axis = OldAILoadU8(left);
+	a->staP_exit = OldAILoadU32(left); a->staA_exit = OldAILoadU32(left);
+	a->trStaP = (StationID)OldAILoadU32(left);
+	a->trStaA = (StationID)OldAILoadU32(left);
+	a->tdepot = OldAILoadU32(left); a->tdepot_front = OldAILoadU32(left);
+	a->train = (VehicleID)OldAILoadU32(left);
+	a->route_p_h = OldAILoadU8(left); a->route_a_h = OldAILoadU8(left);
+
+	a->attempt_sta_p = OldAILoadU8(left) != 0;
+	a->attempt_sta_a = OldAILoadU8(left) != 0;
+	a->attempt_line = OldAILoadU8(left) != 0;
+	a->attempt_spur = OldAILoadU8(left) != 0;
+	a->attempt_depot = OldAILoadU8(left) != 0;
+	a->attempt_train_vehicle = OldAILoadU8(left) != 0;
+	a->attempt_loose_wagon = OldAILoadU8(left) != 0;
+	a->loose_wagon = (VehicleID)OldAILoadU32(left);
+	a->attempt_carriages = OldAILoadU8(left);
+	a->attempt_money0 = (Money)OldAILoadU64(left);
+	a->attempt_costing = OldAILoadU8(left) != 0;
+	a->attempt_bus_stop_a = OldAILoadU8(left) != 0;
+	a->attempt_bus_stop_b = OldAILoadU8(left) != 0;
+	a->attempt_bus_depot = OldAILoadU8(left) != 0;
+	a->attempt_bus_road = OldAILoadU8(left) != 0;
+	a->attempt_bus_line = OldAILoadU8(left) != 0;
+	a->depot_front_road = OldAILoadU8(left);
+	a->cooldown_until = (uint)OldAILoadU32(left);
+	a->next_plan_tick = (uint)OldAILoadU32(left);
+	for (int i = 0; i < OLDAI_BUS_MAX_COUNT; i++) {
+		a->dispatch_bus[i] = (VehicleID)OldAILoadU32(left);
+	}
+	a->next_bus_release_tick = (uint)OldAILoadU32(left);
+	a->bus_target_count = OldAILoadU8(left);
+	a->buses_waiting = OldAILoadU8(left);
+	if (a->bus_target_count > OLDAI_BUS_MAX_COUNT ||
+			a->buses_waiting > OLDAI_BUS_MAX_COUNT ||
+			a->buses_on_route < 0 || a->buses_on_route > OLDAI_BUS_MAX_COUNT) {
+		SlErrorCorrupt("invalid OLAI bus queue");
+	}
+
+	a->pending_op = (OldAIPendingOp)OldAILoadU8(left);
+	a->pending_tile = OldAILoadU32(left);
+	a->pending_p1 = OldAILoadU32(left); a->pending_p2 = OldAILoadU32(left);
+	a->pending_cmd = OldAILoadU32(left);
+	a->pending_issued = OldAILoadU8(left) != 0;
+	a->pending_done = OldAILoadU8(left) != 0;
+	a->pending_success = OldAILoadU8(left) != 0;
+	a->pending_error = (StringID)OldAILoadU32(left);
+	a->pending_vehicle = (VehicleID)OldAILoadU32(left);
+	a->plan_cursor = (int32)OldAILoadU32(left);
+	a->cleanup_cursor = (int32)OldAILoadU32(left);
+	a->cleanup_phase = OldAILoadU8(left);
+	a->op_step = OldAILoadU8(left);
+	a->depot_connector_was_missing = OldAILoadU8(left) != 0;
+	if (a->pending_op < OAOP_NONE || a->pending_op > OAOP_REFUND) {
+		SlErrorCorrupt("invalid OLAI pending operation");
+	}
+	if (a->pending_op == OAOP_NONE) {
+		a->pending_issued = false;
+		a->pending_done = false;
+	} else if (!a->pending_done) {
+		/* The engine's transient network command queue is not part of OLAI. */
+		a->pending_issued = false;
+	}
+
+	int rail_count = (int)OldAILoadU16(left);
+	int road_count = (int)OldAILoadU16(left);
+	if (rail_count > OLDAI_MAX_RAIL_PLAN || road_count > OLDAI_MAX_ROAD_PLAN ||
+			(rail_count != 0 && road_count != 0)) {
+		SlErrorCorrupt("invalid OLAI plan count");
+	}
+	_oldai_rail_plan_count[cid] = rail_count;
+	_oldai_road_plan_count[cid] = road_count;
+	for (int i = 0; i < rail_count; i++) {
+		RailStep &s = _oldai_plan[cid].rail[i];
+		s.kind = OldAILoadU8(left);
+		s.tile = OldAILoadU32(left);
+		s.other = OldAILoadU32(left);
+		s.value = (int32)OldAILoadU32(left);
+		if (s.kind > RAILSTEP_BRIDGE) SlErrorCorrupt("invalid OLAI rail step");
+	}
+	for (int i = 0; i < road_count; i++) {
+		RoadStep &s = _oldai_plan[cid].road[i];
+		s.kind = OldAILoadU8(left);
+		s.tile = OldAILoadU32(left);
+		s.other = OldAILoadU32(left);
+		s.data = OldAILoadU16(left);
+		s.unused = 0;
+		if (s.kind > ROADSTEP_BRIDGE) SlErrorCorrupt("invalid OLAI road step");
+	}
+
+	/* Version 1 saves written by the first cursor implementation did not mark
+	 * the station-build or refund half of these compound states.  Recover the
+	 * substep from the authoritative pending operation / ownership flags so a
+	 * save made in the regression cannot re-enter levelling or cleanup forever.
+	 * Preserve a valid saved station substep when there is no pending command:
+	 * that is a retry after levelling, and must not level the footprint again. */
+	if (a->state == OAS_TBUILD_STA_A) {
+		if (a->pending_op == OAOP_LEVEL_STATION_P) {
+			a->op_step = 0;
+		} else if (a->pending_op == OAOP_BUILD_STATION_P) {
+			a->op_step = 1;
+		} else if (a->op_step > 1) {
+			SlErrorCorrupt("invalid OLAI producer station substep");
+		}
+	} else if (a->state == OAS_TBUILD_STA_B) {
+		if (a->pending_op == OAOP_LEVEL_STATION_A) {
+			a->op_step = 0;
+		} else if (a->pending_op == OAOP_BUILD_STATION_A) {
+			a->op_step = 1;
+		} else if (a->op_step > 1) {
+			SlErrorCorrupt("invalid OLAI accepter station substep");
+		}
+	} else if (a->state == OAS_TCLEANUP) {
+		bool objects_left = a->attempt_sta_p || a->attempt_sta_a ||
+				a->attempt_line || a->attempt_spur || a->attempt_depot ||
+				a->attempt_train_vehicle || a->attempt_loose_wagon;
+		a->op_step = (a->pending_op == OAOP_REFUND || !objects_left) ? 1 : 0;
+	} else if (a->state == OAS_BCLEANUP) {
+		bool objects_left = a->attempt_bus_stop_a || a->attempt_bus_stop_b ||
+				a->attempt_bus_depot || a->attempt_bus_road ||
+				a->attempt_bus_line || a->buses_on_route != 0;
+		a->op_step = (a->pending_op == OAOP_REFUND || !objects_left) ? 1 : 0;
+	}
+
+	if (a->plan_cursor < 0 ||
+			a->plan_cursor > (rail_count != 0 ? rail_count : road_count) ||
+			a->cleanup_cursor < -1 ||
+			a->cleanup_cursor >= OLDAI_MAX_RAIL_PLAN ||
+			a->cleanup_phase > 2) {
+		SlErrorCorrupt("invalid OLAI plan cursor");
+	}
+}
+
+static void Load_OLAI()
+{
+	size_t left = SlGetFieldLength();
+	uint16 version = OldAILoadU16(&left);
+	if (version != OLDAI_CHUNK_VERSION) SlErrorCorrupt("unsupported OLAI chunk version");
+
+	/* This also supplies the old-save default when the chunk is absent: normal
+	 * game-load initialization calls OldAI_Initialize before chunk dispatch. */
+	OldAI_Initialize();
+	_oldai_tick = (uint)OldAILoadU32(&left);
+	uint8 active_count = OldAILoadU8(&left);
+	if (active_count > MAX_COMPANIES) SlErrorCorrupt("invalid OLAI company count");
+	uint32 seen = 0;
+	for (uint i = 0; i < active_count; i++) OldAILoadCompany(&left, &seen);
+	if (left != 0) SlErrorCorrupt("trailing data in OLAI chunk");
+	OldAILogStringIDs();
+}
+
+/* Registration point in 1.0.5 saveload/saveload.cpp:
+ *   extern const ChunkHandler _oldai_chunk_handlers[];
+ * and _oldai_chunk_handlers immediately after _ai_chunk_handlers in the
+ * _chunk_handlers[] list. */
+extern const ChunkHandler _oldai_chunk_handlers[] = {
+	{ 'OLAI', Save_OLAI, Load_OLAI, NULL, CH_RIFF | CH_LAST },
+};
+
 /* Count drivable tiles in the saved plan. LEVEL steps add no length; a bridge
  * contributes both heads and every tile between them. */
 static int RoadPlanTileLength(const RoadStep *plan, int n)
@@ -571,6 +1217,10 @@ static void ResetTrainAttempt(CompanyID cid, OldAICompany *a)
 	a->attempt_train_vehicle = false;
 	a->attempt_loose_wagon = false;
 	a->attempt_carriages = 0;
+	a->plan_cursor = 0;
+	a->cleanup_cursor = -1;
+	a->cleanup_phase = 0;
+	a->op_step = 0;
 	if (cid < MAX_COMPANIES) _oldai_rail_plan_count[cid] = 0;
 }
 
@@ -625,7 +1275,7 @@ static TileIndex PlatformAdj(TileIndex base, byte axis, TileIndex exit)
  * catchment of the industry at 'ind', with all 7 tiles level-able. Prefer the
  * axis + position whose chosen exit points toward 'toward'. Returns the base
  * (north/west) tile, the axis (0=X,1=Y) and the inner exit that faces 'toward'. */
-static bool FindIndustryStationSpot(TileIndex ind, TileIndex toward, TileIndex *base, byte *axis, TileIndex *exit)
+static bool FindIndustryStationSpot(OldAICompany *a, TileIndex ind, TileIndex toward, TileIndex *base, byte *axis, TileIndex *exit)
 {
 	int cx = TileX(ind), cy = TileY(ind);
 	bool found = false;
@@ -662,7 +1312,7 @@ static bool FindIndustryStationSpot(TileIndex ind, TileIndex toward, TileIndex *
 				if (mind > 3) continue;   /* out of catchment - skip */
 				TileIndex ex = (DistanceManhattan(e0, toward) <= DistanceManhattan(e1, toward)) ? e0 : e1;
 				/* Closest to the industry wins; exit-toward-partner breaks ties. */
-				int score = 100000 - 1000 * mind - (int)DistanceManhattan(ex, toward) + (int)RandomRange(2500);
+				int score = 100000 - 1000 * mind - (int)DistanceManhattan(ex, toward) + (int)OldAIRandomRange(a, 2500);
 				if (score > bestscore) {
 					bestscore = score; found = true;
 					*base = TileXY(sx, sy); *axis = (byte)ax; *exit = ex;
@@ -677,7 +1327,7 @@ static bool FindIndustryStationSpot(TileIndex ind, TileIndex toward, TileIndex *
  * be level-able, and at least one platform tile must be within Manhattan radius
  * 3 of a house.  Searching around the town centre keeps that house in the chosen
  * town's built-up area without depending on a version-specific house->town API. */
-static bool FindTownStationSpot(const Town *town, TileIndex toward, TileIndex *base, byte *axis, TileIndex *exit)
+static bool FindTownStationSpot(OldAICompany *a, const Town *town, TileIndex toward, TileIndex *base, byte *axis, TileIndex *exit)
 {
 	int cx = (int)TileX(town->xy), cy = (int)TileY(town->xy);
 	bool found = false;
@@ -718,7 +1368,7 @@ static bool FindTownStationSpot(const Town *town, TileIndex toward, TileIndex *b
 				TileIndex ex = DistanceManhattan(e0, toward) <= DistanceManhattan(e1, toward) ? e0 : e1;
 				int centre_dist = abs(sx - cx) + abs(sy - cy);
 				int score = 100000 - 2000 * nearest_house - 20 * centre_dist -
-						(int)DistanceManhattan(ex, toward) + (int)RandomRange(2500);
+						(int)DistanceManhattan(ex, toward) + (int)OldAIRandomRange(a, 2500);
 				if (score > bestscore) {
 					bestscore = score; found = true;
 					*base = TileXY(sx, sy); *axis = (byte)ax; *exit = ex;
@@ -731,7 +1381,7 @@ static bool FindTownStationSpot(const Town *town, TileIndex toward, TileIndex *b
 
 /* An accepter in a caller-selected distance band. Short cargo keeps the proven
  * 24..64 range; companies at GBP100k also get a 48..128 long-line choice. */
-static Industry *FindNearestAccepter(const Industry *P, CargoID C, int min_dist, int max_dist, int target_dist)
+static Industry *FindNearestAccepter(OldAICompany *a, const Industry *P, CargoID C, int min_dist, int max_dist, int target_dist)
 {
 	Industry *A; Industry *best = NULL; int bestscore = 1 << 30;
 	FOR_ALL_INDUSTRIES(A) {
@@ -741,7 +1391,7 @@ static Industry *FindNearestAccepter(const Industry *P, CargoID C, int min_dist,
 		if (!accepts) continue;
 		int d = (int)DistanceManhattan(P->location.tile, A->location.tile);
 		if (d < min_dist || d > max_dist) continue;
-		int score = ((d > target_dist) ? (d - target_dist) : (target_dist - d)) + (int)RandomRange(8);
+		int score = ((d > target_dist) ? (d - target_dist) : (target_dist - d)) + (int)OldAIRandomRange(a, 8);
 		if (score < bestscore) { bestscore = score; best = A; }
 	}
 	return best;
@@ -767,61 +1417,96 @@ static bool IndustryHasCompanyStation(const Industry *ind, CompanyID company)
 	return false;
 }
 
-/* Level the whole 5-tile run + both exit tiles to this station's own height.
- * Test all seven commands before changing anything, then recompute each signed
- * delta immediately before executing (an adjacent terraform may have changed
- * TileHeight meanwhile). */
-static bool LevelStationFootprint(TileIndex base, byte axis, int height)
+/* CMD_LEVEL_LAND addresses CORNERS using TileIndex coordinates.  A seven-tile
+ * station strip occupies a 2x8 rectangle of corners, not the 1x7 rectangle of
+ * tile north-corners.  The pathfinder's station overlay models this same 16
+ * corner rectangle. */
+static void StationFootprintArea(TileIndex base, byte axis,
+		TileIndex *start, TileIndex *end)
 {
 	int bx = TileX(base), by = TileY(base);
-	/* The 7-tile strip: the 5 platform tiles plus the exit tile at each end. */
-	TileIndex t0 = (axis == 0) ? TileXY(bx - 1, by) : TileXY(bx, by - 1);
-	TileIndex t6 = (axis == 0) ? TileXY(bx + 5, by) : TileXY(bx, by + 5);
-	/* Level the WHOLE strip to `height` in ONE area operation. Doing it tile by
-	 * tile (as before) re-sloped each neighbour's shared corner - terrain is
-	 * corner-based - so the footprint ended up NOT flat and
-	 * CMD_BUILD_RAIL_STATION then failed with err 2677 (flat land required).
-	 * CmdLevelLand levels the whole rectangle (p1..tile) to TileHeight(p1)+p2 at
-	 * once, so all seven tiles come out flat at `height` - exactly the terrain the
-	 * free plan modelled for its station-footprint corner overlay. p2 is the
-	 * signed height delta off the START tile t0. */
-	uint32 p2 = (uint32)(uint8)(int8)(height - (int)TileHeight(t0));
-	CommandCost r = DoCommand(t6, t0, p2, DC_NONE, CMD_LEVEL_LAND);
-	if (r.Failed()) {
-		if (r.GetErrorMessage() == 2699) return true;   /* already flat at height */
-		OLn("station area-level preflight err ", (uint32)r.GetErrorMessage());
-		return false;
-	}
-	return DoCommandP(t6, t0, p2, CMD_LEVEL_LAND);
+	*start = axis == 0 ? TileXY(bx - 1, by) : TileXY(bx, by - 1);
+	*end = axis == 0 ? TileXY(bx + 6, by + 1) : TileXY(bx + 1, by + 6);
 }
 
-/* Build a rail bridge from the land tile 'nearHead' across water to the far land
- * tile 'farHead'. Tries every bridge type and uses the first the game accepts.
- * p2 = (TRANSPORT_RAIL<<15)|(railtype<<8)|bridge_id, railtype 0 (see ai_bridge.cpp). */
-static bool BuildRailBridge(TileIndex nearHead, TileIndex farHead)
+static bool StationFootprintIsLevel(TileIndex base, byte axis, int height)
 {
-	uint32 base = ((uint32)TRANSPORT_RAIL << 15) | (0u << 8);   /* railtype 0 */
-	for (uint id = 0; id < MAX_BRIDGES; id++) {
-		CommandCost r = DoCommand(farHead, nearHead, base | id, DC_NONE, CMD_BUILD_BRIDGE);
-		if (r.Succeeded()) return DoCommandP(farHead, nearHead, base | id, CMD_BUILD_BRIDGE);
+	int bx = TileX(base), by = TileY(base);
+	for (int i = -1; i <= 5; i++) {
+		TileIndex tile = axis == 0 ? TileXY(bx + i, by) : TileXY(bx, by + i);
+		if ((int)TileHeight(tile) != height ||
+				GetTileSlope(tile, NULL) != SLOPE_FLAT) return false;
 	}
-	OL("rail bridge: no bridge type accepted");
-	return false;
+	return true;
+}
+
+static bool StationFootprintLevelable(TileIndex base, byte axis, int height)
+{
+	TileIndex start, end;
+	StationFootprintArea(base, axis, &start, &end);
+	uint32 p2 = (uint32)(uint8)(int8)(height - (int)TileHeight(start));
+	CommandCost r = DoCommand(end, start, p2, DC_NONE, CMD_LEVEL_LAND);
+	return r.Succeeded() ||
+			(OldAICommandAlreadySatisfied(CMD_LEVEL_LAND,
+					r.GetErrorMessage()) &&
+			StationFootprintIsLevel(base, axis, height));
+}
+
+/* Level the platform plus both exits to the station's chosen height.  Validate
+ * the postcondition because CMD_LEVEL_LAND is CMD_NO_TEST and can return a
+ * successful partial result when execution runs out of available money. */
+static OldAIWorkResult LevelStationFootprint(OldAICompany *a, OldAIPendingOp op,
+		TileIndex base, byte axis, int height)
+{
+	TileIndex start, end;
+	StationFootprintArea(base, axis, &start, &end);
+	uint32 p2 = (uint32)(uint8)(int8)(height - (int)TileHeight(start));
+	OldAIWorkResult wr;
+	if (a->pending_op == op) {
+		wr = OldAICommand(a, op, end, start, p2, CMD_LEVEL_LAND);
+		if (wr != OAI_WORK_DONE) return wr;
+		if (!StationFootprintIsLevel(base, axis, height)) {
+			OL("station area-level incomplete after execute");
+			return OAI_WORK_FAILED;
+		}
+		return OAI_WORK_DONE;
+	}
+	CommandCost r = DoCommand(end, start, p2, DC_NONE, CMD_LEVEL_LAND);
+	if (r.Failed()) {
+		if (OldAICommandAlreadySatisfied(CMD_LEVEL_LAND, r.GetErrorMessage()) &&
+				StationFootprintIsLevel(base, axis, height)) {
+			return OAI_WORK_DONE;
+		}
+		OLn("station area-level preflight err ", (uint32)r.GetErrorMessage());
+		return OAI_WORK_FAILED;
+	}
+	const Company *co = Company::GetIfValid(_current_company);
+	if (co != NULL && r.GetCost() > co->money) {
+		OL("station area-level exceeds available money");
+		return OAI_WORK_FAILED;
+	}
+	wr = OldAICommand(a, op, end, start, p2, CMD_LEVEL_LAND);
+	if (wr != OAI_WORK_DONE) return wr;
+	if (!StationFootprintIsLevel(base, axis, height)) {
+		OL("station area-level incomplete after execute");
+		return OAI_WORK_FAILED;
+	}
+	return OAI_WORK_DONE;
 }
 
 /* Execute the plan produced for free in OAS_TPLAN.  PlanRailRoute modelled the
  * exact corner heights created by both seven-tile station levelling strips, so
  * station construction makes the live map match the saved plan rather than
  * invalidating it. */
-static bool BuildRailLine(CompanyID cid, OldAICompany *a)
+static OldAIWorkResult BuildRailLine(CompanyID cid, OldAICompany *a)
 {
-	if (cid >= MAX_COMPANIES || _oldai_rail_plan_count[cid] <= 0) return false;
+	if (cid >= MAX_COMPANIES || _oldai_rail_plan_count[cid] <= 0) return OAI_WORK_FAILED;
 	OLn("tbuild: executing saved exact plan steps = ", (uint)_oldai_rail_plan_count[cid]);
 
-	/* Mark ownership before execution.  If the executor's immediate prefix
-	 * rollback is ever incomplete, OAS_TCLEANUP retries the whole plan safely. */
+	/* Mark ownership before execution.  A failed or interrupted prefix is
+	 * removed by the callback-resumable OAS_TCLEANUP path. */
 	a->attempt_line = true;
-	return ExecuteRailPlan(_oldai_plan[cid].rail, _oldai_rail_plan_count[cid]);
+	return ExecuteRailPlan(a, _oldai_plan[cid].rail, _oldai_rail_plan_count[cid]);
 }
 
 /* Plan the in-line depot beyond the producer station's OUTER end (the platform
@@ -844,180 +1529,234 @@ static bool PlanProducerDepot(OldAICompany *a)
 	return true;
 }
 
-static bool RemoveAttemptTrack(TileIndex tile, byte track, const char *what)
+static OldAIWorkResult RemoveAttemptTrack(OldAICompany *a, TileIndex tile, byte track, const char *what)
 {
-	if (!IsTileType(tile, MP_RAILWAY)) return true;
+	if (a->pending_op == OAOP_REMOVE_TRACK) {
+		return OldAICommand(a, OAOP_REMOVE_TRACK, tile, 0, (uint32)track,
+				CMD_REMOVE_SINGLE_RAIL);
+	}
+	if (!IsTileType(tile, MP_RAILWAY)) return OAI_WORK_DONE;
 	CommandCost test = DoCommand(tile, 0, (uint32)track, DC_NONE, CMD_REMOVE_SINGLE_RAIL);
 	if (test.Failed()) {
 		OLn(what, (uint32)test.GetErrorMessage());
-		return false;
+		return OAI_WORK_FAILED;
 	}
-	if (!DoCommandP(tile, 0, (uint32)track, CMD_REMOVE_SINGLE_RAIL)) {
-		OL("cleanup track real command failed");
-		return false;
-	}
-	return true;
+	return OldAICommand(a, OAOP_REMOVE_TRACK, tile, 0, (uint32)track,
+			CMD_REMOVE_SINGLE_RAIL);
 }
 
-static bool ClearAttemptTile(TileIndex tile, const char *what)
+static OldAIWorkResult ClearAttemptTile(OldAICompany *a, TileIndex tile, const char *what)
 {
+	if (a->pending_op == OAOP_CLEAR_TILE) {
+		return OldAICommand(a, OAOP_CLEAR_TILE, tile, 0, 0, CMD_LANDSCAPE_CLEAR);
+	}
 	CommandCost test = DoCommand(tile, 0, 0, DC_NONE, CMD_LANDSCAPE_CLEAR);
 	if (test.Failed()) {
 		OLn(what, (uint32)test.GetErrorMessage());
-		return false;
+		return OAI_WORK_FAILED;
 	}
-	if (!DoCommandP(tile, 0, 0, CMD_LANDSCAPE_CLEAR)) {
-		OL("cleanup clear real command failed");
-		return false;
-	}
-	return true;
+	return OldAICommand(a, OAOP_CLEAR_TILE, tile, 0, 0, CMD_LANDSCAPE_CLEAR);
 }
 
-static bool RemoveAttemptStation(TileIndex base, byte axis)
+static OldAIWorkResult RemoveAttemptStation(OldAICompany *a, TileIndex base, byte axis)
 {
-	bool ok = true;
 	int bx = (int)TileX(base), by = (int)TileY(base);
-	for (int i = 0; i < 5; i++) {
+	if (a->cleanup_cursor < 0) a->cleanup_cursor = 4;
+	while (a->cleanup_cursor >= 0) {
+		int i = a->cleanup_cursor;
 		TileIndex tile = axis == 0 ? TileXY(bx + i, by) : TileXY(bx, by + i);
-		if (!IsTileType(tile, MP_STATION)) continue; /* already removed */
-		if (GetTileOwner(tile) != _current_company) {
-			OL("cleanup station ownership changed");
-			ok = false;
+		if (a->pending_op == OAOP_CLEAR_TILE) {
+			OldAIWorkResult wr = ClearAttemptTile(a, tile, "cleanup station err ");
+			if (wr != OAI_WORK_DONE) return wr;
+			a->cleanup_cursor--;
 			continue;
 		}
-		if (!ClearAttemptTile(tile, "cleanup station err ")) ok = false;
+		if (!IsTileType(tile, MP_STATION)) {
+			a->cleanup_cursor--;
+			continue;
+		}
+		if (GetTileOwner(tile) != _current_company) {
+			OL("cleanup station ownership changed");
+			return OAI_WORK_FAILED;
+		}
+		OldAIWorkResult wr = ClearAttemptTile(a, tile, "cleanup station err ");
+		if (wr != OAI_WORK_DONE) return wr;
+		a->cleanup_cursor--;
 	}
-	return ok;
+	a->cleanup_cursor = -1;
+	return OAI_WORK_DONE;
 }
 
 /* Retry-safe cleanup of every infrastructure object owned by the current train
  * attempt.  Earthworks are deliberately retained: reversing individual LEVEL
  * commands on corner terrain could alter neighbouring industry/town property. */
-static bool CleanupTrainAttempt(CompanyID cid, OldAICompany *a)
+static OldAIWorkResult CleanupTrainAttempt(CompanyID cid, OldAICompany *a)
 {
 	/* A vehicle is never created until every fallible infrastructure step has
 	 * succeeded. Do not tear a depot out from under one if a future edit violates
 	 * that invariant; the build state retains/retries the active attempt instead. */
 	if (a->attempt_train_vehicle) {
 		OL("train cleanup refused: attempt vehicle still in depot");
-		return false;
+		return OAI_WORK_FAILED;
 	}
-	bool ok = true;
 	if (a->attempt_depot) {
-		if (!IsTileType(a->tdepot, MP_RAILWAY) || ClearAttemptTile(a->tdepot, "cleanup depot err ")) {
+		if (!IsTileType(a->tdepot, MP_RAILWAY) && a->pending_op != OAOP_CLEAR_TILE) {
 			a->attempt_depot = false;
 		} else {
-			ok = false;
+			OldAIWorkResult wr = ClearAttemptTile(a, a->tdepot, "cleanup depot err ");
+			if (wr != OAI_WORK_DONE) return wr;
+			a->attempt_depot = false;
 		}
 	}
 	if (a->attempt_spur) {
 		byte spur = (a->staP_axis == 0) ? 0u : 1u;
-		if (RemoveAttemptTrack(a->tdepot_front, spur, "cleanup spur err ")) {
-			a->attempt_spur = false;
-		} else {
-			ok = false;
-		}
+		OldAIWorkResult wr = RemoveAttemptTrack(a, a->tdepot_front, spur, "cleanup spur err ");
+		if (wr != OAI_WORK_DONE) return wr;
+		a->attempt_spur = false;
 	}
 	if (a->attempt_line) {
-		if (RemoveRailPlan(_oldai_plan[cid].rail, _oldai_rail_plan_count[cid])) {
-			a->attempt_line = false;
-		} else {
-			ok = false;
-		}
+		OldAIWorkResult wr = RemoveRailPlan(a, _oldai_plan[cid].rail,
+				_oldai_rail_plan_count[cid]);
+		if (wr != OAI_WORK_DONE) return wr;
+		a->attempt_line = false;
 	}
 	if (a->attempt_sta_a) {
-		if (RemoveAttemptStation(a->staA_tile, a->staA_axis)) {
-			a->attempt_sta_a = false;
-		} else {
-			ok = false;
-		}
+		OldAIWorkResult wr = RemoveAttemptStation(a, a->staA_tile, a->staA_axis);
+		if (wr != OAI_WORK_DONE) return wr;
+		a->attempt_sta_a = false;
 	}
 	if (a->attempt_sta_p) {
-		if (RemoveAttemptStation(a->staP_tile, a->staP_axis)) {
-			a->attempt_sta_p = false;
-		} else {
-			ok = false;
-		}
+		OldAIWorkResult wr = RemoveAttemptStation(a, a->staP_tile, a->staP_axis);
+		if (wr != OAI_WORK_DONE) return wr;
+		a->attempt_sta_p = false;
 	}
-	if (ok) {
-		_oldai_rail_plan_count[cid] = 0;
-		OL("train attempt cleanup complete");
-	}
-	return ok;
+	_oldai_rail_plan_count[cid] = 0;
+	OL("train attempt cleanup complete");
+	return OAI_WORK_DONE;
 }
 
-/* A failed attempt must cost the AI NOTHING. It kept re-selecting hard pairs and
- * bleeding cash on stations/track it then demolished, and stalled for years with
- * money in the bank. After the attempt is fully cleaned up, credit its entire net
- * spend (build + terraform + demolition) back. Direct write to c->money is safe:
- * single-player, no network, thread_none - nothing to desync. Completed routes
- * keep their cost (attempt_costing is cleared on ROUTE COMPLETE). */
-static void RefundFailedAttempt(CompanyID cid, OldAICompany *a)
+/* Credit a failed attempt through the synchronized command framework.  The
+ * command's negative construction cost reverses both money and the expense
+ * ledger on every peer. */
+static OldAIWorkResult RefundFailedAttempt(CompanyID cid, OldAICompany *a)
 {
-	if (!a->attempt_costing) return;
-	Company *c = Company::GetIfValid(cid);
-	if (c != NULL) {
-		Money spent = a->attempt_money0 - c->money;
-		if (spent > 0) {
-			c->money += spent;
-			/* Also un-count it from THIS YEAR's construction expenses, or the
-			 * finance graph keeps accumulating money the AI never really lost -
-			 * the refund would balance the bank but not the statistics. Build,
-			 * terraform and demolition all book to EXPENSES_CONSTRUCTION;
-			 * yearly_expenses[0] is the current year. */
-			c->yearly_expenses[0][EXPENSES_CONSTRUCTION] -= spent;
-			OLn("refunded failed attempt /1000 = ", (uint)(int)(spent / 1000));
+	if (!a->attempt_costing) return OAI_WORK_DONE;
+	if (a->pending_op == OAOP_REFUND) {
+		uint64 encoded = ((uint64)a->pending_p2 << 32) | (uint64)a->pending_p1;
+		OldAIWorkResult wr = OldAICommand(a, OAOP_REFUND, 0,
+				a->pending_p1, a->pending_p2, CMD_OLDAI_REFUND);
+		if (wr == OAI_WORK_DONE) {
+			a->attempt_costing = false;
+			OLn("refunded failed attempt /1000 = ",
+					(uint)(int)((Money)encoded / 1000));
 		}
+		return wr;
 	}
-	a->attempt_costing = false;
+
+	Company *c = Company::GetIfValid(cid);
+	if (c == NULL) return OAI_WORK_FAILED;
+	Money spent = a->attempt_money0 - c->money;
+	if (spent <= 0) {
+		a->attempt_costing = false;
+		return OAI_WORK_DONE;
+	}
+	uint64 encoded = (uint64)spent;
+	OldAIWorkResult wr = OldAICommand(a, OAOP_REFUND, 0, (uint32)encoded,
+			(uint32)(encoded >> 32), CMD_OLDAI_REFUND);
+	if (wr == OAI_WORK_DONE) {
+		a->attempt_costing = false;
+		OLn("refunded failed attempt /1000 = ", (uint)(int)(spent / 1000));
+	}
+	return wr;
 }
 
 static void AbandonTrainAttempt(CompanyID cid, OldAICompany *a)
 {
 	a->tries = 0;
 	a->town_skip++;
-	if (CleanupTrainAttempt(cid, a)) {
-		RefundFailedAttempt(cid, a);
-		a->state = OAS_TPLAN;
-	} else {
-		a->state = OAS_TCLEANUP;
+	if (a->plan_fail_streak < OLDAI_PLAN_MAX_FAIL_STREAK) {
+		a->plan_fail_streak++;
+	}
+	uint gap = OldAIPlanningGap(a);
+	a->next_plan_tick = _oldai_tick + gap;
+	OLn("planning backoff ticks = ", gap);
+	/* op_step is also used by station/depot/vehicle construction.  Cleanup has
+	 * its own two phases: 0 removes attempt-owned objects, 1 waits for the
+	 * synchronized refund. */
+	a->op_step = 0;
+	a->state = OAS_TCLEANUP;
+	OldAIWorkResult wr = CleanupTrainAttempt(cid, a);
+	if (wr == OAI_WORK_DONE) {
+		a->op_step = 1;
+		wr = RefundFailedAttempt(cid, a);
+		if (wr == OAI_WORK_DONE) {
+			a->op_step = 0;
+			a->state = OAS_TPLAN;
+		}
 	}
 }
 
 /* Depot construction is one attempt.  Flags are set immediately after each
  * successful object build so OAS_TCLEANUP can remove it on any later failure. */
-static bool BuildProducerTrainDepot(OldAICompany *a)
+static OldAIWorkResult BuildProducerTrainDepot(OldAICompany *a)
 {
-	int delta = (int)TileHeight(a->tdepot_front) - (int)TileHeight(a->tdepot);
-	uint32 level_p2 = (uint32)(uint8)(int8)delta;
-	CommandCost level = DoCommand(a->tdepot, a->tdepot, level_p2, DC_NONE, CMD_LEVEL_LAND);
-	if (level.Failed() && level.GetErrorMessage() != 2699) {
-		OLn("train depot level err ", (uint32)level.GetErrorMessage());
-		return false;
-	}
-	if (!level.Failed() && !DoCommandP(a->tdepot, a->tdepot, level_p2, CMD_LEVEL_LAND)) {
-		OL("train depot level execute failed");
-		return false;
+	if (a->op_step == 0) {
+		int delta = (int)TileHeight(a->tdepot_front) - (int)TileHeight(a->tdepot);
+		uint32 level_p2 = (uint32)(uint8)(int8)delta;
+		if (a->pending_op != OAOP_LEVEL_TRAIN_DEPOT) {
+			CommandCost level = DoCommand(a->tdepot, a->tdepot, level_p2,
+					DC_NONE, CMD_LEVEL_LAND);
+			if (level.Failed()) {
+				if (!OldAICommandAlreadySatisfied(CMD_LEVEL_LAND,
+						level.GetErrorMessage())) {
+					OLn("train depot level err ", (uint32)level.GetErrorMessage());
+					return OAI_WORK_FAILED;
+				}
+				a->op_step = 1;
+			}
+		}
+		if (a->op_step == 0) {
+			OldAIWorkResult wr = OldAICommand(a, OAOP_LEVEL_TRAIN_DEPOT,
+					a->tdepot, a->tdepot, level_p2, CMD_LEVEL_LAND);
+			if (wr != OAI_WORK_DONE) return wr;
+			a->op_step = 1;
+		}
 	}
 
 	byte spur = (a->staP_axis == 0) ? 0u /* TRACK_X */ : 1u /* TRACK_Y */;
-	CommandCost track = DoCommand(a->tdepot_front, 0, spur, DC_NONE, CMD_BUILD_SINGLE_RAIL);
-	if (track.Failed()) {
-		OLn("train depot spur err ", (uint32)track.GetErrorMessage());
-		return false;
+	if (a->op_step == 1) {
+		if (a->pending_op != OAOP_BUILD_DEPOT_SPUR) {
+			CommandCost track = DoCommand(a->tdepot_front, 0, spur,
+					DC_NONE, CMD_BUILD_SINGLE_RAIL);
+			if (track.Failed()) {
+				OLn("train depot spur err ", (uint32)track.GetErrorMessage());
+				return OAI_WORK_FAILED;
+			}
+		}
+		OldAIWorkResult wr = OldAICommand(a, OAOP_BUILD_DEPOT_SPUR,
+				a->tdepot_front, 0, spur, CMD_BUILD_SINGLE_RAIL);
+		if (wr != OAI_WORK_DONE) return wr;
+		a->attempt_spur = true;
+		a->op_step = 2;
 	}
-	if (!DoCommandP(a->tdepot_front, 0, spur, CMD_BUILD_SINGLE_RAIL)) {
-		OL("train depot spur execute failed");
-		return false;
-	}
-	a->attempt_spur = true;
 
 	uint entrance_dir = (TileX(a->tdepot) == TileX(a->tdepot_front))
 			? (TileY(a->tdepot) < TileY(a->tdepot_front) ? 1 : 3)
 			: (TileX(a->tdepot) < TileX(a->tdepot_front) ? 2 : 0);
-	if (!TryCmd("train depot err ", a->tdepot, 0 /* railtype */, entrance_dir, CMD_BUILD_TRAIN_DEPOT)) return false;
+	if (a->pending_op != OAOP_BUILD_TRAIN_DEPOT) {
+		CommandCost test = DoCommand(a->tdepot, 0, entrance_dir,
+				DC_NONE, CMD_BUILD_TRAIN_DEPOT);
+		if (test.Failed()) {
+			OLn("train depot err ", (uint32)test.GetErrorMessage());
+			return OAI_WORK_FAILED;
+		}
+	}
+	OldAIWorkResult wr = OldAICommand(a, OAOP_BUILD_TRAIN_DEPOT,
+			a->tdepot, 0, entrance_dir, CMD_BUILD_TRAIN_DEPOT);
+	if (wr != OAI_WORK_DONE) return wr;
 	a->attempt_depot = true;
-	return true;
+	a->op_step = 0;
+	return OAI_WORK_DONE;
 }
 
 /* First buildable train LOCO (not a wagon) with real power. */
@@ -1053,7 +1792,7 @@ static void BeginCostedAttempt(CompanyID cid, OldAICompany *a)
 }
 
 /* Random producer/cargo selection inside one cash-gated distance band. */
-static bool SelectCargoPair(CompanyID cid, int min_dist, int max_dist, int target_dist,
+static bool SelectCargoPair(CompanyID cid, OldAICompany *a, int min_dist, int max_dist, int target_dist,
 		Industry **out_p, Industry **out_a, CargoID *out_c)
 {
 	Industry *p;
@@ -1064,13 +1803,13 @@ static bool SelectCargoPair(CompanyID cid, int min_dist, int max_dist, int targe
 		for (int k = 0; k < 2; k++) {
 			CargoID cargo = p->produced_cargo[k];
 			if (cargo == CT_INVALID || p->last_month_production[k] == 0) continue;
-			if (FindNearestAccepter(p, cargo, min_dist, max_dist, target_dist) != NULL) feasible = true;
+			if (FindNearestAccepter(a, p, cargo, min_dist, max_dist, target_dist) != NULL) feasible = true;
 		}
 		if (feasible) producer_count++;
 	}
 	if (producer_count == 0) return false;
 
-	int producer_pick = (int)RandomRange(producer_count);
+	int producer_pick = (int)OldAIRandomRange(a, producer_count);
 	int producer_index = 0;
 	FOR_ALL_INDUSTRIES(p) {
 		if (IndustryHasCompanyStation(p, cid)) continue;
@@ -1080,7 +1819,7 @@ static bool SelectCargoPair(CompanyID cid, int min_dist, int max_dist, int targe
 		for (int k = 0; k < 2; k++) {
 			CargoID cargo = p->produced_cargo[k];
 			if (cargo == CT_INVALID || p->last_month_production[k] == 0) continue;
-			Industry *accept = FindNearestAccepter(p, cargo, min_dist, max_dist, target_dist);
+			Industry *accept = FindNearestAccepter(a, p, cargo, min_dist, max_dist, target_dist);
 			if (accept == NULL) continue;
 			cargo_list[cargo_count] = cargo;
 			accept_list[cargo_count] = accept;
@@ -1088,25 +1827,25 @@ static bool SelectCargoPair(CompanyID cid, int min_dist, int max_dist, int targe
 		}
 		if (cargo_count == 0) continue;
 		if (producer_index++ != producer_pick) continue;
-		int pick = (int)RandomRange(cargo_count);
+		int pick = (int)OldAIRandomRange(a, cargo_count);
 		*out_p = p; *out_a = accept_list[pick]; *out_c = cargo_list[pick];
 		return true;
 	}
 	return false;
 }
 
-static bool SelectTownPair(uint min_dist, uint max_dist, uint target_dist,
+static bool SelectTownPair(OldAICompany *a, uint min_dist, uint max_dist, uint target_dist,
 		const Town **out_a, const Town **out_b)
 {
 	int town_count = 0;
 	const Town *t;
 	FOR_ALL_TOWNS(t) if (t->population >= 100) town_count++;
 	if (town_count < 2) return false;
-	int start = (int)RandomRange(town_count);
+	int start = (int)OldAIRandomRange(a, town_count);
 	for (int i = 0; i < town_count; i++) {
 		const Town *from = FindTownForRoute(start + i);
 		if (from == NULL) continue;
-		const Town *to = FindPartnerTown(from, min_dist, max_dist, target_dist);
+		const Town *to = FindPartnerTown(a, from, min_dist, max_dist, target_dist);
 		if (to != NULL) { *out_a = from; *out_b = to; return true; }
 	}
 	return false;
@@ -1120,6 +1859,11 @@ static bool PrepareFreeRailPlan(CompanyID cid, OldAICompany *a)
 	if (!PlanProducerDepot(a)) return false;
 	a->route_p_h = (byte)TileHeight(a->staP_tile);
 	a->route_a_h = (byte)TileHeight(a->staA_tile);
+	/* Reject a station pair before the expensive A* unless the exact 2x8 corner
+	 * rectangles represented by its virtual terrain overlay are terraformable. */
+	if (!StationFootprintLevelable(a->staP_tile, a->staP_axis, a->route_p_h) ||
+			!StationFootprintLevelable(a->staA_tile, a->staA_axis,
+					a->route_a_h)) return false;
 	TileIndex plat_p = PlatformAdj(a->staP_tile, a->staP_axis, a->staP_exit);
 	TileIndex plat_a = PlatformAdj(a->staA_tile, a->staA_axis, a->staA_exit);
 	byte pdir = DiagDirBetween(plat_p, a->staP_exit);
@@ -1141,15 +1885,15 @@ static bool PrepareCargoTrain(CompanyID cid, OldAICompany *a, int min_dist, int 
 {
 	Industry *prod = NULL, *accept = NULL;
 	CargoID cargo = CT_INVALID;
-	if (!SelectCargoPair(cid, min_dist, max_dist, target_dist, &prod, &accept, &cargo)) return false;
+	if (!SelectCargoPair(cid, a, min_dist, max_dist, target_dist, &prod, &accept, &cargo)) return false;
 	if (FindCargoWagon(cid, cargo) == INVALID_ENGINE) return false;
 	ResetTrainAttempt(cid, a);
 	a->route_kind = OARK_CARGO_TRAIN;
 	a->tr_cargo = cargo;
 	a->prodP_tile = prod->location.tile;
 	a->prodA_tile = accept->location.tile;
-	if (!FindIndustryStationSpot(a->prodP_tile, a->prodA_tile, &a->staP_tile, &a->staP_axis, &a->staP_exit)) return false;
-	if (!FindIndustryStationSpot(a->prodA_tile, a->prodP_tile, &a->staA_tile, &a->staA_axis, &a->staA_exit)) return false;
+	if (!FindIndustryStationSpot(a, a->prodP_tile, a->prodA_tile, &a->staP_tile, &a->staP_axis, &a->staP_exit)) return false;
+	if (!FindIndustryStationSpot(a, a->prodA_tile, a->prodP_tile, &a->staA_tile, &a->staA_axis, &a->staA_exit)) return false;
 	if (!PrepareFreeRailPlan(cid, a)) return false;
 	OLn("tplan: cargo id = ", (uint)cargo);
 	OLn("tplan: cargo distance = ", DistanceManhattan(a->prodP_tile, a->prodA_tile));
@@ -1161,14 +1905,14 @@ static bool PreparePassengerTrain(CompanyID cid, OldAICompany *a, uint min_dist,
 	CargoID passengers = PassengerCargo();
 	if (passengers == CT_INVALID || FindCargoWagon(cid, passengers) == INVALID_ENGINE) return false;
 	const Town *ta = NULL, *tb = NULL;
-	if (!SelectTownPair(min_dist, max_dist, target_dist, &ta, &tb)) return false;
+	if (!SelectTownPair(a, min_dist, max_dist, target_dist, &ta, &tb)) return false;
 	ResetTrainAttempt(cid, a);
 	a->route_kind = OARK_PASSENGER_TRAIN;
 	a->tr_cargo = passengers;
 	a->prodP_tile = ta->xy;
 	a->prodA_tile = tb->xy;
-	if (!FindTownStationSpot(ta, tb->xy, &a->staP_tile, &a->staP_axis, &a->staP_exit)) return false;
-	if (!FindTownStationSpot(tb, ta->xy, &a->staA_tile, &a->staA_axis, &a->staA_exit)) return false;
+	if (!FindTownStationSpot(a, ta, tb->xy, &a->staP_tile, &a->staP_axis, &a->staP_exit)) return false;
+	if (!FindTownStationSpot(a, tb, ta->xy, &a->staA_tile, &a->staA_axis, &a->staA_exit)) return false;
 	if (!PrepareFreeRailPlan(cid, a)) return false;
 	OLn("tplan: passenger cargo id = ", (uint)passengers);
 	OLn("tplan: town distance = ", DistanceManhattan(ta->xy, tb->xy));
@@ -1182,6 +1926,11 @@ static void ResetBusAttempt(CompanyID cid, OldAICompany *a)
 	a->attempt_bus_depot = false;
 	a->attempt_bus_road = false;
 	a->attempt_bus_line = false;
+	a->plan_cursor = 0;
+	a->cleanup_cursor = -1;
+	a->cleanup_phase = 0;
+	a->op_step = 0;
+	a->depot_connector_was_missing = false;
 	if (cid < MAX_COMPANIES) _oldai_road_plan_count[cid] = 0;
 }
 
@@ -1194,14 +1943,14 @@ static bool PrepareTownBus(CompanyID cid, OldAICompany *a)
 	 * the completed route's fleet has left its depot. Train work may continue. */
 	if (a->buses_waiting != 0 || town_count < 2 ||
 			FindBusEngine(cid) == INVALID_ENGINE || cid >= MAX_COMPANIES) return false;
-	int start = (int)RandomRange(town_count);
+	int start = (int)OldAIRandomRange(a, town_count);
 	for (int i = 0; i < town_count; i++) {
 		const Town *ta = FindTownForRoute(start + i);
 		if (ta == NULL) continue;
 		/* Keep the proven partner selector and its RandomRange score term.  The
 		 * 16..80 band is long enough to be genuinely inter-town while keeping a
 		 * conservative 256-tile reconstructed-path cap useful on 68k. */
-		const Town *tb = FindPartnerTown(ta, 16, 80, 40);
+		const Town *tb = FindPartnerTown(a, ta, 16, 80, 40);
 		if (tb == NULL) continue;
 		if (!FindStopSpot(ta->xy, INVALID_TILE, 0, &a->stopA, &a->frontA)) continue;
 		if (!FindStopSpot(tb->xy, INVALID_TILE, 0, &a->stopB, &a->frontB)) continue;
@@ -1227,7 +1976,8 @@ static bool PrepareTownBus(CompanyID cid, OldAICompany *a)
 		RoadBits connector = DiagDirToRoadBits(a->depot_dir);
 		if ((GetRoadBits(a->depot_front, ROADTYPE_ROAD) & connector) == 0) {
 			CommandCost road = DoCommand(a->depot_front, connector | (ROADTYPE_ROAD << 4), 0, DC_NONE, CMD_BUILD_ROAD);
-			if (road.Failed() && road.GetErrorMessage() != 2699) {
+			if (road.Failed() && !OldAICommandAlreadySatisfied(
+					CMD_BUILD_ROAD, road.GetErrorMessage())) {
 				_oldai_road_plan_count[cid] = 0;
 				continue;
 			}
@@ -1251,9 +2001,17 @@ static bool PrepareTownBus(CompanyID cid, OldAICompany *a)
 	return false;
 }
 
-static bool RemoveAttemptRoadBit(TileIndex tile, RoadBits bit)
+static OldAIWorkResult RemoveAttemptRoadBit(OldAICompany *a, TileIndex tile, RoadBits bit)
 {
-	if (!IsNormalRoadTile(tile) || (GetRoadBits(tile, ROADTYPE_ROAD) & bit) == 0) return true;
+	if (a->pending_op == OAOP_REMOVE_BUS_CONNECTOR) {
+		Axis axis = (bit & (ROAD_NE | ROAD_SW)) ? AXIS_X : AXIS_Y;
+		uint32 p2 = 1u | ((uint32)axis << 2) | ((uint32)ROADTYPE_ROAD << 3);
+		return OldAICommand(a, OAOP_REMOVE_BUS_CONNECTOR,
+				tile, tile, p2, CMD_REMOVE_LONG_ROAD);
+	}
+	if (!IsNormalRoadTile(tile) || (GetRoadBits(tile, ROADTYPE_ROAD) & bit) == 0) {
+		return OAI_WORK_DONE;
+	}
 	/* 1.0.5 has no single-bit road-remove command; CMD_REMOVE_LONG_ROAD removes one
 	 * axis over a drag. Our connector is a SPUR perpendicular to the town road, so a
 	 * 1-tile full drag along the spur's axis removes that axis, then cleanup restores
@@ -1263,95 +2021,132 @@ static bool RemoveAttemptRoadBit(TileIndex tile, RoadBits bit)
 	uint32 p2 = 1u | ((uint32)axis << 2) | ((uint32)ROADTYPE_ROAD << 3);
 	/* 1.0.5 marks CMD_REMOVE_LONG_ROAD CMD_NO_TEST: a connected town-road bit
 	 * can be refused in test mode although its execute-mode removal is legal. */
-	if (!DoCommandP(tile, tile, p2, CMD_REMOVE_LONG_ROAD)) {
-		OL("cleanup bus road execute failed");
-		return false;
-	}
-	return true;
+	return OldAICommand(a, OAOP_REMOVE_BUS_CONNECTOR,
+			tile, tile, p2, CMD_REMOVE_LONG_ROAD);
 }
 
-static bool RestoreAttemptRoad(TileIndex tile, RoadBits original)
+static OldAIWorkResult RestoreAttemptRoad(OldAICompany *a, TileIndex tile, RoadBits original)
 {
+	if (a->pending_op == OAOP_RESTORE_ROAD) {
+		RoadBits present = IsNormalRoadTile(tile) ? GetRoadBits(tile, ROADTYPE_ROAD) : ROAD_NONE;
+		RoadBits missing = (RoadBits)(original & ~present);
+		return OldAICommand(a, OAOP_RESTORE_ROAD, tile,
+				missing | (ROADTYPE_ROAD << 4), 0, CMD_BUILD_ROAD);
+	}
 	RoadBits present = IsNormalRoadTile(tile) ? GetRoadBits(tile, ROADTYPE_ROAD) : ROAD_NONE;
 	RoadBits missing = (RoadBits)(original & ~present);
-	if (missing == ROAD_NONE) return true;
-	return TryCmd("cleanup restore town road err ", tile,
+	if (missing == ROAD_NONE) return OAI_WORK_DONE;
+	CommandCost test = DoCommand(tile, missing | (ROADTYPE_ROAD << 4), 0,
+			DC_NONE, CMD_BUILD_ROAD);
+	if (test.Failed()) {
+		if (OldAICommandAlreadySatisfied(CMD_BUILD_ROAD,
+				test.GetErrorMessage())) return OAI_WORK_DONE;
+		OLn("cleanup restore town road err ", (uint32)test.GetErrorMessage());
+		return OAI_WORK_FAILED;
+	}
+	return OldAICommand(a, OAOP_RESTORE_ROAD, tile,
 			missing | (ROADTYPE_ROAD << 4), 0, CMD_BUILD_ROAD);
 }
 
-static bool CleanupBusAttempt(CompanyID cid, OldAICompany *a)
+static OldAIWorkResult CleanupBusStop(OldAICompany *a, TileIndex tile, RoadBits original)
 {
-	bool ok = true;
+	if (a->pending_op == OAOP_CLEAR_TILE) {
+		OldAIWorkResult wr = ClearAttemptTile(a, tile, "cleanup bus stop err ");
+		if (wr != OAI_WORK_DONE) return wr;
+	}
+	if (a->pending_op == OAOP_RESTORE_ROAD) {
+		return RestoreAttemptRoad(a, tile, original);
+	}
+	if (IsTileType(tile, MP_STATION)) {
+		OldAIWorkResult wr = ClearAttemptTile(a, tile, "cleanup bus stop err ");
+		if (wr != OAI_WORK_DONE) return wr;
+	}
+	return RestoreAttemptRoad(a, tile, original);
+}
+
+static OldAIWorkResult CleanupBusAttempt(CompanyID cid, OldAICompany *a)
+{
 	/* A failed fleet build can leave several buses stopped in the depot. Sell
 	 * every one before removing it; CmdSellRoadVeh requires this exact state. */
-	if (a->buses_on_route != 0) {
-		int buses_left = 0;
-		for (int i = 0; i < a->buses_on_route; i++) {
-			VehicleID id = a->dispatch_bus[i];
-			Vehicle *v = Vehicle::GetIfValid(id);
-			if (v == NULL || v->type != VEH_ROAD || v->owner != cid) continue;
+	while (a->buses_on_route != 0) {
+		VehicleID id = a->dispatch_bus[0];
+		Vehicle *v = Vehicle::GetIfValid(id);
+		if (a->pending_op == OAOP_SELL_BUS ||
+				(v != NULL && v->type == VEH_ROAD && v->owner == cid)) {
+			if (a->pending_op != OAOP_SELL_BUS) {
 			CommandCost test = DoCommand(0, id, 0, DC_NONE, GetCmdSellVeh(VEH_ROAD));
-			if (test.Failed() || !DoCommandP(0, id, 0, GetCmdSellVeh(VEH_ROAD))) {
-				if (test.Failed()) OLn("cleanup bus vehicle err ", (uint32)test.GetErrorMessage());
-				a->dispatch_bus[buses_left++] = id;
-				ok = false;
+				if (test.Failed()) {
+					OLn("cleanup bus vehicle err ", (uint32)test.GetErrorMessage());
+					return OAI_WORK_FAILED;
+				}
 			}
+			OldAIWorkResult wr = OldAICommand(a, OAOP_SELL_BUS,
+					0, id, 0, GetCmdSellVeh(VEH_ROAD));
+			if (wr != OAI_WORK_DONE) return wr;
 		}
-		a->buses_on_route = buses_left;
+		for (int i = 1; i < a->buses_on_route; i++) {
+			a->dispatch_bus[i - 1] = a->dispatch_bus[i];
+		}
+		a->buses_on_route--;
 	}
 	if (a->attempt_bus_depot) {
-		if (!IsTileType(a->depot, MP_ROAD) || ClearAttemptTile(a->depot, "cleanup bus depot err ")) a->attempt_bus_depot = false;
-		else ok = false;
+		if (!IsTileType(a->depot, MP_ROAD) && a->pending_op != OAOP_CLEAR_TILE) {
+			a->attempt_bus_depot = false;
+		} else {
+			OldAIWorkResult wr = ClearAttemptTile(a, a->depot, "cleanup bus depot err ");
+			if (wr != OAI_WORK_DONE) return wr;
+			a->attempt_bus_depot = false;
+		}
 	}
 	if (a->attempt_bus_road) {
-		bool removed = RemoveAttemptRoadBit(a->depot_front, DiagDirToRoadBits(a->depot_dir));
-		if (removed && RestoreAttemptRoad(a->depot_front, (RoadBits)a->depot_front_road)) {
-			a->attempt_bus_road = false;
-		} else {
-			ok = false;
+		if (a->cleanup_phase == 0) {
+			OldAIWorkResult wr = RemoveAttemptRoadBit(a, a->depot_front,
+					DiagDirToRoadBits(a->depot_dir));
+			if (wr != OAI_WORK_DONE) return wr;
+			a->cleanup_phase = 1;
 		}
+		OldAIWorkResult wr = RestoreAttemptRoad(a, a->depot_front,
+				(RoadBits)a->depot_front_road);
+		if (wr != OAI_WORK_DONE) return wr;
+		a->cleanup_phase = 0;
+		a->attempt_bus_road = false;
 	}
 	if (a->attempt_bus_stop_b) {
-		bool cleared = !IsTileType(a->stopB, MP_STATION) || ClearAttemptTile(a->stopB, "cleanup bus stop B err ");
-		if (cleared && RestoreAttemptRoad(a->stopB, a->stopB_road)) a->attempt_bus_stop_b = false;
-		else ok = false;
+		OldAIWorkResult wr = CleanupBusStop(a, a->stopB, a->stopB_road);
+		if (wr != OAI_WORK_DONE) return wr;
+		a->attempt_bus_stop_b = false;
 	}
 	if (a->attempt_bus_stop_a) {
-		bool cleared = !IsTileType(a->stopA, MP_STATION) || ClearAttemptTile(a->stopA, "cleanup bus stop A err ");
-		if (cleared && RestoreAttemptRoad(a->stopA, a->stopA_road)) a->attempt_bus_stop_a = false;
-		else ok = false;
+		OldAIWorkResult wr = CleanupBusStop(a, a->stopA, a->stopA_road);
+		if (wr != OAI_WORK_DONE) return wr;
+		a->attempt_bus_stop_a = false;
 	}
 	if (a->attempt_bus_line) {
-		if (cid < MAX_COMPANIES &&
-				RemoveRoadPlan(_oldai_plan[cid].road, _oldai_road_plan_count[cid])) {
-			a->attempt_bus_line = false;
-			_oldai_road_plan_count[cid] = 0;
-		} else {
-			ok = false;
-		}
+		if (cid >= MAX_COMPANIES) return OAI_WORK_FAILED;
+		OldAIWorkResult wr = RemoveRoadPlan(a, _oldai_plan[cid].road,
+				_oldai_road_plan_count[cid]);
+		if (wr != OAI_WORK_DONE) return wr;
+		a->attempt_bus_line = false;
+		_oldai_road_plan_count[cid] = 0;
 	}
-	return ok;
+	return OAI_WORK_DONE;
 }
 
 static void AbandonBusAttempt(CompanyID cid, OldAICompany *a)
 {
 	a->tries = 0;
 	a->town_skip++;
-	if (CleanupBusAttempt(cid, a)) {
-		RefundFailedAttempt(cid, a);
-		a->state = OAS_TPLAN;
-	} else {
-		a->state = OAS_BCLEANUP;
+	a->op_step = 0;
+	a->state = OAS_BCLEANUP;
+	OldAIWorkResult wr = CleanupBusAttempt(cid, a);
+	if (wr == OAI_WORK_DONE) {
+		a->op_step = 1;
+		wr = RefundFailedAttempt(cid, a);
+		if (wr == OAI_WORK_DONE) {
+			a->op_step = 0;
+			a->state = OAS_TPLAN;
+		}
 	}
-}
-
-static void GiveBusOrders(VehicleID bus, StationID sta_a, StationID sta_b)
-{
-	/* Orders A then B; FAR_END is required for road vehicles. */
-	Order oa; oa.MakeGoToStation(sta_a); oa.SetStopLocation(OSL_PLATFORM_FAR_END); oa.SetNonStopType(ONSF_STOP_EVERYWHERE);
-	Order ob; ob.MakeGoToStation(sta_b); ob.SetStopLocation(OSL_PLATFORM_FAR_END); ob.SetNonStopType(ONSF_STOP_EVERYWHERE);
-	DoCommandP(0, bus | (0 << 16), oa.Pack(), CMD_INSERT_ORDER);
-	DoCommandP(0, bus | (1 << 16), ob.Pack(), CMD_INSERT_ORDER);
 }
 
 /* This is independent of the route-building state machine: completed routes
@@ -1359,6 +2154,7 @@ static void GiveBusOrders(VehicleID bus, StationID sta_a, StationID sta_b)
 static void DispatchQueuedBus(CompanyID cid, OldAICompany *a)
 {
 	if (a->buses_waiting == 0 || _oldai_tick < a->next_bus_release_tick) return;
+	if (a->pending_op != OAOP_NONE && a->pending_op != OAOP_BUS_DISPATCH) return;
 	int index = (int)a->bus_target_count - (int)a->buses_waiting;
 	if (index < 0 || index >= a->bus_target_count ||
 			index >= OLDAI_BUS_MAX_COUNT) {
@@ -1368,6 +2164,15 @@ static void DispatchQueuedBus(CompanyID cid, OldAICompany *a)
 	}
 
 	VehicleID id = a->dispatch_bus[index];
+	if (a->pending_op == OAOP_BUS_DISPATCH) {
+		OldAIWorkResult wr = OldAICommand(a, OAOP_BUS_DISPATCH,
+				a->pending_tile, a->pending_p1, a->pending_p2, a->pending_cmd);
+		if (wr == OAI_WORK_WAIT) return;
+		if (wr == OAI_WORK_FAILED) {
+			if ((_oldai_tick & 255) == 0) OL("queued bus start failed; will retry");
+			return;
+		}
+	}
 	Vehicle *v = Vehicle::GetIfValid(id);
 	if (v == NULL || v->type != VEH_ROAD || v->owner != cid) {
 		OL("queued bus disappeared; advancing dispatch queue");
@@ -1377,10 +2182,14 @@ static void DispatchQueuedBus(CompanyID cid, OldAICompany *a)
 	}
 	/* A prior command may have succeeded despite a lost return path. Never
 	 * toggle an already-running vehicle back to stopped on retry. */
-	if ((v->vehstatus & VS_STOPPED) != 0 &&
-			!DoCommandP(0, id, 0, CMD_START_STOP_VEHICLE)) {
-		if ((_oldai_tick & 255) == 0) OL("queued bus start failed; will retry");
-		return;
+	if ((v->vehstatus & VS_STOPPED) != 0) {
+		OldAIWorkResult wr = OldAICommand(a, OAOP_BUS_DISPATCH,
+				0, id, 0, CMD_START_STOP_VEHICLE);
+		if (wr == OAI_WORK_WAIT) return;
+		if (wr == OAI_WORK_FAILED) {
+			if ((_oldai_tick & 255) == 0) OL("queued bus start failed; will retry");
+			return;
+		}
 	}
 	a->buses_waiting--;
 	a->next_bus_release_tick = _oldai_tick + OLDAI_BUS_DISPATCH_INTERVAL;
@@ -1405,98 +2214,200 @@ static void RunCompany(CompanyID cid)
 
 		case OAS_BUILD_ROAD:
 			OL("laying saved free-trial town-to-town road");
-			/* Mark ownership before execution.  ExecuteRoadPlan rolls its built
-			 * prefix back immediately; cleanup retries the saved plan if that
-			 * rollback was incomplete. */
+			/* Mark ownership before execution.  The committed-step flags and
+			 * saved cursor let OAS_BCLEANUP remove any interrupted prefix. */
 			a->attempt_bus_line = true;
-			if (cid < MAX_COMPANIES && _oldai_road_plan_count[cid] > 0 &&
-					ExecuteRoadPlan(_oldai_plan[cid].road, _oldai_road_plan_count[cid])) {
+			if (cid >= MAX_COMPANIES || _oldai_road_plan_count[cid] <= 0) {
+				AbandonBusAttempt(cid, a);
+				break;
+			}
+			{
+				OldAIWorkResult wr = ExecuteRoadPlan(a, _oldai_plan[cid].road,
+						_oldai_road_plan_count[cid]);
+				if (wr == OAI_WORK_WAIT) break;
+				if (wr == OAI_WORK_DONE) {
 				OL("town-to-town road built");
 				a->tries = 0;
 				a->state = OAS_BUILD_STOP_A;
-			} else {
+				} else {
 				OL("town-to-town road failed; cleaning attempt");
 				AbandonBusAttempt(cid, a);
+				}
 			}
 			break;
 
 		case OAS_BUILD_STOP_A:
 			OL("building bus stop A");
-			if (BuildBusStop(a->stopA, a->frontA)) {
+			{
+				OldAIWorkResult wr = BuildBusStop(a, OAOP_BUILD_BUS_STOP_A,
+						a->stopA, a->frontA);
+				if (wr == OAI_WORK_WAIT) break;
+				if (wr == OAI_WORK_DONE) {
 				a->staA = GetStationIndex(a->stopA);
 				a->attempt_bus_stop_a = true;
 				OL("stop A built");
 				a->state = OAS_BUILD_STOP_B;
-			} else if (++a->tries > 1) { OL("stop A failed; cleaning attempt"); AbandonBusAttempt(cid, a); }
+				} else if (++a->tries > 1) {
+					OL("stop A failed; cleaning attempt");
+					AbandonBusAttempt(cid, a);
+				}
+			}
 			break;
 
 		case OAS_BUILD_STOP_B:
 			OL("building bus stop B");
-			if (BuildBusStop(a->stopB, a->frontB)) {
+			{
+				OldAIWorkResult wr = BuildBusStop(a, OAOP_BUILD_BUS_STOP_B,
+						a->stopB, a->frontB);
+				if (wr == OAI_WORK_WAIT) break;
+				if (wr == OAI_WORK_DONE) {
 				a->staB = GetStationIndex(a->stopB);
 				a->attempt_bus_stop_b = true;
 				OL("stop B built");
 				a->state = OAS_BUILD_DEPOT;
-			} else if (++a->tries > 1) { OL("stop B failed; cleaning attempt"); AbandonBusAttempt(cid, a); }
+				} else if (++a->tries > 1) {
+					OL("stop B failed; cleaning attempt");
+					AbandonBusAttempt(cid, a);
+				}
+			}
 			break;
 
-		case OAS_BUILD_DEPOT:
+		case OAS_BUILD_DEPOT: {
 			OL("building road depot");
-			if (TryCmd("depot err", a->depot, EntranceDir(a->depot, a->depot_front) | (0 << 2), 0, CMD_BUILD_ROAD_DEPOT)) {
-				a->attempt_bus_depot = true;
-				OL("depot built");
-				/* Connect it: add a road piece on the road tile toward the depot,
-				 * else the depot is a dead end the bus can never leave. */
-				RoadBits connector = DiagDirToRoadBits(a->depot_dir);
-				a->depot_front_road = (byte)GetRoadBits(a->depot_front, ROADTYPE_ROAD);
-				bool connector_missing = (GetRoadBits(a->depot_front, ROADTYPE_ROAD) & connector) == 0;
-				if (connector_missing && !TryCmd("connect err", a->depot_front,
-						connector | (ROADTYPE_ROAD << 4), 0, CMD_BUILD_ROAD)) {
-					OL("depot connector failed; cleaning attempt");
-					AbandonBusAttempt(cid, a);
+			uint32 entrance = EntranceDir(a->depot, a->depot_front) | (0 << 2);
+			if (!a->attempt_bus_depot) {
+				if (a->pending_op != OAOP_BUILD_BUS_DEPOT) {
+					CommandCost test = DoCommand(a->depot, entrance, 0,
+							DC_NONE, CMD_BUILD_ROAD_DEPOT);
+					if (test.Failed()) {
+						OLn("depot err", (uint32)test.GetErrorMessage());
+						if (++a->tries > 1) {
+							OL("depot failed; cleaning attempt");
+							AbandonBusAttempt(cid, a);
+						}
+						break;
+					}
+				}
+				OldAIWorkResult wr = OldAICommand(a, OAOP_BUILD_BUS_DEPOT,
+						a->depot, entrance, 0, CMD_BUILD_ROAD_DEPOT);
+				if (wr == OAI_WORK_WAIT) break;
+				if (wr == OAI_WORK_FAILED) {
+					if (++a->tries > 1) {
+						OL("depot failed; cleaning attempt");
+						AbandonBusAttempt(cid, a);
+					}
 					break;
 				}
-				if (connector_missing) a->attempt_bus_road = true;
-				OL("depot connected to road");
-				a->state = OAS_BUILD_BUS;
-			} else if (++a->tries > 1) { OL("depot failed; cleaning attempt"); AbandonBusAttempt(cid, a); }
+				a->attempt_bus_depot = true;
+				OL("depot built");
+				a->depot_front_road = (byte)GetRoadBits(a->depot_front, ROADTYPE_ROAD);
+				RoadBits connector = DiagDirToRoadBits(a->depot_dir);
+				a->depot_connector_was_missing =
+						(GetRoadBits(a->depot_front, ROADTYPE_ROAD) & connector) == 0;
+			}
+
+			RoadBits connector = DiagDirToRoadBits(a->depot_dir);
+			if (a->depot_connector_was_missing && !a->attempt_bus_road) {
+				if (a->pending_op != OAOP_BUILD_BUS_CONNECTOR) {
+					CommandCost test = DoCommand(a->depot_front,
+							connector | (ROADTYPE_ROAD << 4), 0,
+							DC_NONE, CMD_BUILD_ROAD);
+					if (test.Failed() && !OldAICommandAlreadySatisfied(
+							CMD_BUILD_ROAD, test.GetErrorMessage())) {
+						OLn("connect err", (uint32)test.GetErrorMessage());
+						OL("depot connector failed; cleaning attempt");
+						AbandonBusAttempt(cid, a);
+						break;
+					}
+					if (test.Failed()) a->depot_connector_was_missing = false;
+				}
+				if (a->depot_connector_was_missing) {
+					OldAIWorkResult wr = OldAICommand(a, OAOP_BUILD_BUS_CONNECTOR,
+							a->depot_front, connector | (ROADTYPE_ROAD << 4),
+							0, CMD_BUILD_ROAD);
+					if (wr == OAI_WORK_WAIT) break;
+					if (wr == OAI_WORK_FAILED) {
+						OL("depot connector failed; cleaning attempt");
+						AbandonBusAttempt(cid, a);
+						break;
+					}
+					a->attempt_bus_road = true;
+				}
+			}
+			OL("depot connected to road");
+			a->state = OAS_BUILD_BUS;
 			break;
+		}
 
 		case OAS_BUILD_BUS: {
-			EngineID e = FindBusEngine(cid);
-			if (e == INVALID_ENGINE) {
-				/* Before a vehicle exists this is a normal refundable failure.
-				 * Once a bus exists, keep its depot and wait rather than orphaning
-				 * a vehicle by tearing the route out from under it. */
-				if (a->buses_on_route == 0) {
-					OL("bus engine disappeared; cleaning attempt");
-					AbandonBusAttempt(cid, a);
-				} else if ((++a->tries & 7) == 1) {
-					OL("fleet bus engine unavailable; waiting");
+			bool built_this_call = false;
+bus_orders:
+			/* Finish the orders for a bus whose build callback has already
+			 * supplied its exact id before attempting another vehicle. */
+			if (a->op_step == 1) {
+				VehicleID bus = a->dispatch_bus[a->buses_on_route - 1];
+				Order oa; oa.MakeGoToStation(a->staA); oa.SetStopLocation(OSL_PLATFORM_FAR_END); oa.SetNonStopType(ONSF_STOP_EVERYWHERE);
+				OldAIWorkResult wr = OldAICommand(a, OAOP_BUS_ORDER_A, 0,
+						bus | (0 << 16), oa.Pack(), CMD_INSERT_ORDER);
+				if (wr == OAI_WORK_WAIT) break;
+				if (wr == OAI_WORK_FAILED) {
+					if (++a->tries > 8) AbandonBusAttempt(cid, a);
+					break;
 				}
-				if (a->buses_on_route != 0 && a->tries > 8) {
-					OL("fleet bus engine stayed unavailable; cleaning attempt");
-					AbandonBusAttempt(cid, a);
-				}
-				break;
+				a->op_step = 2;
 			}
-
-			/* Build the entire proportional fleet stopped in the depot. The count
-			 * makes retries idempotent: a failed build never duplicates a bus. */
-			if (!DoCommandP(a->depot, e, 0, GetCmdBuildVeh(VEH_ROAD))) {
-				if ((++a->tries & 7) == 1) OL("fleet bus build failed; retrying without duplication");
-				if (a->tries > 8) {
-					OL("fleet bus build stayed failed; cleaning attempt");
-					AbandonBusAttempt(cid, a);
+			if (a->op_step == 2) {
+				VehicleID bus = a->dispatch_bus[a->buses_on_route - 1];
+				Order ob; ob.MakeGoToStation(a->staB); ob.SetStopLocation(OSL_PLATFORM_FAR_END); ob.SetNonStopType(ONSF_STOP_EVERYWHERE);
+				OldAIWorkResult wr = OldAICommand(a, OAOP_BUS_ORDER_B, 0,
+						bus | (1 << 16), ob.Pack(), CMD_INSERT_ORDER);
+				if (wr == OAI_WORK_WAIT) break;
+				if (wr == OAI_WORK_FAILED) {
+					if (++a->tries > 8) AbandonBusAttempt(cid, a);
+					break;
 				}
-				break;
+				a->op_step = 0;
+				a->tries = 0;
 			}
-			VehicleID new_bus = _new_vehicle_id;
-			a->dispatch_bus[a->buses_on_route++] = new_bus;
-			GiveBusOrders(new_bus, a->staA, a->staB);
-			a->tries = 0;
-			OLn("fleet buses built = ", (uint)a->buses_on_route);
-			if (a->buses_on_route < a->bus_target_count) break;
+			if (built_this_call && a->buses_on_route < a->bus_target_count) break;
+			if (a->op_step == 0 && a->buses_on_route < a->bus_target_count) {
+				EngineID e = (a->pending_op == OAOP_BUILD_BUS)
+						? (EngineID)a->pending_p1 : FindBusEngine(cid);
+				if (e == INVALID_ENGINE) {
+					/* Before a vehicle exists this is a normal refundable failure.
+					 * Once a bus exists, keep its depot and wait rather than orphaning
+					 * a vehicle by tearing the route out from under it. */
+					if (a->buses_on_route == 0) {
+						OL("bus engine disappeared; cleaning attempt");
+						AbandonBusAttempt(cid, a);
+					} else if ((++a->tries & 7) == 1) {
+						OL("fleet bus engine unavailable; waiting");
+					}
+					if (a->buses_on_route != 0 && a->tries > 8) {
+						OL("fleet bus engine stayed unavailable; cleaning attempt");
+						AbandonBusAttempt(cid, a);
+					}
+					break;
+				}
+				VehicleID new_bus = INVALID_VEHICLE;
+				OldAIWorkResult wr = OldAICommand(a, OAOP_BUILD_BUS,
+						a->depot, e, 0, GetCmdBuildVeh(VEH_ROAD), &new_bus);
+				if (wr == OAI_WORK_WAIT) break;
+				if (wr == OAI_WORK_FAILED) {
+					if ((++a->tries & 7) == 1) OL("fleet bus build failed; retrying without duplication");
+					if (a->tries > 8) {
+						OL("fleet bus build stayed failed; cleaning attempt");
+						AbandonBusAttempt(cid, a);
+					}
+					break;
+				}
+				a->dispatch_bus[a->buses_on_route++] = new_bus;
+				a->op_step = 1;
+				built_this_call = true;
+				OLn("fleet buses built = ", (uint)a->buses_on_route);
+				goto bus_orders;
+			}
+			if (a->op_step != 0 || a->buses_on_route < a->bus_target_count) break;
 
 			/* The fleet is complete and still stopped. Queue it, release the first
 			 * bus now, and let later ticks drain the rest without blocking work. */
@@ -1504,22 +2415,35 @@ static void RunCompany(CompanyID cid)
 			a->next_bus_release_tick = _oldai_tick;
 			a->routes_done++;
 			a->attempt_costing = false;
+			a->plan_fail_streak = 0;
+			a->next_plan_tick = _oldai_tick + OLDAI_PLAN_MIN_GAP;
 			ResetBusAttempt(cid, a); /* completed objects are no longer attempt-owned */
 			DispatchQueuedBus(cid, a);
 			OLn("BUS ROUTE COMPLETE, total routes = ", a->routes_done);
-			a->cooldown_until = _oldai_tick + ((uint)8192 << (4 - _settings_game.difficulty.competitor_speed));
+			uint8 speed = OldAICompetitorSpeed();
+			a->cooldown_until = _oldai_tick + ((uint)8192 << (4 - speed));
 			a->state = OAS_TPLAN;
 			break;
 		}
 
 		case OAS_BCLEANUP:
-			if (CleanupBusAttempt(cid, a)) {
-				RefundFailedAttempt(cid, a);
-				a->tries = 0;
-				a->state = OAS_TPLAN;
-			} else {
-				a->tries++;
-				if ((a->tries & 7) == 1) OL("bus cleanup incomplete; will retry");
+			{
+				OldAIWorkResult wr = OAI_WORK_DONE;
+				if (a->op_step == 0) {
+					wr = CleanupBusAttempt(cid, a);
+					if (wr == OAI_WORK_DONE) a->op_step = 1;
+				}
+				if (wr == OAI_WORK_DONE && a->op_step == 1) {
+					wr = RefundFailedAttempt(cid, a);
+				}
+				if (wr == OAI_WORK_DONE) {
+					a->tries = 0;
+					a->op_step = 0;
+					a->state = OAS_TPLAN;
+				} else if (wr == OAI_WORK_FAILED) {
+					a->tries++;
+					if ((a->tries & 7) == 1) OL("bus cleanup incomplete; will retry");
+				}
 			}
 			break;
 
@@ -1528,6 +2452,16 @@ static void RunCompany(CompanyID cid)
 		 * ----------------------------------------------------------------- */
 		case OAS_TPLAN: {
 			const Company *co = Company::GetIfValid(cid);
+			bool loan_action_done = false;
+			if (a->pending_op == OAOP_DECREASE_LOAN ||
+					a->pending_op == OAOP_INCREASE_LOAN) {
+				OldAIPendingOp op = a->pending_op;
+				OldAIWorkResult wr = OldAICommand(a, op, a->pending_tile,
+						a->pending_p1, a->pending_p2, a->pending_cmd);
+				if (wr == OAI_WORK_WAIT) break;
+				loan_action_done = true;
+				co = Company::GetIfValid(cid);
+			}
 			/* Manage the loan by net cash position (money - current_loan):
 			 *  - money > 1.5x loan  -> repay the loan in full; a low/zero loan lifts
 			 *    the company performance rating a lot.
@@ -1536,17 +2470,21 @@ static void RunCompany(CompanyID cid)
 			 *  - in between (solvent but not flush) -> leave the loan as is; do not
 			 *    borrow more when already in the black.
 			 * Re-fetch the company after any change - money just moved. */
-			if (co != NULL) {
+			if (co != NULL && !loan_action_done) {
 				Money money = co->money;
 				Money loan  = co->current_loan;
 				if (loan > 0 && money > loan + loan / 2) {
-					DoCommandP(0, 0, 1, CMD_DECREASE_LOAN);   /* p2=1: repay as much as possible */
+					OldAIWorkResult wr = OldAICommand(a, OAOP_DECREASE_LOAN,
+							0, 0, 1, CMD_DECREASE_LOAN);
+					if (wr == OAI_WORK_WAIT) break;
 					co = Company::GetIfValid(cid);
 				} else if (money < loan && loan < _economy.max_loan) {
 					Money delta = _economy.max_loan - loan;
 					delta -= delta % LOAN_INTERVAL;
 					if (delta > 0) {
-						DoCommandP(0, (uint32)delta, 2, CMD_INCREASE_LOAN);
+						OldAIWorkResult wr = OldAICommand(a, OAOP_INCREASE_LOAN,
+								0, (uint32)delta, 2, CMD_INCREASE_LOAN);
+						if (wr == OAI_WORK_WAIT) break;
 						co = Company::GetIfValid(cid);
 					}
 				}
@@ -1571,17 +2509,16 @@ static void RunCompany(CompanyID cid)
 			 * (~27000/year), incremented every OldAI_GameLoop call. */
 			if (_oldai_tick < a->cooldown_until) break;
 			if (a->routes_done >= 32) { OL("tplan: overall route cap reached"); a->state = OAS_DONE; break; }
-			/* THROTTLE the pathfinding. A full A* (rail up to 12288 nodes, road up to
-			 * 4096) is far too heavy to run every AI tick: on a real 030 it would
-			 * stutter, and even under warp it dominates the frame and slows the whole
-			 * game. The AI only builds a line every year or so, so it does NOT need to
-			 * SEARCH more than occasionally. Only begin a fresh planning attempt every
-			 * ~2048 game-ticks (~28 game-days), which also bounds the retry-after-
-			 * failure loop. Node budgets are UNCHANGED - identical-quality search, just
-			 * far less often. ~512 ticks (~7 game-days) keeps the AI building actively
-			 * while still cutting the search rate ~128x versus every-few-ticks. */
+			/* Keep the full A* node budgets, but space server-side planning attempts
+			 * by 128,256,...4096 ticks after consecutive abandoned train routes.
+			 * A completed route resets this to 128. */
 			if (_oldai_tick < a->next_plan_tick) break;
-			a->next_plan_tick = _oldai_tick + 512;
+			/* SPEED FIX: one random route-type per attempt (not a loop over all
+			 * types), so a failed attempt costs ONE heavy A* search, not ~6. That
+			 * makes each attempt ~6x cheaper, so we can retry ~4x more often: 128
+			 * ticks instead of 512. Net: first route in ~1 game-month (was ~2.5
+			 * years when this looped all types at 512). */
+			a->next_plan_tick = _oldai_tick + OldAIPlanningGap(a);
 			/* Short cargo is always candidate zero. Richer tiers append long cargo,
 			 * three passenger-train bands, then free-planned town-to-town buses.
 			 * Start at a random candidate and wrap through the others, so unavailable
@@ -1596,17 +2533,18 @@ static void RunCompany(CompanyID cid)
 			if (co->money >= 200000) choices[choice_count++] = PC_PASS_3X;
 			if (co->money >= 300000) choices[choice_count++] = PC_TOWN_BUS;
 
-			int first = (int)RandomRange(choice_count);
+			/* SPEED FIX: pick ONE random type this attempt, do not loop. If it is
+			 * not buildable we retry after the current adaptive gap with a fresh
+			 * random pick, which is far cheaper than grinding all types. */
+			int first = (int)OldAIRandomRange(a, choice_count);
 			bool prepared = false;
-			for (int i = 0; i < choice_count && !prepared; i++) {
-				switch (choices[(first + i) % choice_count]) {
-					case PC_CARGO_SHORT: prepared = PrepareCargoTrain(cid, a, 24, 64, 40); break;
-					case PC_CARGO_LONG:  prepared = PrepareCargoTrain(cid, a, 48, 128, 80); break;
-					case PC_PASS_SHORT:  prepared = PreparePassengerTrain(cid, a, 20, 60, 40); break;
-					case PC_PASS_2X:     prepared = PreparePassengerTrain(cid, a, 40, 120, 80); break;
-					case PC_PASS_3X:     prepared = PreparePassengerTrain(cid, a, 60, 180, 120); break;
-					case PC_TOWN_BUS:    a->state = OAS_PLAN; prepared = true; break;
-				}
+			switch (choices[first]) {
+				case PC_CARGO_SHORT: prepared = PrepareCargoTrain(cid, a, 24, 64, 40); break;
+				case PC_CARGO_LONG:  prepared = PrepareCargoTrain(cid, a, 48, 128, 80); break;
+				case PC_PASS_SHORT:  prepared = PreparePassengerTrain(cid, a, 20, 60, 40); break;
+				case PC_PASS_2X:     prepared = PreparePassengerTrain(cid, a, 40, 120, 80); break;
+				case PC_PASS_3X:     prepared = PreparePassengerTrain(cid, a, 60, 180, 120); break;
+				case PC_TOWN_BUS:    a->state = OAS_PLAN; prepared = true; break;
 			}
 			if (!prepared) {
 				a->town_skip++;
@@ -1617,54 +2555,131 @@ static void RunCompany(CompanyID cid)
 
 		case OAS_TBUILD_STA_A: {
 			OL(a->route_kind == OARK_PASSENGER_TRAIN ? "building first town rail station" : "building producer rail station");
-			if (!LevelStationFootprint(a->staP_tile, a->staP_axis, a->route_p_h)) {
-				OL("producer station terrain changed; next pair");
-				AbandonTrainAttempt(cid, a); break;
+			if (a->op_step == 0) {
+				OldAIWorkResult level = LevelStationFootprint(a, OAOP_LEVEL_STATION_P,
+						a->staP_tile, a->staP_axis, a->route_p_h);
+				if (level == OAI_WORK_WAIT) break;
+				if (level == OAI_WORK_FAILED) {
+					OL("producer station terrain changed; next pair");
+					AbandonTrainAttempt(cid, a); break;
+				}
+				/* Do not preflight/execute the area-level operation again while
+				 * station construction is pending or being retried. */
+				a->op_step = 1;
 			}
 			/* railtype0 | axis(bit4) | numtracks 1 (bits8..) | plat_len 5 (bits16..) | adjacent (bit24) */
 			uint32 p1 = 0u | ((a->staP_axis == 1) ? (1u << 4) : 0u) | (1u << 8) | (5u << 16) | (1u << 24);
 			uint32 p2 = ((uint32)INVALID_STATION) << 16;
-			if (TryCmd("producer sta err", a->staP_tile, p1, p2, CMD_BUILD_RAIL_STATION)) {
+			if (a->pending_op != OAOP_BUILD_STATION_P) {
+				CommandCost test = DoCommand(a->staP_tile, p1, p2,
+						DC_NONE, CMD_BUILD_RAIL_STATION);
+				if (test.Failed()) {
+					OLn("producer sta err", (uint32)test.GetErrorMessage());
+					if (OldAIStationTerrainError(test.GetErrorMessage())) {
+						/* v0.9.4 re-entered footprint levelling on every station
+						 * retry.  Preserve that recovery without duplicating a
+						 * pending command. */
+						a->op_step = 0;
+					}
+					if (++a->tries > 1) {
+						OL("producer sta failed; cleaning attempt");
+						AbandonTrainAttempt(cid, a);
+					}
+					break;
+				}
+			}
+			StringID error;
+			OldAIWorkResult wr = OldAICommand(a, OAOP_BUILD_STATION_P,
+					a->staP_tile, p1, p2, CMD_BUILD_RAIL_STATION,
+					NULL, &error);
+			if (wr == OAI_WORK_WAIT) break;
+			if (wr == OAI_WORK_DONE) {
 				a->trStaP = GetStationIndex(a->staP_tile);
 				a->attempt_sta_p = true;
 				OL("producer station built");
+				a->op_step = 0;
 				a->state = OAS_TBUILD_STA_B;
-			} else if (++a->tries > 1) { OL("producer sta failed; cleaning attempt"); AbandonTrainAttempt(cid, a); }
+			} else {
+				if (OldAIStationTerrainError(error)) a->op_step = 0;
+				if (++a->tries > 1) {
+					OL("producer sta failed; cleaning attempt");
+					AbandonTrainAttempt(cid, a);
+				}
+			}
 			break;
 		}
 
 		case OAS_TBUILD_STA_B: {
 			OL(a->route_kind == OARK_PASSENGER_TRAIN ? "building second town rail station" : "building accepter rail station");
-			if (!LevelStationFootprint(a->staA_tile, a->staA_axis, a->route_a_h)) {
-				OL("accepter station terrain changed; next pair");
-				AbandonTrainAttempt(cid, a); break;
+			if (a->op_step == 0) {
+				OldAIWorkResult level = LevelStationFootprint(a, OAOP_LEVEL_STATION_A,
+						a->staA_tile, a->staA_axis, a->route_a_h);
+				if (level == OAI_WORK_WAIT) break;
+				if (level == OAI_WORK_FAILED) {
+					OL("accepter station terrain changed; next pair");
+					AbandonTrainAttempt(cid, a); break;
+				}
+				a->op_step = 1;
 			}
 			uint32 p1 = 0u | ((a->staA_axis == 1) ? (1u << 4) : 0u) | (1u << 8) | (5u << 16) | (1u << 24);
 			uint32 p2 = ((uint32)INVALID_STATION) << 16;
-			if (TryCmd("accepter sta err", a->staA_tile, p1, p2, CMD_BUILD_RAIL_STATION)) {
+			if (a->pending_op != OAOP_BUILD_STATION_A) {
+				CommandCost test = DoCommand(a->staA_tile, p1, p2,
+						DC_NONE, CMD_BUILD_RAIL_STATION);
+				if (test.Failed()) {
+					OLn("accepter sta err", (uint32)test.GetErrorMessage());
+					if (OldAIStationTerrainError(test.GetErrorMessage())) {
+						a->op_step = 0;
+					}
+					if (++a->tries > 1) {
+						OL("accepter sta failed; cleaning attempt");
+						AbandonTrainAttempt(cid, a);
+					}
+					break;
+				}
+			}
+			StringID error;
+			OldAIWorkResult wr = OldAICommand(a, OAOP_BUILD_STATION_A,
+					a->staA_tile, p1, p2, CMD_BUILD_RAIL_STATION,
+					NULL, &error);
+			if (wr == OAI_WORK_WAIT) break;
+			if (wr == OAI_WORK_DONE) {
 				a->trStaA = GetStationIndex(a->staA_tile);
 				a->attempt_sta_a = true;
 				OL("accepter station built");
+				a->op_step = 0;
 				a->state = OAS_TBUILD_RAIL;
-			} else if (++a->tries > 1) { OL("accepter sta failed; cleaning attempt"); AbandonTrainAttempt(cid, a); }
+			} else {
+				if (OldAIStationTerrainError(error)) a->op_step = 0;
+				if (++a->tries > 1) {
+					OL("accepter sta failed; cleaning attempt");
+					AbandonTrainAttempt(cid, a);
+				}
+			}
 			break;
 		}
 
 		case OAS_TBUILD_RAIL:
 			OL(a->route_kind == OARK_PASSENGER_TRAIN ? "laying saved free-trial passenger line" : "laying saved free-trial cargo main line");
-			if (BuildRailLine(cid, a)) {
+			{
+				OldAIWorkResult wr = BuildRailLine(cid, a);
+				if (wr == OAI_WORK_WAIT) break;
+				if (wr == OAI_WORK_DONE) {
 				OL("main line laid");
 				a->tries = 0;
 				a->state = OAS_TBUILD_DEPOT;
-			} else {
+				} else {
 				OL("main line failed; cleaning attempt");
 				AbandonTrainAttempt(cid, a);
+				}
 			}
 			break;
 
 		case OAS_TBUILD_DEPOT: {
 			OL("building in-line depot at producer outer end");
-			if (BuildProducerTrainDepot(a)) {
+			OldAIWorkResult wr = BuildProducerTrainDepot(a);
+			if (wr == OAI_WORK_WAIT) break;
+			if (wr == OAI_WORK_DONE) {
 				OL("train depot built and connected");
 				a->tries = 0;
 				a->state = OAS_TBUILD_TRAIN;
@@ -1676,34 +2691,92 @@ static void RunCompany(CompanyID cid)
 		}
 
 		case OAS_TBUILD_TRAIN: {
-			EngineID loco = FindTrainLoco(cid);
-			if (loco == INVALID_ENGINE) { OL("no buildable loco yet; waiting"); break; }
-			EngineID wag = FindCargoWagon(cid, a->tr_cargo);
-			if (wag == INVALID_ENGINE) {
-				/* Both planners checked this before spending. If availability changed
-				 * before the loco exists, this is still a normal refundable failure. */
-				if (!a->attempt_train_vehicle) { OL("required carriage disappeared; cleaning attempt"); AbandonTrainAttempt(cid, a); }
-				else OL("required carriage unavailable; loco held in depot, waiting");
+			VehicleID locoid = a->train;
+
+			/* Route completion is also command-confirmed: both orders and the
+			 * start command must execute before attempt ownership is released. */
+train_orders:
+			locoid = a->train;
+			if (a->op_step >= 10) {
+				if (a->op_step == 10) {
+					Order op; op.MakeGoToStation(a->trStaP); op.SetLoadType(OLFB_FULL_LOAD); op.SetNonStopType(ONSF_STOP_EVERYWHERE);
+					OldAIWorkResult wr = OldAICommand(a, OAOP_TRAIN_ORDER_P, 0,
+							locoid | (0 << 16), op.Pack(), CMD_INSERT_ORDER);
+					if (wr == OAI_WORK_WAIT) break;
+					if (wr == OAI_WORK_FAILED) {
+						if ((++a->tries & 7) == 1) OL("producer order failed; retrying");
+						break;
+					}
+					a->op_step = 11;
+				}
+				if (a->op_step == 11) {
+					Order od; od.MakeGoToStation(a->trStaA); od.SetNonStopType(ONSF_STOP_EVERYWHERE);
+					OldAIWorkResult wr = OldAICommand(a, OAOP_TRAIN_ORDER_A, 0,
+							locoid | (1 << 16), od.Pack(), CMD_INSERT_ORDER);
+					if (wr == OAI_WORK_WAIT) break;
+					if (wr == OAI_WORK_FAILED) {
+						if ((++a->tries & 7) == 1) OL("delivery order failed; retrying");
+						break;
+					}
+					a->op_step = 12;
+				}
+				OldAIWorkResult wr = OldAICommand(a, OAOP_TRAIN_START, 0,
+						locoid, 0, CMD_START_STOP_VEHICLE);
+				if (wr == OAI_WORK_WAIT) break;
+				if (wr == OAI_WORK_FAILED) {
+					if ((++a->tries & 7) == 1) OL("train start failed; retrying");
+					break;
+				}
+
+				a->routes_done++;
+				a->tries = 0;
+				a->attempt_costing = false;
+				a->plan_fail_streak = 0;
+				a->next_plan_tick = _oldai_tick + OLDAI_PLAN_MIN_GAP;
+				OLn(a->route_kind == OARK_PASSENGER_TRAIN ? "PASSENGER TRAIN ROUTE COMPLETE, total = " : "CARGO TRAIN ROUTE COMPLETE, total = ", a->routes_done);
+				uint8 speed = OldAICompetitorSpeed();
+				a->cooldown_until = _oldai_tick + ((uint)8192 << (4 - speed));
+				ResetTrainAttempt(cid, a);
+				a->state = OAS_TPLAN;
 				break;
 			}
 
-			/* Build the loco on one tick and the required first carriage on the
-			 * next. Once a loco exists we never abandon/remove its depot; a temporary
-			 * carriage shortage just waits, preventing an orphan vehicle. */
+			/* Build the loco on one tick and capture its id only in CcOldAI. */
 			if (!a->attempt_train_vehicle) {
-				if (!DoCommandP(a->tdepot, loco, 0, GetCmdBuildVeh(VEH_TRAIN))) {
-					if (++a->tries > 8) { OL("loco build failed; cleaning attempt"); AbandonTrainAttempt(cid, a); }
+				EngineID loco = (a->pending_op == OAOP_BUILD_LOCO)
+						? (EngineID)a->pending_p1 : FindTrainLoco(cid);
+				if (loco == INVALID_ENGINE) { OL("no buildable loco yet; waiting"); break; }
+				VehicleID new_loco = INVALID_VEHICLE;
+				OldAIWorkResult wr = OldAICommand(a, OAOP_BUILD_LOCO,
+						a->tdepot, loco, 0, GetCmdBuildVeh(VEH_TRAIN), &new_loco);
+				if (wr == OAI_WORK_WAIT) break;
+				if (wr == OAI_WORK_FAILED) {
+					if (++a->tries > 8) {
+						OL("loco build failed; cleaning attempt");
+						AbandonTrainAttempt(cid, a);
+					}
 					break;
 				}
-				a->train = _new_vehicle_id;
+				a->train = new_loco;
 				a->attempt_train_vehicle = true;
 				a->tries = 0;
 				OL(a->route_kind == OARK_PASSENGER_TRAIN ? "passenger loco built" : "cargo loco built");
 				break;
 			}
-			VehicleID locoid = a->train;
+			locoid = a->train;
+
+			EngineID wag = (a->pending_op == OAOP_BUILD_WAGON)
+					? (EngineID)a->pending_p1 : FindCargoWagon(cid, a->tr_cargo);
+			if (wag == INVALID_ENGINE && a->pending_op != OAOP_MOVE_WAGON) {
+				OL("required carriage unavailable; loco held in depot, waiting");
+				break;
+			}
+
 			if (a->attempt_loose_wagon) {
-				if (!DoCommandP(0, a->loose_wagon | (locoid << 16), 0, CMD_MOVE_RAIL_VEHICLE)) {
+				OldAIWorkResult wr = OldAICommand(a, OAOP_MOVE_WAGON, 0,
+						a->loose_wagon | (locoid << 16), 0, CMD_MOVE_RAIL_VEHICLE);
+				if (wr == OAI_WORK_WAIT) break;
+				if (wr == OAI_WORK_FAILED) {
 					if ((++a->tries & 7) == 1) OL("carriage move failed; retrying without duplication");
 					break;
 				}
@@ -1713,19 +2786,33 @@ static void RunCompany(CompanyID cid)
 				OLn("carriage attached, count = ", (uint)a->attempt_carriages);
 			}
 			if (a->attempt_carriages == 0) {
-				if (!DoCommandP(a->tdepot, wag, 0, GetCmdBuildVeh(VEH_TRAIN))) {
+				VehicleID new_wagon = INVALID_VEHICLE;
+				OldAIWorkResult wr = OldAICommand(a, OAOP_BUILD_WAGON,
+						a->tdepot, wag, 0, GetCmdBuildVeh(VEH_TRAIN), &new_wagon);
+				if (wr == OAI_WORK_WAIT) break;
+				if (wr == OAI_WORK_FAILED) {
 					if ((++a->tries & 7) == 1) OL("required first carriage build failed; waiting");
 					break;
 				}
-				a->loose_wagon = _new_vehicle_id;
+				a->loose_wagon = new_wagon;
 				a->attempt_loose_wagon = true;
 				break; /* attach by stored id next tick */
 			}
-			for (int i = a->attempt_carriages; i < 5; i++) {
-				if (!DoCommandP(a->tdepot, wag, 0, GetCmdBuildVeh(VEH_TRAIN))) { OL("optional carriage build failed; consist is sufficient"); break; }
-				a->loose_wagon = _new_vehicle_id;
+			while (a->attempt_carriages < 5) {
+				VehicleID new_wagon = INVALID_VEHICLE;
+				OldAIWorkResult wr = OldAICommand(a, OAOP_BUILD_WAGON,
+						a->tdepot, wag, 0, GetCmdBuildVeh(VEH_TRAIN), &new_wagon);
+				if (wr == OAI_WORK_WAIT) break;
+				if (wr == OAI_WORK_FAILED) {
+					OL("optional carriage build failed; consist is sufficient");
+					break;
+				}
+				a->loose_wagon = new_wagon;
 				a->attempt_loose_wagon = true;
-				if (!DoCommandP(0, a->loose_wagon | (locoid << 16), 0, CMD_MOVE_RAIL_VEHICLE)) {
+				wr = OldAICommand(a, OAOP_MOVE_WAGON, 0,
+						a->loose_wagon | (locoid << 16), 0, CMD_MOVE_RAIL_VEHICLE);
+				if (wr == OAI_WORK_WAIT) break;
+				if (wr == OAI_WORK_FAILED) {
 					OL("optional carriage move delayed; retrying next tick");
 					break;
 				}
@@ -1733,35 +2820,33 @@ static void RunCompany(CompanyID cid)
 				a->attempt_carriages++;
 				OLn("carriage attached, count = ", (uint)a->attempt_carriages);
 			}
+			if (a->pending_op == OAOP_BUILD_WAGON ||
+					a->pending_op == OAOP_MOVE_WAGON) break;
 			if (a->attempt_loose_wagon) break;
 
-			/* Orders: FULL LOAD at the producer; DEFAULT unload at the accepter, which
-			 * unloads AND gets paid (OUFB_UNLOAD would force-dump the cargo for no
-			 * money). So set no load/unload flag on the delivery order. */
-			Order op; op.MakeGoToStation(a->trStaP); op.SetLoadType(OLFB_FULL_LOAD); op.SetNonStopType(ONSF_STOP_EVERYWHERE);
-			Order od; od.MakeGoToStation(a->trStaA); od.SetNonStopType(ONSF_STOP_EVERYWHERE);
-			DoCommandP(0, locoid | (0 << 16), op.Pack(), CMD_INSERT_ORDER);
-			DoCommandP(0, locoid | (1 << 16), od.Pack(), CMD_INSERT_ORDER);
-			DoCommandP(0, locoid, 0, CMD_START_STOP_VEHICLE);
-
-			a->routes_done++;
-			a->tries = 0;
-			a->attempt_costing = false;   /* route succeeded - its cost stands, no refund */
-			OLn(a->route_kind == OARK_PASSENGER_TRAIN ? "PASSENGER TRAIN ROUTE COMPLETE, total = " : "CARGO TRAIN ROUTE COMPLETE, total = ", a->routes_done);
-			a->cooldown_until = _oldai_tick + ((uint)8192 << (4 - _settings_game.difficulty.competitor_speed));
-			ResetTrainAttempt(cid, a); /* keep completed infrastructure, forget attempt ownership */
-			a->state = OAS_TPLAN;   /* plan the next route */
-			break;
+			/* FULL LOAD at producer; default unload at accepter so delivery pays. */
+			a->op_step = 10;
+			goto train_orders;
 		}
 
 		case OAS_TCLEANUP:
-			if (CleanupTrainAttempt(cid, a)) {
-				RefundFailedAttempt(cid, a);
-				a->tries = 0;
-				a->state = OAS_TPLAN;
-			} else {
-				a->tries++;
-				if ((a->tries & 7) == 1) OL("train cleanup incomplete; will retry");
+			{
+				OldAIWorkResult wr = OAI_WORK_DONE;
+				if (a->op_step == 0) {
+					wr = CleanupTrainAttempt(cid, a);
+					if (wr == OAI_WORK_DONE) a->op_step = 1;
+				}
+				if (wr == OAI_WORK_DONE && a->op_step == 1) {
+					wr = RefundFailedAttempt(cid, a);
+				}
+				if (wr == OAI_WORK_DONE) {
+					a->tries = 0;
+					a->op_step = 0;
+					a->state = OAS_TPLAN;
+				} else if (wr == OAI_WORK_FAILED) {
+					a->tries++;
+					if ((a->tries & 7) == 1) OL("train cleanup incomplete; will retry");
+				}
 			}
 			break;
 
@@ -1775,7 +2860,7 @@ static void RunCompany(CompanyID cid)
 void OldAI_GameLoop()
 {
 	_oldai_tick++;
-	uint8 speed = _settings_game.difficulty.competitor_speed;
+	uint8 speed = OldAICompetitorSpeed();
 	bool run_company = (_oldai_tick & ((1u << (4 - speed)) - 1)) == 0;
 
 	CompanyByte old_company = _current_company;
@@ -1783,7 +2868,13 @@ void OldAI_GameLoop()
 	FOR_ALL_COMPANIES(c) {
 		if (!c->is_ai) continue;
 		CompanyID cid = c->index;
-		if (!_oldai[cid].active) continue;
+		/* Saves made before the OLAI chunk have no native state.  The stock AI
+		 * loader leaves a native company's ai_instance NULL; lazily seed a
+		 * clean deterministic state instead of leaving that company inert. */
+		if (!_oldai[cid].active) {
+			if (c->ai_instance != NULL) continue;
+			OldAI_Start(cid);
+		}
 		_current_company = cid;
 		DispatchQueuedBus(cid, &_oldai[cid]);
 		if (run_company) {

@@ -2,186 +2,242 @@
 
 /*
  * This file is part of OpenTTD.
- * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
- * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
- * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <http://www.gnu.org/licenses/>.
+ * OpenTTD is free software; you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License as published by the Free
+ * Software Foundation, version 2.
  */
 
 /* Native AmigaOS music driver for OpenTTD 1.0.5.
  *
- * The game's music set (gm/*.gm) exists only to make OpenTTD's music manager
- * populate a playlist and call PlaySong()/IsSongPlaying(); we ignore the .gm
- * filename it hands us and instead play our own IMA-ADPCM WAVs:
- *   - in the menu (GM_MENU): the title theme, PROGDIR:music/Title/*.wav;
- *   - in game: the 15 tracks in PROGDIR:music/Nowe/, rotating one per call.
+ * amiga_mscan.c scans the four music directories at startup. It is a separate
+ * plain-C translation unit because AmigaOS <proto/*> headers collide with an
+ * OpenTTD C++ Point declaration; this C++ file never includes those headers.
  *
- * Streaming, not loading: amiga_adpcm.c keeps the WAV open and decodes it
- * block-by-block from a 256 KB disk staging buffer; amiga_audio.c plays the
- * decoded 8-bit stream on Paula channels 2 (right) + 3 (left) with gapless
- * double buffering, refilled once per frame from the video main loop's call
- * to AmigaAudio_MusicService(). While music streams the SFX side confines
- * itself to channels 0 and 1; with music stopped it uses all four.
+ * DESIGN: song number IS the track. The scanned files form one ordered
+ * catalogue and OpenTTD's song number (_music_wnd_cursong, 1-based) indexes it
+ * directly, so the name the music window shows is exactly the WAV that plays,
+ * and Next/Prev/Shuffle (OpenTTD owns the playlist and its shuffle) all work.
  *
- * A track is played once; when it drains, IsSongPlaying() returns false and
- * OpenTTD's MusicLoop advances to the next song (in game) or replays the
- * theme (in menu). Switching between menu and game is made prompt by
- * reporting "not playing" as soon as the game mode no longer matches the
- * track that is loaded.
+ *   track 1               = the menu theme (music/Title, or a fallback)
+ *   tracks 2..1+N         = the in-game set: music/Nowe then music/Extra  (N)
+ *   tracks 2+N..1+N+O     = music/Stare                                   (O)
  *
- * This file uses only the plain-C amiga_audio.h / amiga_adpcm.h APIs and the
- * C stdio fopen() logger, never any <proto/*> header, so it does not hit the
- * OTTD_Point collision that forces amiga_audio.c to stay in C.
+ * music_gui.cpp's InitializeMusic() builds the playlists from N and O
+ * (AmigaMusic_NormalCount / AmigaMusic_OldCount): All/New/Ezy = the in-game
+ * set, Old Style = Stare. The year and OpenTTD's era classes are ignored.
+ *
+ * Streaming stays in amiga_adpcm.c / amiga_audio.c; this file uses only their
+ * plain-C APIs, the scanner API, stdio logging and OpenTTD state.
  */
 
 #include "../stdafx.h"
-#include "../openttd.h"     /* _game_mode, GM_MENU */
+#include "../openttd.h"                 /* _game_mode, GM_MENU */
 #include "amiga_m.h"
 
 extern "C" {
 #include "../sound/amiga_audio.h"
 #include "../sound/amiga_adpcm.h"
+#include "amiga_mscan.h"
 }
+
+/* OpenTTD's current 1-based song number, exported by music_gui.cpp. */
+extern byte _music_wnd_cursong;
 
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
 
 /** Factory for the Amiga Paula music driver. */
 static FMusicDriver_Amiga iFMusicDriver_Amiga;
 
 /* PAL Paula clock: sample rate = PAL_CLOCK / period. */
 static const unsigned long MUS_PAL_CLOCK = 3546895UL;
-/* 8-bit samples per Paula buffer (~0.37 s at 22050 Hz). Two are kept queued. */
+/* 8-bit samples per Paula buffer (~0.37 s at 22050 Hz). */
 static const int MUS_CHUNK = 8192;
 
-/* PROGDIR: resolves to the directory the binary was loaded from (Work:), the
- * same anchor amiga_snd.log uses. The old WAVs (music/Stare) are deliberately
- * NOT referenced or shipped. */
-static const char *TITLE_TRACK = "PROGDIR:music/Title/AmigaTTD Theme.wav";
-static const char * const GAME_TRACKS[] = {
-	"PROGDIR:music/Nowe/Coast and Roll.wav",
-	"PROGDIR:music/Nowe/Cruising Gear Two.wav",
-	"PROGDIR:music/Nowe/Downtown Traffic Funk.wav",
-	"PROGDIR:music/Nowe/Fast Lane Fever.wav",
-	"PROGDIR:music/Nowe/Grand Terminal Anthem.wav",
-	"PROGDIR:music/Nowe/Highway Cruise Overdrive.wav",
-	"PROGDIR:music/Nowe/Idle Engine Chill.wav",
-	"PROGDIR:music/Nowe/Neon Crosswalk Strut.wav",
-	"PROGDIR:music/Nowe/Open Road Cruise.wav",
-	"PROGDIR:music/Nowe/Rush Hour Swagger.wav",
-	"PROGDIR:music/Nowe/Skyline Express Beat.wav",
-	"PROGDIR:music/Nowe/Smooth Motorway Glide.wav",
-	"PROGDIR:music/Nowe/Sunday Driver Groove.wav",
-	"PROGDIR:music/Nowe/Turbo Lane Boogie.wav",
-	"PROGDIR:music/Nowe/Tycoon Skyline Theme.wav",
-};
-static const int NUM_GAME_TRACKS = (int)(sizeof(GAME_TRACKS) / sizeof(GAME_TRACKS[0]));
+/* Per-directory disk enumeration bound (Nowe/Extra/Stare can each be large). */
+static const int MUS_MAX_DIR_TRACKS = 128;
+/* Song limit. Song numbers are a byte in OpenTTD, so 255 is the hard ceiling;
+ * NUM_SONGS_AVAILABLE is 256 (array size) but we never issue number 256. */
+static const int MUS_MAX_SONGS = 255;
 
-/* Song list shown in the music window and used to synthesise the base music
- * set (see music.cpp): index 0 is the theme (song 1 in game), 1..15 are the
- * in-game tracks (songs 2..16). Order matches GAME_TRACKS so song number
- * cursong maps to GAME_TRACKS[cursong - 2]. */
-static const char * const SONG_NAMES[] = {
-	"AmigaTTD Theme",
-	"Coast and Roll",
-	"Cruising Gear Two",
-	"Downtown Traffic Funk",
-	"Fast Lane Fever",
-	"Grand Terminal Anthem",
-	"Highway Cruise Overdrive",
-	"Idle Engine Chill",
-	"Neon Crosswalk Strut",
-	"Open Road Cruise",
-	"Rush Hour Swagger",
-	"Skyline Express Beat",
-	"Smooth Motorway Glide",
-	"Sunday Driver Groove",
-	"Turbo Lane Boogie",
-	"Tycoon Skyline Theme",
-};
-static const int NUM_SONGS = (int)(sizeof(SONG_NAMES) / sizeof(SONG_NAMES[0]));
+/* Temporary per-directory scan results. */
+static char _dir_paths[MUS_MAX_DIR_TRACKS][AMIGA_MUSIC_PATH_MAX];
+static char _dir_names[MUS_MAX_DIR_TRACKS][AMIGA_MUSIC_NAME_MAX];
 
-/* Consumed by music.cpp's synthesised MusicSet::FillSetDetails. */
-extern "C" int AmigaMusic_NumSongs(void) { return NUM_SONGS; }
-extern "C" const char *AmigaMusic_SongName(int idx)
-{
-	if (idx < 0 || idx >= NUM_SONGS) return "";
-	return SONG_NAMES[idx];
-}
-
-/* OpenTTD's currently selected song number (1-based; 1 = theme). Set by the
- * music manager just before PlaySong(); we resolve the WAV from it. */
-extern byte _music_wnd_cursong;
+/* The one ordered catalogue: index i == song number i+1. */
+static char _cat_path[MUS_MAX_SONGS][AMIGA_MUSIC_PATH_MAX];
+static char _cat_name[MUS_MAX_SONGS][AMIGA_MUSIC_NAME_MAX];
+static int  _song_count  = 0;   /* total catalogue entries (theme + normal + old) */
+static int  _normal_count = 0;  /* Nowe + Extra (the in-game default set) */
+static int  _old_count    = 0;  /* Stare */
+static bool _scan_done    = false;
 
 static AdpcmStream *_cur_stream = NULL;
-static bool  _cur_is_menu = false;   /* true while the loaded track is the theme */
-static byte  _cur_vol     = 127;     /* OpenTTD music volume 0..127 */
+static bool  _cur_is_menu = false;   /* game mode the loaded track was chosen for */
+static int   _cur_song    = 0;       /* song number of the loaded track */
+static byte  _cur_vol     = 127;
 
 #define MUS_LOG "PROGDIR:amiga_mus.log"
-static int  _mus_log_lines = 0;
+static int _mus_log_lines = 0;
 static void MusLog(const char *fmt, ...)
 {
-	if (_mus_log_lines >= 60) return;   /* capped, one-run-conclusive */
-	_mus_log_lines++;
 	char buf[192];
 	va_list va;
+	FILE *f;
+	if (_mus_log_lines >= 60) return;
+	_mus_log_lines++;
 	va_start(va, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, va);
 	va_end(va);
-	FILE *f = fopen(MUS_LOG, "a");
+	f = fopen(MUS_LOG, "a");
 	if (f == NULL) return;
-	fputs(buf, f); fputc('\n', f);
+	fputs(buf, f);
+	fputc('\n', f);
 	fclose(f);
 }
 
-/* Pull callback for amiga_audio.c: decode more 8-bit samples from the WAV. */
+/* Append one catalogue entry; returns true if it was actually added. */
+static bool CatAdd(const char *path, const char *name)
+{
+	if (_song_count >= MUS_MAX_SONGS) return false;
+	snprintf(_cat_path[_song_count], AMIGA_MUSIC_PATH_MAX, "%s", path);
+	snprintf(_cat_name[_song_count], AMIGA_MUSIC_NAME_MAX, "%s", name);
+	_song_count++;
+	return true;
+}
+
+static void ScanMusicDirectories()
+{
+	int n, i;
+
+	_song_count = 0;
+	_normal_count = 0;
+	_old_count = 0;
+
+	/* Track 1: the menu theme. Prefer music/Title; fall back to the first
+	 * in-game track, or a placeholder so song 1 always exists. */
+	n = AmigaMusic_ScanDir("PROGDIR:music/Title", _dir_paths, _dir_names, MUS_MAX_DIR_TRACKS);
+	int title_n = n;
+	if (n > 0) {
+		CatAdd(_dir_paths[0], _dir_names[0]);
+	} else {
+		/* filled in after Nowe is scanned, below; keep slot 0 reserved. */
+		CatAdd("", "Amiga music");
+	}
+
+	/* Tracks 2..1+N: the in-game set = Nowe then Extra. */
+	n = AmigaMusic_ScanDir("PROGDIR:music/Nowe", _dir_paths, _dir_names, MUS_MAX_DIR_TRACKS);
+	int nowe_n = n;
+	for (i = 0; i < n; i++) {
+		if (CatAdd(_dir_paths[i], _dir_names[i])) _normal_count++;
+	}
+	/* If there was no Title theme, use the first Nowe track for the menu. */
+	if (title_n == 0 && nowe_n > 0) {
+		snprintf(_cat_path[0], AMIGA_MUSIC_PATH_MAX, "%s", _dir_paths[0]);
+		snprintf(_cat_name[0], AMIGA_MUSIC_NAME_MAX, "%s", _dir_names[0]);
+	}
+
+	int extra_n = 0;
+	if (nowe_n > 0) {   /* Extra extends Nowe; ignored when Nowe is empty. */
+		n = AmigaMusic_ScanDir("PROGDIR:music/Extra", _dir_paths, _dir_names, MUS_MAX_DIR_TRACKS);
+		extra_n = n;
+		for (i = 0; i < n; i++) {
+			if (CatAdd(_dir_paths[i], _dir_names[i])) _normal_count++;
+		}
+	}
+
+	/* Tracks 2+N..1+N+O: Stare (played only via the Old Style playlist). */
+	n = AmigaMusic_ScanDir("PROGDIR:music/Stare", _dir_paths, _dir_names, MUS_MAX_DIR_TRACKS);
+	int stare_n = n;
+	for (i = 0; i < n; i++) {
+		if (CatAdd(_dir_paths[i], _dir_names[i])) _old_count++;
+	}
+
+	_scan_done = true;
+	MusLog("scan: Title=%d Nowe=%d Extra=%d Stare=%d -> songs=%d (normal=%d old=%d)",
+			title_n, nowe_n, extra_n, stare_n, _song_count, _normal_count, _old_count);
+	if (nowe_n == 0 && extra_n > 0) MusLog("Extra ignored: Nowe empty");
+}
+
+static void EnsureScanned()
+{
+	if (!_scan_done) ScanMusicDirectories();
+}
+
+/* --- consumed by music.cpp (song catalogue) and music_gui.cpp (playlists) --- */
+extern "C" int AmigaMusic_NumSongs(void)   { EnsureScanned(); return _song_count; }
+extern "C" const char *AmigaMusic_SongName(int idx)
+{
+	EnsureScanned();
+	if (idx < 0 || idx >= _song_count) return "";
+	return _cat_name[idx];
+}
+/* How many in-game (Nowe+Extra) and Old (Stare) tracks exist, so InitializeMusic
+ * can lay the playlists out over the right song numbers. */
+extern "C" int AmigaMusic_NormalCount(void) { EnsureScanned(); return _normal_count; }
+extern "C" int AmigaMusic_OldCount(void)    { EnsureScanned(); return _old_count; }
+
+/* Pull callback for amiga_audio.c. */
 extern "C" int AmigaMusicRefill(void *ud, signed char *dst, int max)
 {
 	AdpcmStream *s = (AdpcmStream *)ud;
-	return (s != NULL) ? Adpcm_Decode(s, dst, max) : 0;
+	return s != NULL ? Adpcm_Decode(s, dst, max) : 0;
 }
 
 static int VolToPaula(byte vol) { return (int)(vol >> 1); }   /* 0..127 -> 0..63 */
 
 const char *MusicDriver_Amiga::Start(const char * const *param)
 {
-	/* The sound driver normally opens Paula, but open here too so music works
-	 * even with a different sound driver; AmigaAudio_Open is idempotent. */
+	(void)param;
 	AmigaAudio_Open();
 	remove(MUS_LOG);
-	MusLog("AMIGA-MUSIC-v1 start: %d game tracks", NUM_GAME_TRACKS);
-	return NULL;   /* never fail: a failed explicit driver is a fatal usererror */
+	_mus_log_lines = 0;
+	ScanMusicDirectories();
+	MusLog("AMIGA-MUSIC-v3 (song number = track) started");
+	return NULL;   /* never fail: an explicit driver failure is fatal upstream */
 }
 
-void MusicDriver_Amiga::Stop()
-{
-	this->StopSong();
-}
+void MusicDriver_Amiga::Stop() { this->StopSong(); }
 
 void MusicDriver_Amiga::PlaySong(const char *filename)
 {
-	this->StopSong();
-
-	/* Resolve the WAV from the selected song number: 1 = theme, 2..16 = the
-	 * in-game tracks. In the menu OpenTTD forces song 1 (theme). */
-	int cs = (int)_music_wnd_cursong;
+	int cs;
 	const char *path;
-	if (cs <= 1) {
-		path = TITLE_TRACK;
-		_cur_is_menu = true;
+	int rate, period;
+
+	this->StopSong();
+	EnsureScanned();
+
+	/* The title screen ALWAYS plays the menu theme (song 1 = music/Title),
+	 * never an in-game track, whatever song number OpenTTD left selected. In
+	 * game, play exactly the track OpenTTD picked: song number cs -> catalogue
+	 * entry cs-1, so the name the window shows is the WAV that plays. */
+	if (_game_mode == GM_MENU) {
+		cs = 1;
 	} else {
-		path = GAME_TRACKS[(cs - 2) % NUM_GAME_TRACKS];
-		_cur_is_menu = false;
+		cs = (int)_music_wnd_cursong;
+		if (cs < 1 || cs > _song_count) cs = 1;
+	}
+	path = (_song_count > 0) ? _cat_path[cs - 1] : "";
+
+	_cur_song = cs;
+	_cur_is_menu = (_game_mode == GM_MENU);
+
+	if (path[0] == '\0') {
+		MusLog("silent: song=%d (no WAV in that slot)", cs);
+		return;   /* IsSongPlaying() holds when the install has no music at all */
 	}
 
 	_cur_stream = Adpcm_Open(path);
 	if (_cur_stream == NULL) {
 		MusLog("open FAILED: %s", path);
-		return;   /* IsSongPlaying() will report false and the game advances */
+		return;
 	}
 
-	int rate = Adpcm_Rate(_cur_stream);
+	rate = Adpcm_Rate(_cur_stream);
 	if (rate <= 0) rate = 22050;
-	int period = (int)(MUS_PAL_CLOCK / (unsigned long)rate);
+	period = (int)(MUS_PAL_CLOCK / (unsigned long)rate);
 
 	AmigaAudio_MusicSetVolume(VolToPaula(_cur_vol));
 	if (!AmigaAudio_MusicStart(period, MUS_CHUNK, AmigaMusicRefill, _cur_stream)) {
@@ -190,8 +246,8 @@ void MusicDriver_Amiga::PlaySong(const char *filename)
 		_cur_stream = NULL;
 		return;
 	}
-	MusLog("play song %d -> %s (rate=%d period=%d menu=%d)", cs, path, rate, period, _cur_is_menu ? 1 : 0);
-	(void)filename;   /* OpenTTD's .gm path is ignored; we stream our own WAV */
+	MusLog("play song %d -> %s (menu=%d)", cs, path, _cur_is_menu ? 1 : 0);
+	(void)filename;   /* OpenTTD's synthetic .gm name is not opened */
 }
 
 void MusicDriver_Amiga::StopSong()
@@ -205,10 +261,15 @@ void MusicDriver_Amiga::StopSong()
 
 bool MusicDriver_Amiga::IsSongPlaying()
 {
-	if (_cur_stream == NULL) return false;
+	if (_cur_stream == NULL) {
+		/* No WAV loaded. With NO music at all (no-music tier / empty dirs) claim
+		 * "playing" so OpenTTD's loop stops calling PlaySong every tick and
+		 * spamming the song number; otherwise report done so it advances. */
+		return _song_count == 0 || _cat_path[0][0] == '\0';
+	}
 	/* Switch promptly when crossing the menu<->game boundary. */
 	if (_cur_is_menu != (_game_mode == GM_MENU)) return false;
-	return AmigaAudio_MusicFinished() ? false : true;
+	return !AmigaAudio_MusicFinished();
 }
 
 void MusicDriver_Amiga::SetVolume(byte vol)

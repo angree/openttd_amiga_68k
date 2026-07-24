@@ -42,6 +42,9 @@
 #include "table/strings.h"
 #include "../saveload/saveload.h"
 #include "oldai.h"
+#ifdef ENABLE_NETWORK
+#include "../network/network.h"  // _networking, _network_server (server-only AI gate)
+#endif
 
 #include <string.h>
 
@@ -140,8 +143,9 @@ enum OldAIPendingOp {
 
 enum {
 	OLDAI_BUS_MIN_COUNT = 2,
-	OLDAI_BUS_MAX_COUNT = 8,
-	OLDAI_BUS_ROAD_TILES_PER_BUS = 16,
+	OLDAI_BUS_MAX_COUNT = 8,   ///< array + save-chunk size; do NOT change (save compat)
+	OLDAI_BUS_FLEET_MAX = 6,   ///< how many buses a route may actually get (<= MAX_COUNT)
+	OLDAI_BUS_ROAD_TILES_PER_BUS = 12,   ///< one bus per ~12 road tiles (was 16: too few on long lines)
 	OLDAI_PLAN_MIN_GAP = 128,
 	OLDAI_PLAN_MAX_FAIL_STREAK = 5,
 	/* DAY_TICKS is 74; 18 game-days is about 40 seconds at normal speed. */
@@ -1236,7 +1240,7 @@ static byte BusCountForRoadLength(int road_tiles)
 	int count = (road_tiles + OLDAI_BUS_ROAD_TILES_PER_BUS - 1) /
 			OLDAI_BUS_ROAD_TILES_PER_BUS;
 	if (count < OLDAI_BUS_MIN_COUNT) count = OLDAI_BUS_MIN_COUNT;
-	if (count > OLDAI_BUS_MAX_COUNT) count = OLDAI_BUS_MAX_COUNT;
+	if (count > OLDAI_BUS_FLEET_MAX) count = OLDAI_BUS_FLEET_MAX;
 	return (byte)count;
 }
 
@@ -2892,6 +2896,14 @@ train_orders:
 
 void OldAI_GameLoop()
 {
+	/* Mirror stock AI::GameLoop (ai_core.cpp): in networking only the server
+	 * ticks the AI, and only when AIs are allowed in multiplayer. Without this
+	 * every client would lazily adopt the AI company (OldAI_Start below) and
+	 * post its own DoCommandP packets -> duplicate/rejected commands = desync. */
+#ifdef ENABLE_NETWORK
+	if (_networking && (!_network_server || !_settings_game.ai.ai_in_multiplayer)) return;
+#endif
+
 	_oldai_tick++;
 	uint8 speed = OldAICompetitorSpeed();
 	bool run_company = (_oldai_tick & ((1u << (4 - speed)) - 1)) == 0;

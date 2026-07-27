@@ -26,6 +26,19 @@
 /build/*
 !/build/apply-amiga-patches.py
 !/build/build-openttd.sh
+# build-both.sh builds the PC targets we now ship alongside the Amiga one, from
+# the same sources; without it those binaries cannot be reproduced. Its helpers
+# generate the PC source list and re-apply the three gcc-11 fixes.
+!/build/build-both.sh
+!/build/pc-fixes.py
+!/build/pc-fixes.sh
+!/build/pc-source-list.sh
+!/build/pc-fixup-makefile.sh
+# Packs the whole release set (music tiers + PC) and refuses to ship an archive
+# with backslash paths, which broke v0.9.1.
+!/build/make-release-all.sh
+!/build/make-release-zip.sh
+
 # build-with-ice-retry.sh is THE build entry point - it forces the files that
 # this toolchain miscompiles at -O1 down to -O0 and refuses to degrade the video
 # driver. Building without it silently produces a broken game, so it has to ship.

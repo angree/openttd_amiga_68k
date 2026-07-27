@@ -263,8 +263,9 @@ static void HandleAmigaKey(int raw)
 
 static int  _frameskip;        ///< frames to drop between drawn ones
 static int  _skip_left;        ///< countdown to the next drawn frame
-static bool _frameskip_auto;   ///< OFF by default: dropping frames looked far worse
-                               ///< in practice than letting the player hit fast-forward.
+static bool _frameskip_auto;   ///< legacy: only "-v amiga:frameskip=N" still clears it. The
+                               ///< real control is Advanced Settings -> Amiga -> Frame skipping,
+                               ///< read every iteration in the game loop below.
 static int  _fs_report;
 
 /** Lores modes get the small interface font, hires the normal one. */
@@ -716,6 +717,7 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 			_frameskip_auto = false;
 			_frameskip = Clamp(atoi(fs), 0, MAX_FRAMESKIP);
 		}
+
 	}
 
 	/* ONE list describes every display this driver can open. Game Options ->
@@ -1061,11 +1063,33 @@ void VideoDriver_Amiga::MainLoop()
 
 		/* How late are we? next_tick is when the current game tick was due, so
 		 * anything past it means the previous frame overran its budget. */
-		if (_frameskip_auto && !_fast_forward) {
+		/* Advanced Settings -> Amiga -> Frame skipping decides this, and the
+		 * player owns the decision: drawing and game logic share one 30 ms tick,
+		 * so an overrunning frame slows the GAME itself 1:1. Many prefer exactly
+		 * that to a jerky picture, which is why the default is Off.
+		 *   0 = off, 1 = auto, 2..4 = always skip 1..3 frames.
+		 * Note for network games: the server dictates the pace there, so a client
+		 * that cannot keep up does not slow everyone down - it falls behind and is
+		 * eventually dropped. Auto is the setting that helps there. */
+		uint8 fs_mode = _settings_client.amiga.frameskip;
+		if (fs_mode >= 2) {
+			_frameskip = fs_mode - 1;
+		} else if (fs_mode == 0 && _frameskip != 0) {
+			_frameskip = 0;
+		}
+
+		bool adapt = (fs_mode == 1);
+		if (adapt && !_fast_forward) {
+			/* next_tick is reset after every tick, so this is how late THIS frame
+			 * is - not an accumulated debt. A tick that takes 46 ms instead of 30
+			 * is only ever 16 ms late, so the old ">60" threshold (two whole ticks)
+			 * never once fired and frame dropping did nothing at all. React as soon
+			 * as we miss the budget, and back off again the moment we are on time;
+			 * the result oscillates around the smallest skip that keeps up. */
 			int32 late = (int32)(cur_ticks - next_tick);
-			if (late > 60) {
+			if (late > 5) {
 				if (_frameskip < MAX_FRAMESKIP) _frameskip++;
-			} else if (late < 0 && _frameskip > 0) {
+			} else if (late <= 0 && _frameskip > 0) {
 				_frameskip--;
 			}
 		}

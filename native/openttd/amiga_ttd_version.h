@@ -11,7 +11,7 @@
 #ifndef AMIGA_TTD_VERSION_H
 #define AMIGA_TTD_VERSION_H
 
-#define AMIGA_TTD_VERSION "1.1.0"
+#define AMIGA_TTD_VERSION "1.1.1"
 #define AMIGA_TTD_DATE    "20260728"
 
 #endif /* AMIGA_TTD_VERSION_H */

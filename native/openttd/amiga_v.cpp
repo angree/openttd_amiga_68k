@@ -545,6 +545,15 @@ static bool CreateMainSurface(uint w, uint h, int want_backend)
 		             " to on, so the next start goes straight to a screen");
 	}
 
+	/* Keep OpenTTD's own _fullscreen in step with what is really on the display.
+	 * It drives the Game Options checkbox, and nothing else on this platform
+	 * reads it - but that checkbox is how most players will look for this, so it
+	 * has to tell the truth from the very first frame. Done HERE rather than in
+	 * ToggleFullscreen alone, because Start(), the resolution dropdown, the
+	 * Workbench-bar toggle and the Advanced Settings entry all arrive through
+	 * this function and every one of them can change the answer. */
+	_fullscreen = (got_backend != AMIGAGFX_BACKEND_WB);
+
 	/* This function deliberately does NOT touch amiga.rtg / amiga.ehb any more.
 	 *
 	 * It used to end with "amiga.rtg = (got_backend == RTG)", on the reasoning
@@ -1647,13 +1656,19 @@ bool VideoDriver_Amiga::ToggleFullscreen(bool fullscreen)
 		amigagfx_log("window mode refused: -v amiga:fullscreen is in force");
 		return false;
 	}
-	if (_settings_client.amiga.fullscreen == fullscreen) return true;
+	if (_settings_client.amiga.fullscreen != fullscreen) {
+		_settings_client.amiga.fullscreen = fullscreen;
+		AmigaFullscreenChanged();
+	}
 
-	_settings_client.amiga.fullscreen = fullscreen;
-	AmigaFullscreenChanged();
-
-	/* Report what we ACTUALLY ended up with, not what was asked for. A refused
-	 * window falls back to a screen and repairs the setting, and saying "yes"
-	 * to that would leave the checkbox ticked for a mode that is not running. */
-	return (amigagfx_backend() != AMIGAGFX_BACKEND_WB) == fullscreen;
+	/* THE DRIVER OWNS _fullscreen - gfx.cpp's ToggleFullScreen() does not set it,
+	 * every other platform's driver does, and leaving it alone made the Game
+	 * Options checkbox permanently useless: it stayed false, the button drew
+	 * unlit while a screen was plainly on display, and because the handler asks
+	 * for ToggleFullScreen(!_fullscreen) every click asked for FULLSCREEN, which
+	 * we already were. There was no way to reach window mode from that menu at
+	 * all - which is exactly how it was reported. Set from what actually opened,
+	 * not from what was requested, so a refused window leaves the button honest. */
+	_fullscreen = (amigagfx_backend() != AMIGAGFX_BACKEND_WB);
+	return _fullscreen == fullscreen;
 }

@@ -167,6 +167,7 @@ static const char *AmigaBackendName(int backend)
 	switch (backend) {
 		case AMIGAGFX_BACKEND_RTG: return "RTG";
 		case AMIGAGFX_BACKEND_EHB: return "OCS";
+		case AMIGAGFX_BACKEND_WB:  return "WINDOW";
 		default:                   return "AGA";
 	}
 }
@@ -301,6 +302,20 @@ static bool _force_bbox;
  * periodic "blit #N" heartbeat in amiga_gfx.c. Startup lines, errors and the
  * capped pointer-warp diagnostics stay on unconditionally. */
 static bool _verbose;
+
+/** "-v amiga:fullscreen" forces a screen of our own regardless of what
+ * amiga.fullscreen says in the config.
+ *
+ * THE ESCAPE HATCH, and the reason it exists is worth writing down. Window mode
+ * depends on something the game does not control: a public screen it can put a
+ * window on. If a player turns fullscreen off and then changes their setup -
+ * moves the game into User-Startup, where it runs before LoadWB, or drops to a
+ * Workbench the window cannot live on - the game would try window mode on every
+ * start, fail, and they would have no way in to turn it back off. The driver
+ * repairs the setting by itself when an open fails (see CreateMainSurface), but
+ * that only helps if the failure is clean; this flag helps even if it is not,
+ * and costs one line to provide. */
+static bool _force_fullscreen;
 
 /** Diagnostic: "-v amiga:rmbaslmb" makes the RIGHT button behave exactly like
  * the LEFT one. If right-clicking then acts like a left click, the IDCMP event
@@ -447,8 +462,29 @@ static void DrawSurfaceToScreen()
  * one bar height per reopen. Zero until the driver has started. */
 static uint _amiga_scr_w, _amiga_scr_h;
 
+/** Should this open be a window on the Workbench rather than a screen?
+ *
+ * The setting is amiga.fullscreen and it defaults to TRUE, which is not a
+ * cosmetic choice - it is the upgrade guarantee. OpenTTD already has a global
+ * "fullscreen" setting, it defaults to false, and it is ALREADY WRITTEN in the
+ * openttd.cfg of everyone who has ever run this port. Hanging window mode off
+ * that would have dropped every existing player into a window the moment they
+ * upgraded. A brand-new key cannot be in an old config at all, so an old config
+ * takes the default, and the default is the behaviour they already have. */
+static bool AmigaWantWindow()
+{
+	if (_force_fullscreen) return false;
+	return !_settings_client.amiga.fullscreen;
+}
+
 static bool CreateMainSurface(uint w, uint h, int want_backend)
 {
+	/* Window mode overrides the backend outright: the resolution list describes
+	 * SCREEN modes, and on the Workbench there is no mode to pick - the window
+	 * inherits whatever the Workbench screen is. The size still comes from the
+	 * list, as the window's initial inner size. */
+	if (AmigaWantWindow()) want_backend = AMIGAGFX_BACKEND_WB;
+
 	/* An EHB screen may only be opened while the sprite cache actually holds
 	 * EHB-reduced sprites, and that is decided once at startup (see the latch in
 	 * Start). Picking an EHB mode mid-session therefore changes the SIZE now and
@@ -467,7 +503,9 @@ static bool CreateMainSurface(uint w, uint h, int want_backend)
 	 * multiple of 32. Round up rather than fail; 320, 352 and 640 already
 	 * qualify. RTG has no such constraint - nothing there works in 32-pixel
 	 * columns - so its widths are passed through exactly as offered. */
-	if (want_backend != AMIGAGFX_BACKEND_RTG) w = (w + 31) & ~31;
+	if (want_backend != AMIGAGFX_BACKEND_RTG && want_backend != AMIGAGFX_BACKEND_WB) {
+		w = (w + 31) & ~31;
+	}
 
 	amigagfx_close();
 	/* amiga.wb_bar: keep the real Intuition screen title bar (depth gadget,
@@ -491,6 +529,22 @@ static bool CreateMainSurface(uint w, uint h, int want_backend)
 		amigagfx_log(b);
 	}
 
+	/* WINDOW MODE WAS REFUSED - REPAIR THE SETTING, don't just log it.
+	 *
+	 * This is the anti-lockout rule. A screen was opened instead, so the player
+	 * can see and play; but if the config still said "window" the next start
+	 * would try again, fail again, and on a machine where the failure is less
+	 * graceful than this one they would be stuck with no way to reach Advanced
+	 * Settings. Writing the flag back means a machine that cannot do window
+	 * mode asks exactly once. The player can always turn it on again, and if
+	 * their setup changes it will then work. */
+	if (want_backend == AMIGAGFX_BACKEND_WB && got_backend != AMIGAGFX_BACKEND_WB) {
+		_settings_client.amiga.fullscreen = true;
+		SaveToConfig();
+		amigagfx_log("window mode could not be opened - amiga.fullscreen set back"
+		             " to on, so the next start goes straight to a screen");
+	}
+
 	/* This function deliberately does NOT touch amiga.rtg / amiga.ehb any more.
 	 *
 	 * It used to end with "amiga.rtg = (got_backend == RTG)", on the reasoning
@@ -503,13 +557,21 @@ static bool CreateMainSurface(uint w, uint h, int want_backend)
 	 * not a readout of what is currently lit up, so only the two places that know
 	 * the picked entry - Start() and ChangeResolution() - write them. */
 
-	_amiga_scr_w = w;
-	_amiga_scr_h = h;
+	/* In window mode the size that came back may be smaller than the size asked
+	 * for - the Workbench screen is the ceiling - so record what actually
+	 * opened, not what was requested. Everywhere else the two are equal. */
+	_amiga_scr_w = (got_backend == AMIGAGFX_BACKEND_WB) ? (uint)amigagfx_game_width() : w;
+	_amiga_scr_h = (got_backend == AMIGAGFX_BACKEND_WB) ? (uint)amigagfx_game_height() : h;
 
 	/* The game area is what the driver reports: with the bar visible it is
 	 * shorter than the screen, and every downstream consumer - the chunky
-	 * buffer, dirty rects, c2p, window layout - must live within it. */
-	_screen.width   = w;
+	 * buffer, dirty rects, c2p, window layout - must live within it.
+	 *
+	 * Width now comes from the driver too rather than from w. On a screen the
+	 * two are identical; in a window they are not, because the pitch is the
+	 * whole Workbench width and the game area is only the part of it the window
+	 * covers. Reading both from the driver keeps one source of truth. */
+	_screen.width   = amigagfx_game_width();
 	_screen.height  = amigagfx_game_height();
 	_screen.pitch   = amigagfx_pitch();
 	_screen.dst_ptr = amigagfx_chunky();
@@ -533,11 +595,28 @@ static bool CreateMainSurface(uint w, uint h, int want_backend)
 	 * resolution list (352x272), so the next start cannot find the mode and
 	 * falls back to 320x256 - the "it never remembers the resolution" bug. Put
 	 * the SCREEN size back: the bar eats usable area, it does not change the
-	 * screen mode, and the mode is what must persist. */
-	_cur_resolution.width  = _amiga_scr_w;
-	_cur_resolution.height = _amiga_scr_h;
+	 * screen mode, and the mode is what must persist.
+	 *
+	 * WINDOW MODE IS THE SAME BUG ONE STEP FURTHER, and it bites harder because
+	 * a window can be ANY size. 618x247 is not a mode, is not in the list, and
+	 * cannot be - so writing it to _cur_resolution made the next start report
+	 * "saved resolution 618x247 is not offered" and fall back to 320x256. The
+	 * window size therefore lives in its own pair of settings, and
+	 * _cur_resolution keeps describing the SCREEN mode the player picked, ready
+	 * for the moment they switch fullscreen back on. */
+	if (got_backend == AMIGAGFX_BACKEND_WB) {
+		_settings_client.amiga.win_w = (uint16)_screen.width;
+		_settings_client.amiga.win_h = (uint16)_screen.height;
+		if (_amiga_cur_res >= 0 && _amiga_cur_res < (int)_num_resolutions) {
+			_cur_resolution = _resolutions[_amiga_cur_res];
+		}
+	} else {
+		_cur_resolution.width  = _amiga_scr_w;
+		_cur_resolution.height = _amiga_scr_h;
+	}
 
-	DEBUG(driver, 1, "amiga: %dx%d, %s", w, h,
+	DEBUG(driver, 1, "amiga: %dx%d, %s", _screen.width, _screen.height,
+	      got_backend == AMIGAGFX_BACKEND_WB  ? "window on the Workbench screen" :
 	      got_backend == AMIGAGFX_BACKEND_RTG ? "8bpp RTG, chunky straight to the card" :
 	      got_backend == AMIGAGFX_BACKEND_EHB ? "OCS: 6 bitplanes EHB, Kalms c2p1x1_6_c5_bm_040"
 	                                          : "8 bitplanes, Kalms c2p_rect");
@@ -672,6 +751,40 @@ static void PollEvents()
 				HandleExitGameRequest();
 				break;
 
+			case AMIGAGFX_EV_RESIZE:
+				/* Window mode only: the player dragged the sizing gadget. The C
+				 * side has already applied it - no buffer moved, because the
+				 * chunky buffer was allocated at the full Workbench size when
+				 * the window opened, so only the extent changed.
+				 *
+				 * What follows is deliberately the same sequence a resolution
+				 * change performs, minus reopening anything: tell the blitter,
+				 * tell the GUI, redraw the lot. GameSizeChanged() re-lays out
+				 * every open OpenTTD window against the new size, which is what
+				 * stops toolbars ending up off the edge when the window shrinks. */
+				_screen.width   = amigagfx_game_width();
+				_screen.height  = amigagfx_game_height();
+				_screen.pitch   = amigagfx_pitch();
+				_screen.dst_ptr = amigagfx_chunky();
+				_amiga_scr_w    = (uint)_screen.width;
+				_amiga_scr_h    = (uint)_screen.height;
+				BlitterFactoryBase::GetCurrentBlitter()->PostResize();
+				GameSizeChanged();
+				/* Remember the new window size in its OWN settings, and put
+				 * _cur_resolution back to the screen mode GameSizeChanged just
+				 * overwrote with it - see the long note in CreateMainSurface.
+				 * Not saved to disk here: a drag emits a stream of these, and
+				 * writing openttd.cfg on each one would stutter the game. The
+				 * value is written out at the next SaveToConfig, and OpenTTD
+				 * always saves on exit. */
+				_settings_client.amiga.win_w = (uint16)_screen.width;
+				_settings_client.amiga.win_h = (uint16)_screen.height;
+				if (_amiga_cur_res >= 0 && _amiga_cur_res < (int)_num_resolutions) {
+					_cur_resolution = _resolutions[_amiga_cur_res];
+				}
+				MarkWholeScreenDirty();
+				break;
+
 			default:
 				break;
 		}
@@ -709,6 +822,7 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 	_force_bbox = (GetDriverParam(parm, "bbox") != NULL);
 	_rmb_as_lmb = (GetDriverParam(parm, "rmbaslmb") != NULL);
 	_verbose    = (GetDriverParam(parm, "verbose") != NULL);
+	_force_fullscreen = (GetDriverParam(parm, "fullscreen") != NULL);
 	amigagfx_set_verbose(_verbose ? 1 : 0);
 
 	{
@@ -922,14 +1036,30 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 	 * screen is created so it is never the missing piece later. */
 	amigagfx_set_ehb_palette(_amiga_ehb_palette);
 
-	/* The font tables are built once, just after this, so the choice has to be
-	 * made now. Changing resolution later reopens the screen immediately but
-	 * leaves the font as it was - hence the restart note in ChangeResolution. */
-	_amiga_small_font = WantSmallFont(_cur_resolution.width);
+	/* Window mode reopens at the size the window was LEFT at, which is not the
+	 * screen mode in _cur_resolution - see the note in CreateMainSurface. Zero
+	 * means there is no remembered window yet (first ever run in window mode),
+	 * and then the picked screen mode is a perfectly good starting size. */
+	{
+		uint open_w = _cur_resolution.width;
+		uint open_h = _cur_resolution.height;
+		if (AmigaWantWindow() &&
+		    _settings_client.amiga.win_w > 0 && _settings_client.amiga.win_h > 0) {
+			open_w = _settings_client.amiga.win_w;
+			open_h = _settings_client.amiga.win_h;
+		}
 
-	if (!CreateMainSurface(_cur_resolution.width, _cur_resolution.height,
-	                       _amiga_res_backend[_amiga_cur_res])) {
-		return "Could not open the Amiga screen";
+		/* The font tables are built once, just after this, so the choice has to
+		 * be made now. Changing resolution later reopens the screen immediately
+		 * but leaves the font as it was - hence the restart note in
+		 * ChangeResolution. Decided from the width being OPENED, not from
+		 * _cur_resolution: in window mode those differ, and a 320-wide window
+		 * given the wide-screen font is unreadable. */
+		_amiga_small_font = WantSmallFont(open_w);
+
+		if (!CreateMainSurface(open_w, open_h, _amiga_res_backend[_amiga_cur_res])) {
+			return "Could not open the Amiga screen";
+		}
 	}
 
 	/* Startup ONLY: if the screen that opened is not on the backend the entry
@@ -1389,6 +1519,66 @@ void AmigaWorkbenchBarChanged()
 	SaveToConfig();
 }
 
+/**
+ * The "amiga.fullscreen" setting was toggled - switch between a screen of our
+ * own and a window on the Workbench, live.
+ *
+ * Reopening is all it takes, because the two differ only in what
+ * CreateMainSurface asks amigagfx_open for. Which SIZE to reopen at is the one
+ * real decision, and the two directions want different answers:
+ *
+ *   to a window: the last screen size is a perfectly good starting window size,
+ *     and it is what the player was just looking at. If it does not fit on the
+ *     Workbench screen the driver clamps it.
+ *
+ *   to a screen: the window size is almost certainly NOT a mode in the
+ *     resolution list - the player may have dragged it to 500x373 - so the size
+ *     comes from the resolution list entry instead, which is a real mode.
+ */
+void AmigaFullscreenChanged()
+{
+	if (_amiga_scr_w == 0) return;   /* no video driver yet; read at open time */
+
+	bool to_window = AmigaWantWindow();
+	uint w = _amiga_scr_w, h = _amiga_scr_h;
+
+	if (to_window) {
+		/* Prefer the size the window was last left at; fall back to the screen
+		 * size being replaced, which is a sane first window. */
+		if (_settings_client.amiga.win_w > 0 && _settings_client.amiga.win_h > 0) {
+			w = _settings_client.amiga.win_w;
+			h = _settings_client.amiga.win_h;
+		}
+	} else if (_amiga_cur_res >= 0 && _amiga_cur_res < (int)_num_resolutions) {
+		w = _resolutions[_amiga_cur_res].width;
+		h = _resolutions[_amiga_cur_res].height;
+	}
+
+	{
+		char b[128];
+		snprintf(b, sizeof(b), "fullscreen now %d - reopening as %s at %ux%u",
+		         _settings_client.amiga.fullscreen ? 1 : 0,
+		         to_window ? "a Workbench window" : "a screen", w, h);
+		amigagfx_log(b);
+	}
+
+	if (!CreateMainSurface(w, h, _amiga_res_backend[_amiga_cur_res])) {
+		/* Both ways failed - there is no display at all now, which is far worse
+		 * than the wrong kind of display. Put the setting back and retry as a
+		 * screen, the mode that has always worked. */
+		amigagfx_log("reopen FAILED - forcing a screen back on");
+		_settings_client.amiga.fullscreen = true;
+		if (!CreateMainSurface(_resolutions[_amiga_cur_res].width,
+		                       _resolutions[_amiga_cur_res].height,
+		                       _amiga_res_backend[_amiga_cur_res])) {
+			amigagfx_log("screen could not be reopened either - display is gone");
+		}
+	}
+
+	MarkWholeScreenDirty();
+	SaveToConfig();
+}
+
 /* There is deliberately no AmigaEhbChanged() any more.
  *
  * EHB stopped being something the player toggles: it is the pair of OCS entries
@@ -1439,13 +1629,31 @@ const char *AmigaResolutionSuffix(int index)
 	switch (_amiga_res_backend[index]) {
 		case AMIGAGFX_BACKEND_RTG: return " RTG";
 		case AMIGAGFX_BACKEND_EHB: return " OCS";
+		case AMIGAGFX_BACKEND_WB:  return " WINDOW";
 		default:                   return " AGA";
 	}
 }
 
 bool VideoDriver_Amiga::ToggleFullscreen(bool fullscreen)
 {
-	/* An Intuition custom screen is always "fullscreen"; there is no windowed
-	 * mode to switch to, so report success only for the state we are in. */
-	return fullscreen;
+	/* This is the Game Options checkbox, and it now means something: a custom
+	 * screen (true) or a window on the Workbench (false).
+	 *
+	 * It is routed through amiga.fullscreen rather than through OpenTTD's own
+	 * _fullscreen global on purpose - see AmigaWantWindow(). _fullscreen is
+	 * still updated by the caller, and that is harmless: nothing on this
+	 * platform reads it. */
+	if (_force_fullscreen && !fullscreen) {
+		amigagfx_log("window mode refused: -v amiga:fullscreen is in force");
+		return false;
+	}
+	if (_settings_client.amiga.fullscreen == fullscreen) return true;
+
+	_settings_client.amiga.fullscreen = fullscreen;
+	AmigaFullscreenChanged();
+
+	/* Report what we ACTUALLY ended up with, not what was asked for. A refused
+	 * window falls back to a screen and repairs the setting, and saying "yes"
+	 * to that would leave the checkbox ticked for a mode that is not running. */
+	return (amigagfx_backend() != AMIGAGFX_BACKEND_WB) == fullscreen;
 }

@@ -39,6 +39,14 @@ is saved immediately and shown on screen).
 
 ![OpenTTD in an OCS/ECS Extra Half-Brite mode](screenshots/openttd_68k_ocs.png)
 
+Since 1.1.0 the game can also run **in a window on the Workbench** instead of
+opening a screen of its own, so you can keep working while it is up. Turn it on
+with `amiga.fullscreen` (the default keeps the screen, so upgrading changes
+nothing). In window mode the resolution list sets the window's starting size —
+there is no screen mode to pick, since the window inherits the Workbench's.
+
+![OpenTTD running in a window on the Workbench](screenshots/window-mode-workbench.png)
+
 **If it runs too slowly, use a lores mode** — it converts a quarter of the pixels
 of `640x480` and is not interlaced. On an 030, lores is the only playable
 configuration, and even then generate a small map.

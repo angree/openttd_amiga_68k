@@ -218,6 +218,59 @@ static int   g_rtg_method;
 static int   g_rtg_demoted;    /* log the LOCK->WLUT demotion once */
 static ULONG g_ctable[256];    /* CTABFMT_XRGB8 mirror of the palette */
 
+/* ---- WINDOW mode (a window on the Workbench screen) ---------------------
+ *
+ * Everything above owns its display: a custom screen, our palette, our mode.
+ * This backend owns none of that. The window is a guest on somebody else's
+ * screen, so two things that are free everywhere else have to be worked for.
+ *
+ * COLOURS. The game is 8bpp with a palette it changes as it likes; the
+ * Workbench screen is whatever the user set up. Two cases, and they are not
+ * variations of one method - they are genuinely different code:
+ *
+ *   deeper than 8bpp (any RTG truecolor Workbench): there IS no palette to
+ *     share. WriteLUTPixelArray takes our chunky bytes plus g_ctable and
+ *     converts, so all 256 colours arrive EXACTLY and nothing is negotiated.
+ *     This is the good case and it is also the common one on the machines
+ *     likely to run a windowed OpenTTD at all.
+ *
+ *   8bpp or less: there are 256 pens on the screen and Workbench already owns
+ *     some. ObtainBestPen is asked for each of our colours once, at open time,
+ *     and hands back either a fresh pen, a shared one that already held that
+ *     colour, or the nearest thing it has. g_lut maps a game colour index to
+ *     the pen that will be drawn for it, and the blit remaps through it.
+ *
+ * WHY THE PENS ARE OBTAINED ONLY ONCE. OpenTTD animates its palette - water,
+ * lights, the fizzy bits - every few ticks, and re-running 256 ObtainBestPen
+ * calls per animation step would be hopeless on a 68030. So the pens are a
+ * fixed resource taken at open time, their granted RGB is remembered in
+ * g_pen_rgb, and a palette change only rebuilds g_lut by nearest-colour match
+ * over that fixed set. A change is normally the ~28 animated entries rather
+ * than all 256, which is why wb_lut_rebuild takes a range.
+ *
+ * SIZE. The window is resizable, and a resize must never fail: the chunky
+ * buffer is therefore allocated ONCE at the full Workbench screen size and the
+ * window is a sub-rectangle of it. g_pitch stays at that full width for the
+ * whole session while g_width/g_height follow the window. That is the entire
+ * reason g_pitch exists as a separate variable.
+ */
+#define WB_SCRATCH_ROWS 32     /* rows remapped per band on the pen path */
+
+static struct Screen *g_pubscreen;   /* the screen our window sits on, or NULL */
+static int    g_pitch;               /* chunky stride; == g_width off window mode */
+static int    g_win_mode;            /* non-zero while a Workbench window is open */
+static int    g_win_depth;           /* depth of the public screen */
+static int    g_win_direct;          /* non-zero: >8bpp, WriteLUTPixelArray path */
+static int    g_win_bl, g_win_bt;    /* window border: inner area origin */
+static int    g_win_maxw, g_win_maxh;/* public screen size = chunky buffer size */
+static LONG   g_pen[256];            /* pen granted for game colour i, -1 none */
+static UBYTE  g_pen_rgb[256 * 3];    /* what that pen ACTUALLY shows */
+static int    g_pen_n;               /* how many of g_pen[] are valid */
+static UBYTE  g_lut[256];            /* game colour index -> pen to draw */
+static UBYTE *g_wb_scratch;          /* remap band, pen path only */
+static struct RastPort g_temprp;     /* WritePixelArray8 scratch, no-CGX only */
+static struct BitMap  *g_tempbm;
+
 static UBYTE g_screen_title[] = "OpenTTD 68K";
 
 /* Intuition's default screen pens (DetailPen 0, BlockPen 1) index whatever
@@ -409,7 +462,7 @@ int amigagfx_warp_pointer(int x, int y)
 	struct IEPointerPixel pp;
 	BYTE err;
 
-	if (g_screen == NULL) return 0;
+	if (g_screen == NULL && g_pubscreen == NULL) return 0;
 	if (!input_device_open()) return 0;
 
 	/* IECLASS_POINTERPOS did NOT work here: its ie_X/ie_Y are in the input
@@ -418,13 +471,25 @@ int amigagfx_warp_pointer(int x, int y)
 	 * visibly moved. IECLASS_NEWPOINTERPOS (V36, so any OS 2.0+) with
 	 * IESUBCLASS_PIXEL instead takes an explicit target screen plus true
 	 * pixel coordinates in that screen, which is unambiguous in every mode. */
-	pp.iepp_Screen     = g_screen;
-	pp.iepp_Position.X = (WORD)x;
-	/* Callers pass game-area coordinates; the screen wants absolute pixels,
-	 * so shift past the title bar when it is visible. The warp echo comes
-	 * back window-relative, i.e. already in game-area coordinates - the
-	 * C++ side's echo matching needs no offset. */
-	pp.iepp_Position.Y = (WORD)(y + g_yoff);
+	/* Callers pass game-area coordinates; the screen wants absolute pixels in
+	 * the screen the pointer is on. The warp echo comes back window-relative,
+	 * i.e. already in game-area coordinates - the C++ side's echo matching
+	 * needs no offset either way.
+	 *
+	 * Custom screen: shift past the title bar when it is visible.
+	 * Window mode: the game area sits at the window's position PLUS its
+	 * border, and the window can be anywhere on the Workbench screen, so both
+	 * have to be added - a warp that ignored them would fling the pointer off
+	 * to the top-left corner of the desktop. */
+	if (g_win_mode) {
+		pp.iepp_Screen     = g_pubscreen;
+		pp.iepp_Position.X = (WORD)((int)g_window->LeftEdge + g_win_bl + x);
+		pp.iepp_Position.Y = (WORD)((int)g_window->TopEdge  + g_win_bt + y);
+	} else {
+		pp.iepp_Screen     = g_screen;
+		pp.iepp_Position.X = (WORD)x;
+		pp.iepp_Position.Y = (WORD)(y + g_yoff);
+	}
 
 	memset(&ie, 0, sizeof(ie));        /* zeroes ie_NextEvent and ie_TimeStamp */
 	ie.ie_Class        = IECLASS_NEWPOINTERPOS;
@@ -664,6 +729,440 @@ static int open_screen_rtg(int w, int h, ULONG quiet, ULONG title)
 	return 0;
 }
 
+/* ======================= WINDOW MODE ===================================== */
+
+int amigagfx_wb_available(void)
+{
+	struct Screen *pub = LockPubScreen(NULL);
+	if (pub == NULL) return 0;
+	UnlockPubScreen(NULL, pub);
+	return 1;
+}
+
+/* Hand every pen back. Reference counted by Intuition, so this must run once
+ * per SUCCESSFUL ObtainBestPen - duplicates in g_pen[] are separate references
+ * and each one has to be released, which is why the loop does not skip them. */
+static void wb_pens_release(void)
+{
+	int i;
+
+	if (g_pubscreen != NULL) {
+		struct ColorMap *cm = g_pubscreen->ViewPort.ColorMap;
+		for (i = 0; i < g_pen_n; i++) {
+			if (g_pen[i] >= 0) ReleasePen(cm, (ULONG)g_pen[i]);
+		}
+	}
+	for (i = 0; i < 256; i++) g_pen[i] = -1;
+	g_pen_n = 0;
+}
+
+/* Ask Intuition for a pen per game colour and record what it actually gave.
+ *
+ * TWO PASSES, and the order is the whole quality of the picture:
+ *
+ *   pass 1 - PRECISION_EXACT with OBP_FailIfBad TRUE. This allocates a fresh
+ *     pen for a colour Workbench does not already have, and fails rather than
+ *     fobbing us off with an approximation. Run first, so the free entries of
+ *     the colour map are spent on colours that genuinely need them.
+ *
+ *   pass 2 - PRECISION_IMAGE with OBP_FailIfBad FALSE, for whatever pass 1
+ *     could not place. This never fails: it hands back the nearest pen the
+ *     screen already owns. That is the "adapt to the system palette" half of
+ *     the job, and it only ever applies once the map is genuinely full.
+ *
+ * Doing pass 2's loose, sharing-happy request FIRST is the mistake worth
+ * naming: PRECISION_IMAGE shares aggressively, so it answers the first few
+ * colours with a handful of existing pens and never allocates anything, and a
+ * 256-colour Workbench with 248 free entries yields a picture in about a dozen
+ * colours. Exact-first is what actually uses the screen. */
+static void wb_pens_obtain(void)
+{
+	struct ColorMap *cm;
+	int i, pass, exact = 0, distinct = 0;
+	char b[160];
+
+	if (g_pubscreen == NULL) return;
+	cm = g_pubscreen->ViewPort.ColorMap;
+
+	wb_pens_release();
+	for (i = 0; i < 256; i++) g_pen[i] = -1;
+
+	for (pass = 0; pass < 2; pass++) {
+		for (i = 0; i < 256; i++) {
+			ULONG r, g, b8;
+			LONG  p;
+
+			if (g_pen[i] >= 0) continue;          /* placed by pass 1 */
+			r  = (g_ctable[i] >> 16) & 0xff;
+			g  = (g_ctable[i] >>  8) & 0xff;
+			b8 =  g_ctable[i]        & 0xff;
+
+			/* A colour we already hold a pen for costs nothing to reuse, and
+			 * reusing it leaves a free map entry for a colour that has none.
+			 * The TTD palettes repeat entries often enough for this to matter. */
+			{
+				int j, hit = -1;
+				for (j = 0; j < i; j++) {
+					if (g_pen[j] < 0) continue;
+					if (g_ctable[j] == g_ctable[i]) { hit = j; break; }
+				}
+				if (hit >= 0) {
+					g_pen[i] = g_pen[hit];
+					memcpy(&g_pen_rgb[i * 3], &g_pen_rgb[hit * 3], 3);
+					continue;
+				}
+			}
+
+			p = ObtainBestPen(cm,
+			                  r * 0x01010101UL, g * 0x01010101UL, b8 * 0x01010101UL,
+			                  OBP_Precision, (ULONG)(pass == 0 ? PRECISION_EXACT
+			                                                   : PRECISION_IMAGE),
+			                  OBP_FailIfBad, (ULONG)(pass == 0 ? TRUE : FALSE),
+			                  TAG_END);
+			if (p < 0) {
+				/* Pass 1 failing is normal and expected; pass 2 failing means
+				 * there is no colour map to speak of, and the nearest-match
+				 * table below will send this index to pen 0. */
+				g_pen_rgb[i * 3 + 0] = (UBYTE)r;
+				g_pen_rgb[i * 3 + 1] = (UBYTE)g;
+				g_pen_rgb[i * 3 + 2] = (UBYTE)b8;
+				continue;
+			}
+			g_pen[i] = p;
+			/* What the pen SHOWS, not what we asked for. The difference is the
+			 * whole point: the nearest-match table must measure distance
+			 * against reality, or an animated colour will jump to a pen that
+			 * looks nothing like it. */
+			{
+				ULONG rgb[3];
+				GetRGB32(cm, (ULONG)p, 1, rgb);
+				g_pen_rgb[i * 3 + 0] = (UBYTE)(rgb[0] >> 24);
+				g_pen_rgb[i * 3 + 1] = (UBYTE)(rgb[1] >> 24);
+				g_pen_rgb[i * 3 + 2] = (UBYTE)(rgb[2] >> 24);
+			}
+		}
+	}
+	g_pen_n = 256;
+
+	for (i = 0; i < 256; i++) {
+		int j, seen = 0;
+		if (g_pen[i] < 0) continue;
+		if (g_pen_rgb[i * 3 + 0] == (UBYTE)((g_ctable[i] >> 16) & 0xff) &&
+		    g_pen_rgb[i * 3 + 1] == (UBYTE)((g_ctable[i] >>  8) & 0xff) &&
+		    g_pen_rgb[i * 3 + 2] == (UBYTE)( g_ctable[i]        & 0xff)) exact++;
+		for (j = 0; j < i; j++) if (g_pen[j] == g_pen[i]) { seen = 1; break; }
+		if (!seen) distinct++;
+	}
+
+	snprintf(b, sizeof(b),
+	         "window: %d of 256 game colours exact, %d distinct pens held"
+	         " on a %d-bit Workbench",
+	         exact, distinct, g_win_depth);
+	amigagfx_log(b);
+}
+
+/* Rebuild g_lut[first..first+count) - game colour index to the pen that will
+ * actually be drawn - by nearest match over the pens obtained at open time.
+ *
+ * Ranged on purpose. OpenTTD's palette animation touches roughly 28 entries a
+ * few times a second; doing all 256 each time would be 65k distance
+ * computations where 7k will do. */
+static void wb_lut_rebuild(int first, int count)
+{
+	int i;
+
+	if (g_pen_n == 0) return;
+	if (first < 0) first = 0;
+	if (first + count > 256) count = 256 - first;
+
+	for (i = first; i < first + count; i++) {
+		int r = (int)((g_ctable[i] >> 16) & 0xff);
+		int g = (int)((g_ctable[i] >>  8) & 0xff);
+		int b = (int)( g_ctable[i]        & 0xff);
+		int best = 0, bestd = 0x7fffffff, j;
+
+		/* The pen taken for THIS index is normally still the right answer -
+		 * only animated entries move - so try it first and skip the search
+		 * when it is an exact hit. That is the common case by a wide margin. */
+		if (g_pen[i] >= 0 &&
+		    g_pen_rgb[i * 3 + 0] == (UBYTE)r &&
+		    g_pen_rgb[i * 3 + 1] == (UBYTE)g &&
+		    g_pen_rgb[i * 3 + 2] == (UBYTE)b) {
+			g_lut[i] = (UBYTE)g_pen[i];
+			continue;
+		}
+
+		for (j = 0; j < 256; j++) {
+			int dr, dg, db, d;
+			if (g_pen[j] < 0) continue;
+			dr = r - (int)g_pen_rgb[j * 3 + 0];
+			dg = g - (int)g_pen_rgb[j * 3 + 1];
+			db = b - (int)g_pen_rgb[j * 3 + 2];
+			d  = dr * dr + dg * dg + db * db;
+			if (d < bestd) { bestd = d; best = (int)g_pen[j]; if (d == 0) break; }
+		}
+		g_lut[i] = (UBYTE)best;
+	}
+}
+
+int amigagfx_wb_colours(int *granted)
+{
+	if (!g_win_mode) { if (granted != NULL) *granted = 256; return AMIGAGFX_WBCOL_OWN; }
+	if (g_win_direct) { if (granted != NULL) *granted = 256; return AMIGAGFX_WBCOL_DIRECT; }
+	if (granted != NULL) {
+		int i, j, n = 0;
+		for (i = 0; i < 256; i++) {
+			int seen = 0;
+			if (g_pen[i] < 0) continue;
+			for (j = 0; j < i; j++) if (g_pen[j] == g_pen[i]) { seen = 1; break; }
+			if (!seen) n++;
+		}
+		*granted = n;
+	}
+	return AMIGAGFX_WBCOL_PENS;
+}
+
+/* Inner (drawable) size of the window as it stands right now. Intuition
+ * reports the OUTER size plus the border widths, and the borders differ per
+ * window and per screen font, so the inner area is never assumed. */
+static void wb_inner_size(int *w, int *h)
+{
+	*w = (int)g_window->Width  - (int)g_window->BorderLeft - (int)g_window->BorderRight;
+	*h = (int)g_window->Height - (int)g_window->BorderTop  - (int)g_window->BorderBottom;
+	if (*w < 1) *w = 1;
+	if (*h < 1) *h = 1;
+}
+
+/* Open the game as a window on the default public screen. Returns 0, or
+ * non-zero to tell amigagfx_open to fall back to a screen of its own. */
+static int open_window_wb(int w, int h)
+{
+	struct Screen *pub;
+	int inner_w, inner_h;
+	char b[160];
+
+	/* Wait a bounded moment for a public screen rather than giving up on the
+	 * first try. The Startup-Sequence runs User-Startup - where this port is
+	 * normally launched from - BEFORE LoadWB, so a game that starts with the
+	 * machine genuinely does reach this point before Workbench exists, and
+	 * failing there would make window mode impossible for exactly the setup
+	 * most people have. Five seconds at ten ticks a go; the cost is paid only
+	 * when window mode was explicitly asked for and Workbench is not up yet,
+	 * and the fallback to a screen of our own is still there behind it. */
+	{
+		int tries;
+		for (tries = 0; tries < 25; tries++) {
+			pub = LockPubScreen(NULL);
+			if (pub != NULL) break;
+			if (tries == 0) amigagfx_log("window mode: no public screen yet - waiting for Workbench");
+			Delay(10);
+		}
+	}
+	if (pub == NULL) {
+		amigagfx_log("window mode: no public screen after 5 s - is Workbench running?"
+		             " (a game started from User-Startup runs before LoadWB)");
+		return 10;
+	}
+
+	/* Depth decides the entire colour strategy, so it is read from the bitmap
+	 * rather than from the mode id: a CGX screen can report a mode id whose
+	 * depth bits mean nothing, and GetCyberMapAttr is the only honest answer
+	 * on one. GetBitMapAttr covers the planar case. */
+	if (cgx_open() && GetCyberMapAttr(pub->RastPort.BitMap, CYBRMATTR_ISCYBERGFX)) {
+		g_win_depth = (int)GetCyberMapAttr(pub->RastPort.BitMap, CYBRMATTR_DEPTH);
+	} else {
+		g_win_depth = (int)GetBitMapAttr(pub->RastPort.BitMap, BMA_DEPTH);
+	}
+	g_win_direct = (g_win_depth > 8) ? 1 : 0;
+	g_win_maxw   = (int)pub->Width;
+	g_win_maxh   = (int)pub->Height;
+
+	/* A truecolor Workbench needs WriteLUTPixelArray, which is the one thing
+	 * here that genuinely requires the library. Without it there is no way to
+	 * put 8-bit data on a 16/24-bit surface, so refuse rather than draw
+	 * garbage - amigagfx_open then opens a screen of our own instead. */
+	if (g_win_direct && CyberGfxBase == NULL) {
+		UnlockPubScreen(NULL, pub);
+		amigagfx_log("window mode: Workbench is deeper than 8 bit but"
+		             " cybergraphics.library is missing - cannot convert");
+		return 11;
+	}
+
+	if (w > g_win_maxw) w = g_win_maxw;
+	if (h > g_win_maxh) h = g_win_maxh;
+
+	g_window = OpenWindowTags(NULL,
+	                          WA_PubScreen,   (ULONG)pub,
+	                          WA_Title,       (ULONG)g_screen_title,
+	                          WA_InnerWidth,  (ULONG)w,
+	                          WA_InnerHeight, (ULONG)h,
+	                          WA_MinWidth,    160UL, WA_MinHeight, 100UL,
+	                          WA_MaxWidth,    (ULONG)g_win_maxw,
+	                          WA_MaxHeight,   (ULONG)g_win_maxh,
+	                          WA_Flags, (ULONG)(WFLG_DRAGBAR | WFLG_DEPTHGADGET |
+	                                            WFLG_CLOSEGADGET | WFLG_SIZEGADGET |
+	                                            WFLG_SIZEBRIGHT | WFLG_SIZEBBOTTOM |
+	                                            WFLG_ACTIVATE | WFLG_REPORTMOUSE |
+	                                            WFLG_RMBTRAP | WFLG_SMART_REFRESH |
+	                                            WFLG_NOCAREREFRESH),
+	                          /* IDCMP_NEWSIZE is what makes the window
+	                           * resizable in any useful sense, and
+	                           * IDCMP_CLOSEWINDOW gives the gadget meaning -
+	                           * on a custom screen there is neither. */
+	                          WA_IDCMP, (ULONG)(IDCMP_MOUSEMOVE | IDCMP_MOUSEBUTTONS |
+	                                            IDCMP_RAWKEY | IDCMP_INTUITICKS |
+	                                            IDCMP_NEWSIZE | IDCMP_CLOSEWINDOW),
+	                          TAG_END);
+	/* Unlock as soon as the window exists: the window itself now keeps the
+	 * screen open, and holding a public screen lock any longer would block
+	 * anyone trying to close it. */
+	UnlockPubScreen(NULL, pub);
+	if (g_window == NULL) {
+		amigagfx_log("window mode: OpenWindow refused - falling back to a screen");
+		return 12;
+	}
+
+	g_pubscreen = g_window->WScreen;
+	g_win_bl = (int)g_window->BorderLeft;
+	g_win_bt = (int)g_window->BorderTop;
+	wb_inner_size(&inner_w, &inner_h);
+
+	g_win_mode = 1;
+	g_backend  = AMIGAGFX_BACKEND_WB;
+	g_depth    = DEPTH_AGA;   /* nominal; nothing here allocates by depth */
+	g_width    = inner_w;
+	g_height   = inner_h;
+	g_yoff     = 0;           /* the border offset is applied in wb_blit only */
+
+	snprintf(b, sizeof(b),
+	         "window: %dx%d inner on a %dx%d %d-bit %s Workbench, colours %s",
+	         inner_w, inner_h, g_win_maxw, g_win_maxh, g_win_depth,
+	         (CyberGfxBase != NULL && GetCyberMapAttr(g_pubscreen->RastPort.BitMap,
+	                                                  CYBRMATTR_ISCYBERGFX)) ? "RTG" : "native",
+	         g_win_direct ? "exact (colour table per blit)" : "negotiated (pens)");
+	amigagfx_log(b);
+	return 0;
+}
+
+/* Blit one rectangle into the window. Two entirely separate routes - see the
+ * COLOURS note in the window state block. */
+static void wb_blit(int x, int y, int w, int h)
+{
+	struct RastPort *rp = g_window->RPort;
+	int dx = g_win_bl + x;
+	int dy = g_win_bt + y;
+
+	if (g_win_direct) {
+		/* Deeper than 8 bit: hand the graphics card our chunky bytes and our
+		 * colour table and let it convert. Exact, and no pens exist to share. */
+		WriteLUTPixelArray((APTR)g_chunky,
+		                   (UWORD)x, (UWORD)y, (UWORD)g_pitch,
+		                   rp, (APTR)g_ctable,
+		                   (UWORD)dx, (UWORD)dy,
+		                   (UWORD)w, (UWORD)h,
+		                   (UBYTE)CTABFMT_XRGB8);
+		return;
+	}
+
+	/* 8 bit or less: remap game colour indices to the pens we hold, a band at
+	 * a time, and push the pens straight out. The remap is a byte table lookup
+	 * per pixel - the cheapest thing that can possibly work here. */
+	if (g_wb_scratch == NULL) return;
+	while (h > 0) {
+		int band = (h < WB_SCRATCH_ROWS) ? h : WB_SCRATCH_ROWS;
+		const UBYTE *src = g_chunky + (ULONG)y * g_pitch + x;
+		UBYTE *dst = g_wb_scratch;
+		int row, col;
+
+		for (row = 0; row < band; row++) {
+			for (col = 0; col < w; col++) dst[col] = g_lut[src[col]];
+			src += g_pitch;
+			dst += w;
+		}
+
+		if (CyberGfxBase != NULL) {
+			/* RECTFMT_LUT8 into an 8-bit destination writes the bytes as PEN
+			 * NUMBERS, unremapped - which is exactly right here, because the
+			 * remap already happened in the loop above. (WriteChunkyPixels
+			 * would say the same thing more directly, but it is a Picasso96
+			 * extension and is not in the CyberGraphX API this port targets.) */
+			WritePixelArray((APTR)g_wb_scratch, 0, 0, (UWORD)w,
+			                rp, (UWORD)dx, (UWORD)(g_win_bt + y),
+			                (UWORD)w, (UWORD)band, (UBYTE)RECTFMT_LUT8);
+		} else if (g_tempbm != NULL) {
+			/* Plain AGA Workbench. WritePixelArray8 wants a scratch RastPort
+			 * whose bitmap is at least as wide as the rectangle, and it wants
+			 * the width to be a multiple of 16 - both are guaranteed by the
+			 * caller (amigagfx_blit snaps the rectangle) and by allocating the
+			 * scratch bitmap at the full screen width. */
+			WritePixelArray8(rp, (UWORD)dx, (UWORD)(g_win_bt + y),
+			                 (UWORD)(dx + w - 1), (UWORD)(g_win_bt + y + band - 1),
+			                 (APTR)g_wb_scratch, &g_temprp);
+		}
+
+		y += band;
+		h -= band;
+	}
+}
+
+/* Everything the window backend needs once the window itself exists. Split out
+ * of amigagfx_open only because that function's tail is all screen business -
+ * bar height, mode id, backdrop window - and none of it applies here.
+ *
+ * The chunky buffer is deliberately allocated at the FULL Workbench screen
+ * size, not at the window size: a resize then costs nothing and cannot fail,
+ * which is what makes the sizing gadget safe to drag around. g_pitch holds
+ * that full width for the rest of the session. */
+static int finish_window_open(void)
+{
+	int i;
+
+	g_pitch  = g_win_maxw;
+	g_chunky = (UBYTE *)AllocVec((ULONG)g_win_maxw * g_win_maxh, MEMF_ANY | MEMF_CLEAR);
+	if (g_chunky == NULL) {
+		amigagfx_log("window mode: no memory for the chunky buffer");
+		amigagfx_close();
+		return 1;
+	}
+
+	for (i = 0; i < 256; i++) { g_pen[i] = -1; g_lut[i] = (UBYTE)i; }
+	g_pen_n = 0;
+
+	if (!g_win_direct) {
+		/* Remap band, and - only when there is no cybergraphics.library, i.e. a
+		 * plain AGA Workbench - the scratch RastPort WritePixelArray8 insists
+		 * on. Both are sized for the widest rectangle possible, so neither the
+		 * blit nor a resize ever allocates. */
+		g_wb_scratch = (UBYTE *)AllocVec((ULONG)g_win_maxw * WB_SCRATCH_ROWS, MEMF_ANY);
+		if (g_wb_scratch == NULL) {
+			amigagfx_log("window mode: no memory for the remap band");
+			amigagfx_close();
+			return 1;
+		}
+		if (CyberGfxBase == NULL) {
+			InitRastPort(&g_temprp);
+			/* Rounded to 16: WritePixelArray8 requires it of the array width,
+			 * and the scratch bitmap must cover the widest one we can pass. */
+			g_tempbm = AllocBitMap((ULONG)((g_win_maxw + 15) & ~15), 1UL,
+			                       (ULONG)g_win_depth, 0UL,
+			                       g_pubscreen->RastPort.BitMap);
+			if (g_tempbm == NULL) {
+				amigagfx_log("window mode: no scratch bitmap for WritePixelArray8");
+				amigagfx_close();
+				return 1;
+			}
+			g_temprp.BitMap = g_tempbm;
+		}
+	}
+
+	ActivateWindow(g_window);
+	fprintf(stdout, "amiga: window open on the Workbench screen,"
+	                " chunky %dx%d (pitch %d) - handing control to OpenTTD\n",
+	        g_width, g_height, g_pitch);
+	fflush(stdout);
+	return 0;
+}
+
 int amigagfx_open(int w, int h, int show_bar, int backend)
 {
 	/* SA_Quiet must be OFF when the bar is wanted, or Intuition renders no
@@ -675,18 +1174,31 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 
 	fprintf(stdout, "amiga: amigagfx_open(%d,%d) wb_bar=%d backend=%s\n",
 	        w, h, show_bar,
+	        backend == AMIGAGFX_BACKEND_WB  ? "WINDOW" :
 	        backend == AMIGAGFX_BACKEND_RTG ? "RTG" :
 	        backend == AMIGAGFX_BACKEND_EHB ? "EHB" : "AGA");
 	fflush(stdout);
 	g_width  = w;
 	g_height = h;            /* provisional; reduced below if the bar shows */
+	g_pitch  = w;
 	g_yoff   = 0;
 	g_used_fallback = 0;
 	g_backend = AMIGAGFX_BACKEND_AGA;
 	g_depth   = DEPTH_AGA;
 	g_bpr = 0;
 	g_planesize = 0;
+	g_win_mode = 0;
 	g_epoch  = raw_ticks();
+
+	/* Window mode is handled entirely on its own: there is no screen to open,
+	 * no title bar to subtract, no mode id to report and no backdrop window to
+	 * add - the window IS the display. It falls back into the screen path
+	 * below like any other backend when it cannot be had. */
+	if (backend == AMIGAGFX_BACKEND_WB) {
+		if (open_window_wb(w, h) == 0) return finish_window_open();
+		amigagfx_log("window mode unavailable - opening a screen of our own instead");
+		backend = AMIGAGFX_BACKEND_AGA;
+	}
 
 	/* Ask for what was requested; fall back to a plain 8-bitplane AGA screen
 	 * whenever that did not work out. A machine with no graphics card therefore
@@ -798,6 +1310,18 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 void amigagfx_close(void)
 {
 	input_device_close();
+	/* Pens are Intuition's, borrowed for the session, and they MUST go back
+	 * before the window that justified holding them - otherwise the Workbench
+	 * screen keeps them allocated for good and every later program sees a
+	 * palette with no free entries. Released while g_pubscreen is still valid,
+	 * i.e. before CloseWindow. */
+	wb_pens_release();
+	if (g_tempbm != NULL) { FreeBitMap(g_tempbm); g_tempbm = NULL; }
+	if (g_wb_scratch != NULL) { FreeVec(g_wb_scratch); g_wb_scratch = NULL; }
+	g_pubscreen = NULL;
+	g_win_mode = 0;
+	g_win_direct = 0;
+	g_win_bl = g_win_bt = 0;
 	if (g_window != NULL) { CloseWindow(g_window); g_window = NULL; }
 	if (g_screen != NULL) { CloseScreen(g_screen); g_screen = NULL; }
 	/* Chip RAM only ever exists on the AGA path; on RTG g_chip stays NULL and
@@ -817,7 +1341,8 @@ void amigagfx_close(void)
 }
 
 unsigned char *amigagfx_chunky(void) { return g_chunky; }
-int amigagfx_pitch(void) { return g_width; }
+int amigagfx_pitch(void) { return g_pitch; }
+int amigagfx_game_width(void) { return g_width; }
 int amigagfx_game_height(void) { return g_height; }
 
 void amigagfx_set_palette(const unsigned char *rgb, int first, int count)
@@ -825,7 +1350,7 @@ void amigagfx_set_palette(const unsigned char *rgb, int first, int count)
 	ULONG table[1 + 256 * 3 + 1];
 	int i;
 
-	if (g_screen == NULL || count <= 0) return;
+	if ((g_screen == NULL && !g_win_mode) || count <= 0) return;
 	if (first < 0) first = 0;
 	if (first + count > 256) count = 256 - first;
 
@@ -843,6 +1368,39 @@ void amigagfx_set_palette(const unsigned char *rgb, int first, int count)
 		                       (ULONG)rgb[i*3 + 2];
 	}
 	table[1 + count * 3] = 0UL;
+
+	/* WINDOW MODE STOPS HERE, and the reason is worth stating plainly: that
+	 * ViewPort belongs to WORKBENCH. Loading our palette into it would repaint
+	 * the user's whole desktop in TTD colours - icons, other programs, the lot
+	 * - which is precisely what a well-behaved window must never do. The
+	 * colour table built above is all we need: on a deep screen it is handed
+	 * to WriteLUTPixelArray per blit, and on a shallow one it feeds the pen
+	 * table instead. */
+	if (g_win_mode) {
+		if (g_win_direct) return;
+		/* A FULL 0..256 update re-negotiates the pens; anything smaller only
+		 * re-maps against the pens already held.
+		 *
+		 * "Full update" rather than "the first update" is the important part.
+		 * The first palette this driver ever sees is not the game's: startup
+		 * order is open screen -> UpdatePalette -> splash (which fades the
+		 * palette to black and back) -> restore. Negotiating on the first call
+		 * therefore spent all the pens on the splash's palette - and, worse,
+		 * on a moment when most of it was black, so nearly every colour
+		 * collapsed onto one pen and the game ran in a handful of colours ever
+		 * after. Re-obtaining on every full update means the last word belongs
+		 * to whatever palette the game actually settled on. Full updates are
+		 * rare - startup, splash, a base-set change - so the cost is not paid
+		 * during play, where only the ~28 animated entries move. */
+		if (first == 0 && count == 256) {
+			wb_pens_obtain();
+			wb_lut_rebuild(0, 256);
+		} else {
+			wb_lut_rebuild(first, count);
+		}
+		return;
+	}
+
 	LoadRGB32(&g_screen->ViewPort, table);
 }
 
@@ -1198,10 +1756,38 @@ void amigagfx_blit(int x, int y, int w, int h)
 	struct C2PArgs args;
 	int x2, y2;
 
-	if (g_screen == NULL) return;
+	if (g_screen == NULL && !g_win_mode) return;
 
 	x2 = x + w;
 	y2 = y + h;
+
+	if (g_win_mode) {
+		/* WritePixelArray8 requires the array width to be a multiple of 16, so
+		 * the rectangle is snapped outwards on that path and on that path only
+		 * - CGX has no such rule and must not pay for one. */
+		if (!g_win_direct && CyberGfxBase == NULL) {
+			x  &= ~15;
+			x2  = (x2 + 15) & ~15;
+		}
+		if (x < 0) x = 0;
+		if (y < 0) y = 0;
+		if (x2 > g_width)  x2 = g_width;
+		if (y2 > g_height) y2 = g_height;
+		if (x2 <= x || y2 <= y) return;
+
+		wb_blit(x, y, x2 - x, y2 - y);
+
+		g_blits++;
+		if (g_blits == 1 || (g_verbose && (g_blits % 200) == 0)) {
+			fprintf(stdout, "amiga: window blit #%lu  %dx%d at %d,%d  %s\n",
+			        g_blits, x2 - x, y2 - y, x, y,
+			        g_win_direct ? "WriteLUTPixelArray" :
+			        (CyberGfxBase != NULL ? "pens+WritePixelArray(LUT8)"
+			                              : "pens+WritePixelArray8"));
+			fflush(stdout);
+		}
+		return;
+	}
 
 	/* The 32-pixel column granularity below is a property of the two c2p
 	 * routines and of nothing else, so RTG must not pay for it: an RTG rectangle
@@ -1303,14 +1889,50 @@ int amigagfx_poll(AmigaGfxEvent *ev)
 		WORD  my   = msg->MouseY;
 		ReplyMsg((struct Message *)msg);
 
-		ev->x = mx;
-		ev->y = my;
+		/* IDCMP mouse coordinates are relative to the window's OUTER left/top.
+		 * On a custom screen the backdrop window is borderless and the two are
+		 * the same; a Workbench window has a title bar and frame, so the
+		 * border has to come off or every click lands high and left. */
+		ev->x = mx - g_win_bl;
+		ev->y = my - g_win_bt;
 		ev->code = 0;
 
 		switch (cls) {
 		case IDCMP_MOUSEMOVE:
 			ev->type = AMIGAGFX_EV_MOUSEMOVE;
 			break;
+		case IDCMP_CLOSEWINDOW:
+			/* Window mode only - a custom screen has no close gadget. Treated
+			 * as a quit request, which OpenTTD turns into its normal "really
+			 * quit?" flow rather than an immediate exit. */
+			ev->type = AMIGAGFX_EV_QUIT;
+			break;
+		case IDCMP_NEWSIZE: {
+			/* Apply the new size HERE, on the C side, because everything that
+			 * has to change is C-side state: the window's inner area, and the
+			 * width/height the blit clips against. Nothing is reallocated -
+			 * the chunky buffer was sized for the whole Workbench screen when
+			 * the window opened, precisely so that this cannot fail. */
+			int nw, nh;
+			wb_inner_size(&nw, &nh);
+			g_win_bl = (int)g_window->BorderLeft;
+			g_win_bt = (int)g_window->BorderTop;
+			if (nw > g_win_maxw) nw = g_win_maxw;
+			if (nh > g_win_maxh) nh = g_win_maxh;
+			if (nw == g_width && nh == g_height) break;   /* a move, not a resize */
+			g_width  = nw;
+			g_height = nh;
+			ev->type = AMIGAGFX_EV_RESIZE;
+			ev->x = nw;
+			ev->y = nh;
+			/* Logged unconditionally, unlike the per-frame chatter: a resize is
+			 * a rare, user-driven event, and it is the one thing about window
+			 * mode that cannot be checked from a screenshot after the fact. */
+			fprintf(stdout, "amiga: window resized to %dx%d (pitch stays %d)\n",
+			        nw, nh, g_pitch);
+			fflush(stdout);
+			break;
+		}
 		case IDCMP_MOUSEBUTTONS:
 			switch (code) {
 			case SELECTDOWN: ev->type = AMIGAGFX_EV_MOUSEDOWN; ev->code = AMIGAGFX_BUTTON_LEFT;  break;

@@ -30,6 +30,11 @@ extern "C" {
 #define AMIGAGFX_EV_MOUSEUP   3
 #define AMIGAGFX_EV_KEY       4
 #define AMIGAGFX_EV_QUIT      5
+/* Window mode only: the player dragged the sizing gadget. ev.x/ev.y carry the
+ * NEW game area in pixels, already applied on this side - the caller must
+ * re-read amigagfx_chunky()/pitch()/game_width()/game_height() and tell
+ * OpenTTD, then redraw everything. */
+#define AMIGAGFX_EV_RESIZE    6
 
 /* Button ids for MOUSEDOWN / MOUSEUP. */
 #define AMIGAGFX_BUTTON_LEFT  0
@@ -56,10 +61,17 @@ typedef struct {
  *         contiguity note on amigagfx_blit.
  *   RTG - 8-bit CyberGraphX/Picasso96 screen. The chunky buffer IS the display
  *         format there, so the c2p disappears entirely and a blit becomes a
- *         per-row memcpy into the card's bitmap. No Chip RAM is used at all. */
+ *         per-row memcpy into the card's bitmap. No Chip RAM is used at all.
+ *   WB  - NOT a screen at all: a normal, resizable, draggable Intuition WINDOW
+ *         on the Workbench (default public) screen, sharing that screen's
+ *         palette instead of owning one. The only backend where the game does
+ *         not control the display mode, and therefore the only one that has to
+ *         negotiate for colours - see amigagfx_wb_colours(). Also the only one
+ *         whose size can change while it is open (AMIGAGFX_EV_RESIZE). */
 #define AMIGAGFX_BACKEND_AGA 0
 #define AMIGAGFX_BACKEND_RTG 1
 #define AMIGAGFX_BACKEND_EHB 2
+#define AMIGAGFX_BACKEND_WB  3
 
 /* Is an 8-bit RTG mode of at least w x h available on this machine? Returns 0
  * when cybergraphics.library is missing (a plain AGA Amiga), when the library
@@ -100,12 +112,45 @@ int amigagfx_backend(void);
  * game area is then w x amigagfx_game_height(), which is h minus the bar
  * height Intuition reports for the opened screen - it depends on the font
  * and the mode, so it is never hard-coded. With show_bar 0 the game area is
- * the full w x h, as before. */
+ * the full w x h, as before.
+ *
+ * backend AMIGAGFX_BACKEND_WB opens a resizable window on the Workbench screen
+ * instead of a screen of our own, and w x h is then the INNER size asked for -
+ * clamped to what the Workbench screen can hold. show_bar is meaningless there
+ * (the window has its own title bar) and is ignored. It falls back to AGA like
+ * the others, and the most likely reason it has to is that there is no public
+ * screen at all: a game started from User-Startup runs BEFORE LoadWB, so there
+ * is no Workbench to put a window on. The caller is expected to notice the
+ * fallback (amigagfx_backend()) and repair its own setting, so a machine that
+ * cannot do window mode does not start into it again next time. */
 int amigagfx_open(int w, int h, int show_bar, int backend);
 
-/* Height in pixels of the drawable game area of the currently open screen:
- * the opened height minus the system title bar when that is visible. This is
- * what _screen.height must be set to. */
+/* Could a window be opened on a public screen right now? Non-zero if there is
+ * one. Safe before amigagfx_open() and does not disturb anything: it locks the
+ * default public screen, notes that it exists and unlocks it again. Used to
+ * offer (or refuse) window mode without having to fail an open first. */
+int amigagfx_wb_available(void);
+
+/* How many of our 256 colours the display can actually show, and how they were
+ * obtained. Meaningful only in window mode - the other backends own their
+ * palette and always answer 256/AMIGAGFX_WBCOL_OWN. For the log and for the
+ * settings GUI, so a washed-out picture has a visible explanation rather than
+ * looking like a palette bug. */
+#define AMIGAGFX_WBCOL_OWN    0  /* our own screen: all 256, exact          */
+#define AMIGAGFX_WBCOL_DIRECT 1  /* >8bpp Workbench: all 256, exact, no
+                                  * negotiation needed - the colour table is
+                                  * handed to the graphics card per blit      */
+#define AMIGAGFX_WBCOL_PENS   2  /* <=8bpp Workbench: pens negotiated with
+                                  * Intuition, the rest approximated          */
+int amigagfx_wb_colours(int *granted);
+
+/* Width and height in pixels of the drawable game area. Height is the opened
+ * height minus the system title bar when that is visible; in window mode both
+ * are the window's inner size and BOTH CAN CHANGE while the game runs (see
+ * AMIGAGFX_EV_RESIZE). These are what _screen.width/height must be set to -
+ * and they are NOT the pitch, which in window mode stays fixed at the largest
+ * size the window could ever take. */
+int amigagfx_game_width(void);
 int amigagfx_game_height(void);
 
 void amigagfx_close(void);
@@ -114,7 +159,11 @@ void amigagfx_close(void);
  * OpenTTD's blitter draws straight into it with no conversion. */
 unsigned char *amigagfx_chunky(void);
 
-/* Bytes per row of the chunky buffer (equals the width). */
+/* Bytes per row of the chunky buffer. Equals the width on every backend that
+ * owns its screen. In WINDOW mode it does NOT: the buffer is allocated once at
+ * the full Workbench screen size and the window is a sub-rectangle of it, so
+ * resizing never reallocates and never fails for want of memory. Always read
+ * this rather than assuming it matches the width. */
 int amigagfx_pitch(void);
 
 /* rgb points at count*3 bytes. */

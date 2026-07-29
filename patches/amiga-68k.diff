@@ -2917,7 +2917,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  #endif /* NETWORK_UDP_H */
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/newgrf.cpp b/newgrf.cpp
 --- a/newgrf.cpp	2010-11-14 10:31:31.000000000 +0100
-+++ b/newgrf.cpp	2026-07-29 14:18:48.566517900 +0200
++++ b/newgrf.cpp	2026-07-29 15:21:21.334397900 +0200
 @@ -69,6 +69,12 @@
  static GRFFile *_cur_grffile;
  static SpriteID _cur_spriteid;
@@ -2931,7 +2931,202 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  static uint32 _nfo_line;
  
  static GRFConfig *_cur_grfconfig;
-@@ -3002,7 +3008,7 @@
+@@ -540,7 +546,24 @@
+ 					case 0: _gted[e->index].railtypelabel = rvi->engclass >= 2 ? RAILTYPE_ELECTRIC_LABEL : RAILTYPE_RAIL_LABEL; break;
+ 					case 1: _gted[e->index].railtypelabel = RAILTYPE_MONO_LABEL; break;
+ 					case 2: _gted[e->index].railtypelabel = RAILTYPE_MAGLEV_LABEL; break;
+-					default:
++					case 0x2C:   // CTT refit include list
++			case 0x2D: { // CTT refit exclude list
++				/* Cargo translation refit lists. This build has no cargo
++				 * translation table, so the list is consumed and dropped: the
++				 * vehicle keeps its default refit mask instead of the GRF's
++				 * refined one. Losing a refinement beats refusing the set. */
++				uint8 count = buf->ReadByte();
++				while (count--) buf->ReadByte();
++				break;
++			}
++
++			case 0x2B: // Custom cargo ageing period
++				/* A WORD, not a byte. This build ages cargo on a fixed
++				 * schedule, so the value is consumed and dropped. */
++				buf->ReadWord();
++				break;
++
++			default:
+ 						grfmsg(1, "RailVehicleChangeInfo: Invalid track type %d specified, ignoring", tracktype);
+ 						break;
+ 				}
+@@ -875,6 +898,42 @@
+ 				AlterVehicleListOrder(e->index, buf->ReadExtended());
+ 				break;
+ 
++			case 0x21: // Visual effect
++				/* Only RailVehicleInfo carries visual_effect in this build;
++				 * for the others the byte is consumed and dropped. */
++				buf->ReadByte();
++				break;
++
++			case 0x24:   // CTT refit include list
++			case 0x25: { // CTT refit exclude list
++				/* Cargo translation refit lists. This build has no cargo
++				 * translation table, so the list is consumed and dropped: the
++				 * vehicle keeps its default refit mask instead of the GRF's
++				 * refined one. Losing a refinement beats refusing the set. */
++				uint8 count = buf->ReadByte();
++				while (count--) buf->ReadByte();
++				break;
++			}
++
++			case 0x05: // Road/tram type
++				/* NewGRF road and tram TYPES are a later feature. This build
++				 * still decides tram-ness from the EF_ROAD_TRAM bit of the
++				 * misc flags (property 0x17), which sets are expected to keep
++				 * setting, so the byte is consumed and dropped. */
++				buf->ReadByte();
++				break;
++
++			case 0x22: // Custom cargo ageing period
++				/* A WORD, not a byte. This build ages cargo on a fixed
++				 * schedule, so the value is consumed and dropped. */
++				buf->ReadWord();
++				break;
++
++			case 0x23: // Shorter vehicle
++				/* Road vehicles have no length in this build. */
++				buf->ReadByte();
++				break;
++
+ 			default:
+ 				ret = CommonVehicleChangeInfo(ei, prop, buf);
+ 				break;
+@@ -989,6 +1048,29 @@
+ 				AlterVehicleListOrder(e->index, buf->ReadExtended());
+ 				break;
+ 
++			case 0x1C: // Visual effect
++				/* Only RailVehicleInfo carries visual_effect in this build;
++				 * for the others the byte is consumed and dropped. */
++				buf->ReadByte();
++				break;
++
++			case 0x1E:   // CTT refit include list
++			case 0x1F: { // CTT refit exclude list
++				/* Cargo translation refit lists. This build has no cargo
++				 * translation table, so the list is consumed and dropped: the
++				 * vehicle keeps its default refit mask instead of the GRF's
++				 * refined one. Losing a refinement beats refusing the set. */
++				uint8 count = buf->ReadByte();
++				while (count--) buf->ReadByte();
++				break;
++			}
++
++			case 0x1D: // Custom cargo ageing period
++				/* A WORD, not a byte. This build ages cargo on a fixed
++				 * schedule, so the value is consumed and dropped. */
++				buf->ReadWord();
++				break;
++
+ 			default:
+ 				ret = CommonVehicleChangeInfo(ei, prop, buf);
+ 				break;
+@@ -1099,6 +1181,28 @@
+ 				AlterVehicleListOrder(e->index, buf->ReadExtended());
+ 				break;
+ 
++			case 0x1D:   // CTT refit include list
++			case 0x1E: { // CTT refit exclude list
++				/* Cargo translation refit lists. This build has no cargo
++				 * translation table, so the list is consumed and dropped: the
++				 * vehicle keeps its default refit mask instead of the GRF's
++				 * refined one. Losing a refinement beats refusing the set. */
++				uint8 count = buf->ReadByte();
++				while (count--) buf->ReadByte();
++				break;
++			}
++
++			case 0x1C: // Custom cargo ageing period
++				/* A WORD, not a byte. This build ages cargo on a fixed
++				 * schedule, so the value is consumed and dropped. */
++				buf->ReadWord();
++				break;
++
++			case 0x1F: // Aircraft range
++				/* No aircraft range limit in this build. */
++				buf->ReadWord();
++				break;
++
+ 			default:
+ 				ret = CommonVehicleChangeInfo(ei, prop, buf);
+ 				break;
+@@ -1862,6 +1966,24 @@
+ 				buf->Skip(4);
+ 				break;
+ 
++			case 0x13:   // Gender translation table
++			case 0x14:   // Case translation table
++			case 0x15: { // Plural form translation
++				/* NewGRF language tables, added after this base version. The
++				 * data is stepped over exactly as specified - a byte for the
++				 * plural form, a NUL-terminated list of id/string pairs for
++				 * the other two - and ignored. The GRF loses translated
++				 * genders and cases, nothing else. */
++				if (prop == 0x15) {
++					buf->ReadByte();
++				} else {
++					while (buf->ReadByte() != 0) {
++						buf->ReadString();
++					}
++				}
++				break;
++			}
++
+ 			default:
+ 				ret = CIR_UNKNOWN;
+ 				break;
+@@ -1938,6 +2060,24 @@
+ 				break;
+ 			}
+ 
++			case 0x13:   // Gender translation table
++			case 0x14:   // Case translation table
++			case 0x15: { // Plural form translation
++				/* NewGRF language tables, added after this base version. The
++				 * data is stepped over exactly as specified - a byte for the
++				 * plural form, a NUL-terminated list of id/string pairs for
++				 * the other two - and ignored. The GRF loses translated
++				 * genders and cases, nothing else. */
++				if (prop == 0x15) {
++					buf->ReadByte();
++				} else {
++					while (buf->ReadByte() != 0) {
++						buf->ReadString();
++					}
++				}
++				break;
++			}
++
+ 			default:
+ 				ret = CIR_UNKNOWN;
+ 				break;
+@@ -2048,7 +2188,15 @@
+ 					case 0x05: cs->town_effect = TE_GOODS; break;
+ 					case 0x09: cs->town_effect = TE_WATER; break;
+ 					case 0x0B: cs->town_effect = TE_FOOD; break;
+-					default:
++					case 0x1B: // Cargo classes for capacity/weight/speed
++			case 0x1C: // Cargo classes for graphics
++			case 0x1D: // Cargo classes for name
++				/* Later cargo refinements; each is a WORD. Consumed and
++				 * dropped - the cargo keeps its base behaviour. */
++				buf->ReadWord();
++				break;
++
++			default:
+ 						grfmsg(1, "CargoChangeInfo: Unknown town growth substitute value %d, setting to none.", substitute_type);
+ 					case 0xFF: cs->town_effect = TE_NONE; break;
+ 				}
+@@ -3002,7 +3150,7 @@
  
  	for (int i = 0; i < num_sets * num_ents; i++) {
  		_nfo_line++;
@@ -2940,7 +3135,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	}
  }
  
-@@ -4019,16 +4025,16 @@
+@@ -4019,16 +4167,16 @@
  		/* Special not-TTDP-compatible case used in openttd(d/w).grf
  		 * Missing shore sprites and initialisation of SPR_SHORE_BASE */
  		grfmsg(2, "GraphicsNew: Loading 10 missing shore sprites from openttd(d/w).grf.");
@@ -2967,7 +3162,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		if (_loaded_newgrf_features.shore == SHORE_REPLACE_NONE) _loaded_newgrf_features.shore = SHORE_REPLACE_ONLY_NEW;
  		return;
  	}
-@@ -4065,7 +4071,7 @@
+@@ -4065,7 +4213,7 @@
  
  	for (; num > 0; num--) {
  		_nfo_line++;
@@ -2976,7 +3171,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	}
  
  	if (type == 0x0D) _loaded_newgrf_features.shore = SHORE_REPLACE_ACTION_5;
-@@ -4651,7 +4657,7 @@
+@@ -4651,7 +4799,7 @@
  		for (uint j = 0; j < num_sprites; j++) {
  			int load_index = first_sprite + j;
  			_nfo_line++;
@@ -2985,7 +3180,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  			/* Shore sprites now located at different addresses.
  			 * So detect when the old ones get replaced. */
-@@ -5568,7 +5574,7 @@
+@@ -5568,7 +5716,7 @@
  		for (uint c = 0; c < num_char; c++) {
  			SetUnicodeGlyph(size, base_char + c, _cur_spriteid);
  			_nfo_line++;
@@ -2994,7 +3189,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		}
  	}
  }
-@@ -6464,10 +6470,40 @@
+@@ -6464,10 +6612,40 @@
  }
  
  
@@ -3036,7 +3231,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  	/* A .grf file is activated only if it was active when the game was
  	 * started.  If a game is loaded, only its active .grfs will be
-@@ -6501,10 +6537,37 @@
+@@ -6501,10 +6679,37 @@
  
  	DEBUG(grf, 2, "LoadNewGRFFile: Reading NewGRF-file '%s'", filename);
  
@@ -3075,7 +3270,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		FioReadDword();
  	} else {
  		DEBUG(grf, 7, "LoadNewGRFFile: Custom .grf has invalid format");
-@@ -6516,7 +6579,7 @@
+@@ -6516,7 +6721,7 @@
  
  	ReusableBuffer<byte> buf;
  
@@ -3084,7 +3279,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		byte type = FioReadByte();
  		_nfo_line++;
  
-@@ -6532,7 +6595,7 @@
+@@ -6532,7 +6737,7 @@
  				FioSkipBytes(num);
  			}
  		} else {
@@ -3093,7 +3288,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  				grfmsg(0, "LoadNewGRFFile: Unexpected sprite, disabling");
  				config->status = GCS_DISABLED;
  				delete config->error;
-@@ -6540,8 +6603,14 @@
+@@ -6540,8 +6745,14 @@
  				break;
  			}
  

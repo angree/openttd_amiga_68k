@@ -53,7 +53,6 @@ configuration, and even then generate a small map.
 
 ## What does not
 
-- **No networking** in this build.
 - Memory use is high: ~24 MB total required. The OCS modes cut colours, not
   sprite size, so they do not yet lower it — half-size graphics are the next step.
 

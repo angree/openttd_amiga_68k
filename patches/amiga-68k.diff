@@ -108,6 +108,54 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  		CompanyID old_company = _current_company;
  		_current_company = company;
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/articulated_vehicles.cpp b/articulated_vehicles.cpp
+--- a/articulated_vehicles.cpp	2010-02-14 17:31:35.000000000 +0100
++++ b/articulated_vehicles.cpp	2026-07-29 16:19:13.002737600 +0200
+@@ -34,6 +34,24 @@
+ {
+ 	assert(front == NULL || front->engine_type == front_type);
+ 
++	/* AMIGA PORT: road vehicles are never articulated.
++	 *
++	 * Modern sets build multi-car trams from articulated parts ("up to 3
++	 * units"). Counting them worked here but building them did not, so the
++	 * purchase list advertised three cars and three cars' worth of capacity
++	 * and the depot produced one - and the drawn consist ran over the names on
++	 * a narrow screen. A half-working feature is worse than none, so road
++	 * vehicles are single-car and the list shows the lead unit's own capacity,
++	 * which is the per-car figure the set author wrote.
++	 *
++	 * The guard sits HERE, in the one function every path goes through -
++	 * counting, capacity, drawing and building alike. An earlier attempt put it
++	 * in CountArticulatedParts and AddArticulatedParts instead, which are only
++	 * two of those paths, so the purchase list carried on exactly as before.
++	 *
++	 * Trains keep their articulation; theirs works. */
++	if (Engine::Get(front_type)->type == VEH_ROAD) return INVALID_ENGINE;
++
+ 	uint16 callback = GetVehicleCallback(CBID_VEHICLE_ARTIC_ENGINE, index, 0, front_type, front);
+ 	if (callback == CALLBACK_FAILED || GB(callback, 0, 8) == 0xFF) return INVALID_ENGINE;
+ 
+@@ -41,6 +59,19 @@
+ 	return GetNewEngineID(GetEngineGRF(front_type), Engine::Get(front_type)->type, GB(callback, 0, 7));
+ }
+ 
++/* AMIGA PORT: articulated ROAD vehicles are disabled.
++ *
++ * Modern sets build their multi-car trams out of articulated parts ("up to 3
++ * units"). This build counts them for the purchase list but does not end up
++ * building them, so the player is shown a three-car tram with the capacity of
++ * three cars and gets one car for the money - and the drawn consist overflows
++ * the purchase list on a narrow screen.
++ *
++ * Rather than ship a half-working feature, road vehicles are single-car here.
++ * The purchase list then shows the lead unit's own capacity, which is the
++ * per-car figure, and what is bought is what was shown. Trains are untouched:
++ * their articulation works.
++ */
+ uint CountArticulatedParts(EngineID engine_type, bool purchase_window)
+ {
+ 	if (!HasBit(EngInfo(engine_type)->callback_mask, CBM_VEHICLE_ARTIC_ENGINE)) return 0;
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/base_media_base.h b/base_media_base.h
 --- a/base_media_base.h	2010-08-24 02:03:26.000000000 +0200
 +++ b/base_media_base.h	2026-07-24 15:12:25.552124900 +0200
@@ -2917,7 +2965,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  #endif /* NETWORK_UDP_H */
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/newgrf.cpp b/newgrf.cpp
 --- a/newgrf.cpp	2010-11-14 10:31:31.000000000 +0100
-+++ b/newgrf.cpp	2026-07-29 15:21:21.334397900 +0200
++++ b/newgrf.cpp	2026-07-29 15:30:46.353738800 +0200
 @@ -69,6 +69,12 @@
  static GRFFile *_cur_grffile;
  static SpriteID _cur_spriteid;
@@ -3135,7 +3183,58 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	}
  }
  
-@@ -4019,16 +4167,16 @@
+@@ -3804,6 +3952,27 @@
+ }
+ 
+ /* Action 0x04 */
++/**
++ * Cut the parenthetical note off a vehicle name from a NewGRF.
++ *
++ * Modern sets append an explanation to the name - "Konstal 105N (high
++ * capacity, up to 3 units)", "Tram Sanok SN2 (with optional PN2 trailer)".
++ * On a 320- or 544-pixel wide purchase list that neither fits nor reads, and
++ * it does not match the house style of the built-in names, which are bare.
++ * Everything from the first " (" is dropped; a name without one is untouched.
++ */
++static const char *ShortenVehicleName(const char *name, char *buf, size_t len)
++{
++	const char *paren = strstr(name, " (");
++	if (paren == NULL) return name;
++
++	size_t n = (size_t)(paren - name);
++	if (n >= len) n = len - 1;
++	memcpy(buf, name, n);
++	buf[n] = ' ';
++	return buf;
++}
++
+ static void FeatureNewName(ByteReader *buf)
+ {
+ 	/* <04> <veh-type> <language-id> <num-veh> <offset> <data...>
+@@ -3852,16 +4021,19 @@
+ 			case GSF_TRAIN:
+ 			case GSF_ROAD:
+ 			case GSF_SHIP:
+-			case GSF_AIRCRAFT:
++			case GSF_AIRCRAFT: {
++				char shortbuf[64];
++				const char *vname = ShortenVehicleName(name, shortbuf, sizeof(shortbuf));
+ 				if (!generic) {
+ 					Engine *e = GetNewEngine(_cur_grffile, (VehicleType)feature, id, HasBit(_cur_grfconfig->flags, GCF_STATIC));
+ 					if (e == NULL) break;
+-					StringID string = AddGRFString(_cur_grffile->grfid, e->index, lang, new_scheme, name, e->info.string_id);
++					StringID string = AddGRFString(_cur_grffile->grfid, e->index, lang, new_scheme, vname, e->info.string_id);
+ 					e->info.string_id = string;
+ 				} else {
+-					AddGRFString(_cur_grffile->grfid, id, lang, new_scheme, name, STR_UNDEFINED);
++					AddGRFString(_cur_grffile->grfid, id, lang, new_scheme, vname, STR_UNDEFINED);
+ 				}
+ 				break;
++			}
+ 
+ 			case GSF_INDUSTRIES: {
+ 				AddGRFString(_cur_grffile->grfid, id, lang, new_scheme, name, STR_UNDEFINED);
+@@ -4019,16 +4191,16 @@
  		/* Special not-TTDP-compatible case used in openttd(d/w).grf
  		 * Missing shore sprites and initialisation of SPR_SHORE_BASE */
  		grfmsg(2, "GraphicsNew: Loading 10 missing shore sprites from openttd(d/w).grf.");
@@ -3162,7 +3261,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		if (_loaded_newgrf_features.shore == SHORE_REPLACE_NONE) _loaded_newgrf_features.shore = SHORE_REPLACE_ONLY_NEW;
  		return;
  	}
-@@ -4065,7 +4213,7 @@
+@@ -4065,7 +4237,7 @@
  
  	for (; num > 0; num--) {
  		_nfo_line++;
@@ -3171,7 +3270,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	}
  
  	if (type == 0x0D) _loaded_newgrf_features.shore = SHORE_REPLACE_ACTION_5;
-@@ -4651,7 +4799,7 @@
+@@ -4651,7 +4823,7 @@
  		for (uint j = 0; j < num_sprites; j++) {
  			int load_index = first_sprite + j;
  			_nfo_line++;
@@ -3180,7 +3279,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  			/* Shore sprites now located at different addresses.
  			 * So detect when the old ones get replaced. */
-@@ -5568,7 +5716,7 @@
+@@ -5568,7 +5740,7 @@
  		for (uint c = 0; c < num_char; c++) {
  			SetUnicodeGlyph(size, base_char + c, _cur_spriteid);
  			_nfo_line++;
@@ -3189,7 +3288,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		}
  	}
  }
-@@ -6464,10 +6612,40 @@
+@@ -6464,10 +6636,40 @@
  }
  
  
@@ -3231,7 +3330,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  	/* A .grf file is activated only if it was active when the game was
  	 * started.  If a game is loaded, only its active .grfs will be
-@@ -6501,10 +6679,37 @@
+@@ -6501,10 +6703,37 @@
  
  	DEBUG(grf, 2, "LoadNewGRFFile: Reading NewGRF-file '%s'", filename);
  
@@ -3270,7 +3369,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		FioReadDword();
  	} else {
  		DEBUG(grf, 7, "LoadNewGRFFile: Custom .grf has invalid format");
-@@ -6516,7 +6721,7 @@
+@@ -6516,7 +6745,7 @@
  
  	ReusableBuffer<byte> buf;
  
@@ -3279,7 +3378,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		byte type = FioReadByte();
  		_nfo_line++;
  
-@@ -6532,7 +6737,7 @@
+@@ -6532,7 +6761,7 @@
  				FioSkipBytes(num);
  			}
  		} else {
@@ -3288,7 +3387,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  				grfmsg(0, "LoadNewGRFFile: Unexpected sprite, disabling");
  				config->status = GCS_DISABLED;
  				delete config->error;
-@@ -6540,8 +6745,14 @@
+@@ -6540,8 +6769,14 @@
  				break;
  			}
  
@@ -3701,6 +3800,42 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  /**
   * The text version of OpenTTD's build date.
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/roadveh_cmd.cpp b/roadveh_cmd.cpp
+--- a/roadveh_cmd.cpp	2010-07-08 21:52:28.000000000 +0200
++++ b/roadveh_cmd.cpp	2026-07-29 15:29:15.928729300 +0200
+@@ -969,15 +969,24 @@
+ 	}
+ 
+ 	if (v->reverse_ctr != 0) {
++		/* AMIGA PORT: a tram ALWAYS honours an explicit "turn around" order.
++		 *
++		 * Stock OpenTTD (still, as of 1.10) lets a tram reverse only on a tile
++		 * carrying the straight trackbits for its axis, or on a single-roadbit
++		 * dead end. The reasoning is geometric: those are the cases the turning
++		 * animation is drawn for. The consequence is that a tram which runs
++		 * into an unfinished curve cannot be recovered - the player's turn
++		 * order is silently refused, and if the tile beyond cannot be
++		 * demolished the vehicle is stuck for the rest of the game.
++		 *
++		 * A momentarily awkward turn is a far smaller price than a permanently
++		 * dead vehicle, so the geometric test is gone. The reversal itself is
++		 * safe: return_track below sends the tram back down the connection it
++		 * has just driven along, which by definition exists.
++		 *
++		 * This only affects the player's manual order. Automatic reversal at
++		 * dead ends is handled above, unchanged. */
+ 		bool reverse = true;
+-		if (v->roadtype == ROADTYPE_TRAM) {
+-			/* Trams may only reverse on a tile if it contains at least the straight
+-			 * trackbits or when it is a valid turning tile (i.e. one roadbit) */
+-			RoadBits rb = GetAnyRoadBits(tile, ROADTYPE_TRAM);
+-			RoadBits straight = AxisToRoadBits(DiagDirToAxis(enterdir));
+-			reverse = ((rb & straight) == straight) ||
+-			          (rb == DiagDirToRoadBits(enterdir));
+-		}
+ 		if (reverse) {
+ 			v->reverse_ctr = 0;
+ 			if (v->tile != tile) {
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/saveload/afterload.cpp b/saveload/afterload.cpp
 --- a/saveload/afterload.cpp	2010-10-02 16:51:33.000000000 +0200
 +++ b/saveload/afterload.cpp	2026-07-23 20:51:24.726096400 +0200

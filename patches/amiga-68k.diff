@@ -681,8 +681,18 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	char *comment = NULL;
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/intro_gui.cpp b/intro_gui.cpp
 --- a/intro_gui.cpp	2010-02-10 21:20:18.000000000 +0100
-+++ b/intro_gui.cpp	2026-07-22 23:01:50.868640100 +0200
-@@ -61,6 +61,15 @@
++++ b/intro_gui.cpp	2026-07-29 05:44:35.779834200 +0200
+@@ -26,6 +26,9 @@
+ #include "ai/ai_gui.hpp"
+ #include "gfx_func.h"
+ #include "core/geometry_func.hpp"
++#ifdef __AMIGA__
++#include "settings_type.h" /* _settings_client.amiga.newgrf - see the constructor */
++#endif
+ 
+ #include "table/strings.h"
+ #include "table/sprites.h"
+@@ -61,8 +64,24 @@
  	SelectGameWindow(const WindowDesc *desc) : Window()
  	{
  		this->InitNested(desc);
@@ -697,7 +707,16 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +		}
  		this->LowerWidget(_settings_newgame.game_creation.landscape + SGI_TEMPERATE_LANDSCAPE);
  		this->SetLandscapeButtons();
++#ifdef __AMIGA__
++		/* With NewGRF switched off nothing was scanned and nothing will be
++		 * loaded, so the button would open a list that is empty and a set of
++		 * choices that could never take effect. Greying it out says that
++		 * honestly; the switch itself lives in Advanced Settings -> Amiga. */
++		this->SetWidgetDisabledState(SGI_GRF_SETTINGS, !_settings_client.amiga.newgrf);
++#endif
  	}
+ 
+ 	void SetLandscapeButtons()
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/landscape.cpp b/landscape.cpp
 --- a/landscape.cpp	2010-05-18 23:44:47.000000000 +0200
 +++ b/landscape.cpp	2026-07-20 01:36:10.996950900 +0200
@@ -726,11 +745,12 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  }
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/lang/english.txt b/lang/english.txt
 --- a/lang/english.txt	2010-11-14 10:31:31.000000000 +0100
-+++ b/lang/english.txt	2026-07-28 17:30:44.362833500 +0200
-@@ -1297,7 +1297,18 @@
++++ b/lang/english.txt	2026-07-29 05:45:12.977313300 +0200
+@@ -1297,7 +1297,20 @@
  STR_CONFIG_SETTING_LARGER_TOWNS_DISABLED                        :{LTBLUE}Proportion of towns that will become cities: {ORANGE}None
  STR_CONFIG_SETTING_CITY_SIZE_MULTIPLIER                         :{LTBLUE}Initial city size multiplier: {ORANGE}{STRING1}
  STR_CONFIG_SETTING_MODIFIED_ROAD_REBUILD                        :{LTBLUE}Remove absurd road-elements during the road construction: {ORANGE}{STRING1}
++STR_CONFIG_SETTING_AMIGA_NEWGRF                                  :{LTBLUE}NewGRF support (off saves memory; needs a restart): {ORANGE}{STRING1}
 +STR_CONFIG_SETTING_AMIGA_FULLSCREEN                              :{LTBLUE}Fullscreen (own screen; off = resizable window on Workbench): {ORANGE}{STRING1}
 +STR_CONFIG_SETTING_AMIGA_WB_BAR                                 :{LTBLUE}Workbench bar visible (allows flip to Workbench, costs game area): {ORANGE}{STRING1}
 +STR_CONFIG_SETTING_AMIGA_HIDE_GAME_POINTER                      :{LTBLUE}Hide game pointer (keeps only the system Intuition pointer): {ORANGE}{STRING1}
@@ -740,6 +760,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +STR_CONFIG_SETTING_AMIGA_FRAMESKIP_1                            :Skip 1 frame
 +STR_CONFIG_SETTING_AMIGA_FRAMESKIP_2                            :Skip 2 frames
 +STR_CONFIG_SETTING_AMIGA_FRAMESKIP_3                            :Skip 3 frames
++STR_AMIGA_RESTART_FOR_NEWGRF                                    :{WHITE}NewGRF setting saved. Quit and start OpenTTD again for it to take effect - NewGRFs are read once, when the game starts.
 +STR_AMIGA_RESTART_FOR_MODE                                      :{WHITE}Screen mode saved. Quit and start OpenTTD again to use it - the graphics are prepared once, when the game starts.
  
 +STR_CONFIG_SETTING_AMIGA                                        :{ORANGE}Amiga
@@ -2853,7 +2874,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	}
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/openttd.cpp b/openttd.cpp
 --- a/openttd.cpp	2010-08-30 18:52:37.000000000 +0200
-+++ b/openttd.cpp	2026-07-22 10:19:50.896148100 +0200
++++ b/openttd.cpp	2026-07-29 05:44:07.725215700 +0200
 @@ -42,6 +42,7 @@
  #include "network/network_func.h"
  #include "signs_base.h"
@@ -2912,17 +2933,23 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  #if defined(UNIX) && !defined(__MORPHOS__)
  	/* We must fork here, or we'll end up without some resources we need (like sockets) */
-@@ -708,7 +719,9 @@
+@@ -708,7 +719,15 @@
  	}
  #endif /* ENABLE_NETWORK */
  
 +	AmigaMemProbe("main:pre-ScanNewGRF");
++#ifdef __AMIGA__
++	/* The scan opens and parses the header of every .grf it can find, base set
++	 * included, and keeps a descriptor for each. Skipping it is most of what
++	 * turning NewGRF off actually buys. */
++	if (_settings_client.amiga.newgrf)
++#endif
  	ScanNewGRFFiles();
 +	AmigaMemProbe("main:post-ScanNewGRF");
  
  	ResetGRFConfig(false);
  
-@@ -725,8 +738,10 @@
+@@ -725,8 +744,10 @@
  	_genworld_paint_mutex->BeginCritical();
  	_genworld_mapgen_mutex->BeginCritical();
  
@@ -2933,7 +2960,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  	CheckForMissingGlyphsInLoadedLanguagePack();
  
-@@ -757,6 +772,7 @@
+@@ -757,6 +778,7 @@
  	}
  #endif /* ENABLE_NETWORK */
  
@@ -2941,7 +2968,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	_video_driver->MainLoop();
  
  	WaitTillSaved();
-@@ -1265,6 +1281,7 @@
+@@ -1265,6 +1287,7 @@
  		ClearStorageChanges(true);
  
  		AI::GameLoop();
@@ -3380,7 +3407,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		return SL_OK;
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/settings.cpp b/settings.cpp
 --- a/settings.cpp	2010-11-14 10:27:20.000000000 +0100
-+++ b/settings.cpp	2026-07-28 17:30:44.342251100 +0200
++++ b/settings.cpp	2026-07-29 05:44:07.724215400 +0200
 @@ -181,15 +181,25 @@
   * @return return true on success and false on error */
  static bool load_intlist(const char *str, void *array, int nelems, VarType type)
@@ -3433,7 +3460,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	const char *s;
  	void *ptr;
  
-@@ -697,6 +713,30 @@
+@@ -697,6 +713,42 @@
  	return true;
  }
  
@@ -3454,6 +3481,18 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 + * machine with no public screen cannot be locked out of its own display. */
 +extern void AmigaFullscreenChanged();
 +
++/* NewGRF support costs memory whether or not any NewGRF is used, and on a
++ * 24 MB machine that matters, so it can be switched off entirely. Nothing can
++ * be undone mid-session - the sprite cache is already sized and the GRFs are
++ * already loaded - so this only reports that a restart is needed. */
++extern void AmigaNewGrfChanged();
++
++static bool AmigaNewGrfToggled(int32 p1)
++{
++	AmigaNewGrfChanged();
++	return true;
++}
++
 +static bool AmigaFullscreenToggled(int32 p1)
 +{
 +	AmigaFullscreenChanged();
@@ -3464,7 +3503,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  static bool InvalidateTownViewWindow(int32 p1)
  {
  	InvalidateWindowClassesData(WC_TOWN_VIEW, p1);
-@@ -820,9 +860,9 @@
+@@ -820,9 +872,9 @@
   */
  static const DifficultySettings _default_game_diff[3] = { /*
  	 A, C, D,      E, F, G, H, J, K, L, M, N, O, P, Q, R, S*/
@@ -3477,9 +3516,30 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  };
  
  void SetDifficultyLevel(int mode, DifficultySettings *gm_opt)
+@@ -1361,8 +1413,20 @@
+ 	ResetCurrencies(false); // Initialize the array of curencies, without preserving the custom one
+ 
+ 	HandleSettingDescs(ini, ini_load_settings, ini_load_setting_list);
++	/* HandleSettingDescs above has already read [amiga], so the switch is
++	 * known here - which is the whole reason the gate sits at this point and
++	 * not deeper in the GRF code. With NewGRF off the lists stay empty and
++	 * nothing is ever loaded, parsed or cached. */
++#ifdef __AMIGA__
++	if (_settings_client.amiga.newgrf) {
++#endif
+ 	_grfconfig_newgame = GRFLoadConfig(ini, "newgrf", false);
+ 	_grfconfig_static  = GRFLoadConfig(ini, "newgrf-static", true);
++#ifdef __AMIGA__
++	} else {
++		DEBUG(grf, 0, "amiga.newgrf is off - [newgrf] ignored, no NewGRF loaded");
++	}
++#endif
+ 	NewsDisplayLoadConfig(ini, "news_display");
+ 	AILoadConfig(ini, "ai_players");
+ 
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/settings_gui.cpp b/settings_gui.cpp
 --- a/settings_gui.cpp	2010-10-27 22:17:45.000000000 +0200
-+++ b/settings_gui.cpp	2026-07-28 17:30:44.353271200 +0200
++++ b/settings_gui.cpp	2026-07-29 05:44:07.738278100 +0200
 @@ -88,10 +88,27 @@
  	return STR_UNDEFINED;
  }
@@ -3532,13 +3592,14 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  				break;
  
  			case GOW_SCREENSHOT_DROPDOWN: // Change screenshot format
-@@ -1468,7 +1499,23 @@
+@@ -1468,7 +1499,24 @@
  /** Vehicles sub-page */
  static SettingsPage _settings_vehicles_page = {_settings_vehicles, lengthof(_settings_vehicles)};
  
 +#ifdef __AMIGA__
 +static SettingEntry _settings_amiga[] = {
 +	SettingEntry("amiga.fullscreen"),
++	SettingEntry("amiga.newgrf"),
 +	SettingEntry("amiga.wb_bar"),
 +	SettingEntry("amiga.hide_game_pointer"),
 +	SettingEntry("amiga.frameskip"),
@@ -3558,8 +3619,8 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	SettingEntry(&_settings_vehicles_page,     STR_CONFIG_SETTING_VEHICLES),
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/settings_type.h b/settings_type.h
 --- a/settings_type.h	2010-04-03 22:19:26.000000000 +0200
-+++ b/settings_type.h	2026-07-28 17:49:15.297703600 +0200
-@@ -392,11 +392,57 @@
++++ b/settings_type.h	2026-07-29 05:44:07.721701100 +0200
+@@ -392,11 +392,62 @@
  	LocaleSettings       locale;             ///< settings related to used currency/unit system in the current game
  };
  
@@ -3589,6 +3650,11 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +	                                         ///< _cur_resolution (which is what openttd.cfg records for the display)
 +	                                         ///< left the next start hunting for "618x247" in the resolution list,
 +	                                         ///< failing, and dropping to 320x256. Zero means "no window size yet".
++	bool   newgrf;                           ///< allow NewGRF scanning and loading at all. Default TRUE, i.e. what the
++	                                         ///< port has always done. Turning it OFF skips the startup scan and refuses to
++	                                         ///< load anything from the [newgrf] section, which is the only way to get that
++	                                         ///< memory back on a 24 MB machine - once a GRF is in the sprite cache it stays.
++	                                         ///< Read at startup, so a change needs a restart; the setting proc says so.
 +	bool   wb_bar;                           ///< keep the system screen title bar visible (flip to Workbench); costs game area
 +	bool   hide_game_pointer;                ///< hide OpenTTD's own SOFTWARE cursor; the Intuition system pointer stays visible
 +	bool   ehb;                              ///< EHB 64-colour graphics: sprites are reduced 256 -> 64 as they enter the sprite
@@ -3804,19 +3870,20 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/table/settings.h b/table/settings.h
 --- a/table/settings.h	2010-11-14 10:27:20.000000000 +0100
-+++ b/table/settings.h	2026-07-28 17:49:15.298704300 +0200
-@@ -36,6 +36,10 @@
++++ b/table/settings.h	2026-07-29 05:44:07.722701400 +0200
+@@ -36,6 +36,11 @@
  static bool ChangeDynamicEngines(int32 p1);
  static bool StationCatchmentChanged(int32 p1);
  static bool InvalidateVehTimetableWindow(int32 p1);
 +#ifdef __AMIGA__
++static bool AmigaNewGrfToggled(int32 p1);
 +static bool AmigaFullscreenToggled(int32 p1);
 +static bool AmigaWbBarToggled(int32 p1);
 +#endif
  
  #ifdef ENABLE_NETWORK
  static bool UpdateClientName(int32 p1);
-@@ -219,13 +223,13 @@
+@@ -219,13 +224,13 @@
  #define PC SGF_PER_COMPANY
  
  static const SettingDesc _music_settings[] = {
@@ -3832,7 +3899,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	 SDT_END()
  };
  
-@@ -317,7 +321,7 @@
+@@ -317,7 +322,7 @@
  	    SDT_OMANY(GameSettings, game_creation.landscape,  SLE_UINT8,                     0, 0, 0, 3, _climates, STR_NULL, NULL, ConvertLandscape),
  	      SDT_VAR(GameSettings, game_creation.snow_line,  SLE_UINT8,                     0, 0, DEF_SNOWLINE_HEIGHT * TILE_HEIGHT, MIN_SNOWLINE_HEIGHT * TILE_HEIGHT, MAX_SNOWLINE_HEIGHT * TILE_HEIGHT, 0, STR_NULL, NULL),
  	 SDT_CONDNULL(                                                1,  0, 22),
@@ -3841,7 +3908,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	    SDT_OMANY(GameSettings, vehicle.road_side,        SLE_UINT8,                     0, 0, 1, 1, _roadsides, STR_NULL, NULL, NULL),
  	    SDT_END()
  };
-@@ -344,7 +348,7 @@
+@@ -344,7 +349,7 @@
  	 SDT_CONDVAR(GameSettings, difficulty.vehicle_costs,             SLE_UINT8, 97, SL_MAX_VERSION, 0,NS,     0,     0,      2,  1, STR_SEA_LEVEL_LOW,                         DifficultyChange),
  	 SDT_CONDVAR(GameSettings, difficulty.competitor_speed,          SLE_UINT8, 97, SL_MAX_VERSION, 0, 0,     2,     0,      4,  1, STR_AI_SPEED_VERY_SLOW,                    DifficultyChange),
  	SDT_CONDNULL(                                                            1, 97, 109),
@@ -3850,7 +3917,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	 SDT_CONDVAR(GameSettings, difficulty.subsidy_multiplier,        SLE_UINT8, 97, SL_MAX_VERSION, 0, 0,     2,     0,      3,  1, STR_SUBSIDY_X1_5,                          DifficultyChange),
  	 SDT_CONDVAR(GameSettings, difficulty.construction_cost,         SLE_UINT8, 97, SL_MAX_VERSION, 0,NS,     0,     0,      2,  1, STR_SEA_LEVEL_LOW,                         DifficultyChange),
  	 SDT_CONDVAR(GameSettings, difficulty.terrain_type,              SLE_UINT8, 97, SL_MAX_VERSION, 0,NG,     1,     0,      3,  1, STR_TERRAIN_TYPE_VERY_FLAT,                DifficultyChange),
-@@ -442,7 +446,7 @@
+@@ -442,7 +447,7 @@
  	SDT_CONDBOOL(GameSettings, economy.mod_road_rebuild,                        77, SL_MAX_VERSION, 0, 0,  true,                    STR_CONFIG_SETTING_MODIFIED_ROAD_REBUILD,  NULL),
  
  	SDT_CONDNULL(1, 0, 106), // previously ai-new setting.
@@ -3859,7 +3926,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	    SDT_BOOL(GameSettings, ai.ai_disable_veh_train,                                             0, 0, false,                    STR_CONFIG_SETTING_AI_BUILDS_TRAINS,       NULL),
  	    SDT_BOOL(GameSettings, ai.ai_disable_veh_roadveh,                                           0, 0, false,                    STR_CONFIG_SETTING_AI_BUILDS_ROAD_VEHICLES,NULL),
  	    SDT_BOOL(GameSettings, ai.ai_disable_veh_aircraft,                                          0, 0, false,                    STR_CONFIG_SETTING_AI_BUILDS_AIRCRAFT,     NULL),
-@@ -540,7 +544,7 @@
+@@ -540,7 +545,7 @@
  
  	/***************************************************************************/
  	/* Unsaved setting variables. */
@@ -3868,7 +3935,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	 SDTC_BOOL(gui.threaded_saves,                       S,  0,  true,                        STR_NULL,                                       NULL),
  	SDTC_OMANY(gui.date_format_in_default_names,SLE_UINT8,S,MS, 0, 2, _savegame_date,         STR_CONFIG_SETTING_DATE_FORMAT_IN_SAVE_NAMES,   NULL),
  	 SDTC_BOOL(gui.vehicle_speed,                        S,  0,  true,                        STR_CONFIG_SETTING_VEHICLESPEED,                NULL),
-@@ -556,7 +560,7 @@
+@@ -556,7 +561,7 @@
  	  SDTC_VAR(gui.window_snap_radius,        SLE_UINT8, S, D0,    10,        1,       32, 0, STR_CONFIG_SETTING_SNAP_RADIUS,                 NULL),
  	  SDTC_VAR(gui.window_soft_limit,         SLE_UINT8, S, D0,    20,        5,      255, 1, STR_CONFIG_SETTING_SOFT_LIMIT,                  NULL),
  	 SDTC_BOOL(gui.population_in_label,                  S,  0,  true,                        STR_CONFIG_SETTING_POPULATION_IN_LABEL,         PopulationInLabelActive),
@@ -3877,7 +3944,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	  SDTC_VAR(gui.smallmap_land_colour,      SLE_UINT8, S, MS,     0,        0,        2, 0, STR_CONFIG_SETTING_SMALLMAP_LAND_COLOUR,        RedrawSmallmap),
  	  SDTC_VAR(gui.liveries,                  SLE_UINT8, S, MS,     2,        0,        2, 0, STR_CONFIG_SETTING_LIVERIES,                    RedrawScreen),
  	 SDTC_BOOL(gui.prefer_teamchat,                      S,  0, false,                        STR_CONFIG_SETTING_PREFER_TEAMCHAT,             NULL),
-@@ -614,7 +618,7 @@
+@@ -614,7 +619,7 @@
  	 SDTC_BOOL(network.pause_on_join,                    S, NO,  true,                        STR_NULL,                                       NULL),
  	  SDTC_VAR(network.server_port,          SLE_UINT16, S, NO,NETWORK_DEFAULT_PORT,0,65535,0,STR_NULL,                                       NULL),
  	 SDTC_BOOL(network.server_advertise,                 S, NO, false,                        STR_NULL,                                       NULL),
@@ -3886,7 +3953,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	  SDTC_STR(network.client_name,            SLE_STRB, S,  0,  NULL,                        STR_NULL,                                       UpdateClientName),
  	  SDTC_STR(network.server_password,        SLE_STRB, S, NO,  NULL,                        STR_NULL,                                       UpdateServerPassword),
  	  SDTC_STR(network.rcon_password,          SLE_STRB, S, NO,  NULL,                        STR_NULL,                                       UpdateRconPassword),
-@@ -650,6 +654,38 @@
+@@ -650,6 +655,39 @@
  	 SDTC_VAR(gui.right_mouse_btn_emulation, SLE_UINT8, S, MS, 0, 0, 2, 0, STR_CONFIG_SETTING_RIGHT_MOUSE_BTN_EMU, NULL),
  #endif
  
@@ -3901,6 +3968,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +	  * GUI: it is a record of where the player left the window, not a knob. */
 +	 SDTC_VAR(amiga.win_w,             SLE_UINT16, S,  0,     0,        0,     4096, 0, STR_NULL,                                       NULL),
 +	 SDTC_VAR(amiga.win_h,             SLE_UINT16, S,  0,     0,        0,     4096, 0, STR_NULL,                                       NULL),
++	 SDTC_BOOL(amiga.newgrf,                             S,  0,  true,                        STR_CONFIG_SETTING_AMIGA_NEWGRF,                AmigaNewGrfToggled),
 +	 SDTC_BOOL(amiga.wb_bar,                             S,  0,  true,                        STR_CONFIG_SETTING_AMIGA_WB_BAR,                AmigaWbBarToggled),
 +	 SDTC_BOOL(amiga.hide_game_pointer,                  S,  0,  false,                       STR_CONFIG_SETTING_AMIGA_HIDE_GAME_POINTER,     NULL),
 +	 SDTC_VAR(amiga.frameskip,           SLE_UINT8, S, MS,     0,        0,        4, 1, STR_CONFIG_SETTING_AMIGA_FRAMESKIP,             NULL),

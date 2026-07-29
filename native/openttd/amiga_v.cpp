@@ -1588,6 +1588,33 @@ void AmigaFullscreenChanged()
 	SaveToConfig();
 }
 
+/**
+ * The "amiga.newgrf" setting was toggled.
+ *
+ * Nothing can be applied live, in either direction, and it is worth being clear
+ * about why rather than pretending a restart is mere caution:
+ *
+ *   turning it OFF cannot give the memory back. The scan already happened, the
+ *     GRF descriptors are allocated, and anything loaded is already in the
+ *     sprite cache - which is sized once, at startup.
+ *
+ *   turning it ON cannot load anything either. NewGRFs are bound to a game when
+ *     that game starts; the running one was built without them.
+ *
+ * So the honest response is to say "next time", which is what the existing
+ * screen-mode notice already says in the right words.
+ */
+void AmigaNewGrfChanged()
+{
+	char b[96];
+	snprintf(b, sizeof(b), "amiga.newgrf now %d - takes effect on the next start",
+	         _settings_client.amiga.newgrf ? 1 : 0);
+	amigagfx_log(b);
+
+	SaveToConfig();
+	ShowErrorMessage(STR_AMIGA_RESTART_FOR_NEWGRF, INVALID_STRING_ID, 0, 0, true);
+}
+
 /* There is deliberately no AmigaEhbChanged() any more.
  *
  * EHB stopped being something the player toggles: it is the pair of OCS entries

@@ -623,7 +623,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  extern int _num_resolutions;
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/gfxinit.cpp b/gfxinit.cpp
 --- a/gfxinit.cpp	2010-08-09 23:48:19.000000000 +0200
-+++ b/gfxinit.cpp	2026-07-21 13:14:48.255042500 +0200
++++ b/gfxinit.cpp	2026-07-29 14:15:58.197941100 +0200
 @@ -41,6 +41,10 @@
  	_landscape_spriteindexes_3,
  };
@@ -635,7 +635,62 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  static uint LoadGrfFile(const char *filename, uint load_index, int file_index)
  {
  	uint load_index_org = load_index;
-@@ -186,7 +190,9 @@
+@@ -50,7 +54,18 @@
+ 
+ 	DEBUG(sprite, 2, "Reading grf-file '%s'", filename);
+ 
+-	while (LoadNextSprite(load_index, file_index, sprite_id)) {
++	/* Base sets are container 1 today, but nothing stops a newer one being
++	 * container 2 - so it is detected here exactly as it is for NewGRFs. */
++	byte container_ver = GetGRFContainerVersion();
++	if (container_ver == 0) usererror("Base grf '%s' is corrupt", filename);
++	ReadGRFSpriteOffsets(container_ver);
++	if (container_ver >= 2) {
++		/* Read compression algorithm. */
++		byte compression = FioReadByte();
++		if (compression != 0) usererror("Unsupported compression format");
++	}
++
++	while (LoadNextSprite(load_index, file_index, sprite_id, container_ver)) {
+ 		load_index++;
+ 		sprite_id++;
+ 		if (load_index >= MAX_SPRITES) {
+@@ -63,14 +78,14 @@
+ }
+ 
+ 
+-static void LoadSpritesIndexed(int file_index, uint *sprite_id, const SpriteID *index_tbl)
++static void LoadSpritesIndexed(int file_index, uint *sprite_id, const SpriteID *index_tbl, byte container_ver)
+ {
+ 	uint start;
+ 	while ((start = *index_tbl++) != END) {
+ 		uint end = *index_tbl++;
+ 
+ 		do {
+-			bool b = LoadNextSprite(start, file_index, *sprite_id);
++			bool b = LoadNextSprite(start, file_index, *sprite_id, container_ver);
+ 			assert(b);
+ 			(*sprite_id)++;
+ 		} while (++start <= end);
+@@ -85,7 +100,16 @@
+ 
+ 	DEBUG(sprite, 2, "Reading indexed grf-file '%s'", filename);
+ 
+-	LoadSpritesIndexed(file_index, &sprite_id, index_tbl);
++	byte container_ver = GetGRFContainerVersion();
++	if (container_ver == 0) usererror("Base grf '%s' is corrupt", filename);
++	ReadGRFSpriteOffsets(container_ver);
++	if (container_ver >= 2) {
++		/* Read compression algorithm. */
++		byte compression = FioReadByte();
++		if (compression != 0) usererror("Unsupported compression format");
++	}
++
++	LoadSpritesIndexed(file_index, &sprite_id, index_tbl, container_ver);
+ }
+ 
+ /**
+@@ -186,7 +210,9 @@
  	master->next = top;
  	_grfconfig = master;
  
@@ -645,7 +700,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  	/* Free and remove the top element. */
  	ClearGRFConfig(&master);
-@@ -198,11 +204,15 @@
+@@ -198,11 +224,15 @@
  {
  	DEBUG(sprite, 2, "Loading sprite set %d", _settings_game.game_creation.landscape);
  
@@ -2860,6 +2915,201 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  #endif /* ENABLE_NETWORK */
  
  #endif /* NETWORK_UDP_H */
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/newgrf.cpp b/newgrf.cpp
+--- a/newgrf.cpp	2010-11-14 10:31:31.000000000 +0100
++++ b/newgrf.cpp	2026-07-29 14:18:48.566517900 +0200
+@@ -69,6 +69,12 @@
+ static GRFFile *_cur_grffile;
+ static SpriteID _cur_spriteid;
+ static GrfLoadingStage _cur_stage;
++
++/** Container version of the GRF being read right now. Global, like the rest of
++ * the per-file reader state in this file (_cur_grffile, _file_index, ...).
++ * Declared HERE rather than next to LoadNewGRFFile because sprite loading in
++ * the action handlers above needs it. */
++static byte _cur_grf_container_ver = 1;
+ static uint32 _nfo_line;
+ 
+ static GRFConfig *_cur_grfconfig;
+@@ -3002,7 +3008,7 @@
+ 
+ 	for (int i = 0; i < num_sets * num_ents; i++) {
+ 		_nfo_line++;
+-		LoadNextSprite(_cur_spriteid++, _file_index, _nfo_line);
++		LoadNextSprite(_cur_spriteid++, _file_index, _nfo_line, _cur_grf_container_ver);
+ 	}
+ }
+ 
+@@ -4019,16 +4025,16 @@
+ 		/* Special not-TTDP-compatible case used in openttd(d/w).grf
+ 		 * Missing shore sprites and initialisation of SPR_SHORE_BASE */
+ 		grfmsg(2, "GraphicsNew: Loading 10 missing shore sprites from openttd(d/w).grf.");
+-		LoadNextSprite(SPR_SHORE_BASE +  0, _file_index, _nfo_line++); // SLOPE_STEEP_S
+-		LoadNextSprite(SPR_SHORE_BASE +  5, _file_index, _nfo_line++); // SLOPE_STEEP_W
+-		LoadNextSprite(SPR_SHORE_BASE +  7, _file_index, _nfo_line++); // SLOPE_WSE
+-		LoadNextSprite(SPR_SHORE_BASE + 10, _file_index, _nfo_line++); // SLOPE_STEEP_N
+-		LoadNextSprite(SPR_SHORE_BASE + 11, _file_index, _nfo_line++); // SLOPE_NWS
+-		LoadNextSprite(SPR_SHORE_BASE + 13, _file_index, _nfo_line++); // SLOPE_ENW
+-		LoadNextSprite(SPR_SHORE_BASE + 14, _file_index, _nfo_line++); // SLOPE_SEN
+-		LoadNextSprite(SPR_SHORE_BASE + 15, _file_index, _nfo_line++); // SLOPE_STEEP_E
+-		LoadNextSprite(SPR_SHORE_BASE + 16, _file_index, _nfo_line++); // SLOPE_EW
+-		LoadNextSprite(SPR_SHORE_BASE + 17, _file_index, _nfo_line++); // SLOPE_NS
++		LoadNextSprite(SPR_SHORE_BASE +  0, _file_index, _nfo_line++, _cur_grf_container_ver); // SLOPE_STEEP_S
++		LoadNextSprite(SPR_SHORE_BASE +  5, _file_index, _nfo_line++, _cur_grf_container_ver); // SLOPE_STEEP_W
++		LoadNextSprite(SPR_SHORE_BASE +  7, _file_index, _nfo_line++, _cur_grf_container_ver); // SLOPE_WSE
++		LoadNextSprite(SPR_SHORE_BASE + 10, _file_index, _nfo_line++, _cur_grf_container_ver); // SLOPE_STEEP_N
++		LoadNextSprite(SPR_SHORE_BASE + 11, _file_index, _nfo_line++, _cur_grf_container_ver); // SLOPE_NWS
++		LoadNextSprite(SPR_SHORE_BASE + 13, _file_index, _nfo_line++, _cur_grf_container_ver); // SLOPE_ENW
++		LoadNextSprite(SPR_SHORE_BASE + 14, _file_index, _nfo_line++, _cur_grf_container_ver); // SLOPE_SEN
++		LoadNextSprite(SPR_SHORE_BASE + 15, _file_index, _nfo_line++, _cur_grf_container_ver); // SLOPE_STEEP_E
++		LoadNextSprite(SPR_SHORE_BASE + 16, _file_index, _nfo_line++, _cur_grf_container_ver); // SLOPE_EW
++		LoadNextSprite(SPR_SHORE_BASE + 17, _file_index, _nfo_line++, _cur_grf_container_ver); // SLOPE_NS
+ 		if (_loaded_newgrf_features.shore == SHORE_REPLACE_NONE) _loaded_newgrf_features.shore = SHORE_REPLACE_ONLY_NEW;
+ 		return;
+ 	}
+@@ -4065,7 +4071,7 @@
+ 
+ 	for (; num > 0; num--) {
+ 		_nfo_line++;
+-		LoadNextSprite(replace == 0 ? _cur_spriteid++ : replace++, _file_index, _nfo_line);
++		LoadNextSprite(replace == 0 ? _cur_spriteid++ : replace++, _file_index, _nfo_line, _cur_grf_container_ver);
+ 	}
+ 
+ 	if (type == 0x0D) _loaded_newgrf_features.shore = SHORE_REPLACE_ACTION_5;
+@@ -4651,7 +4657,7 @@
+ 		for (uint j = 0; j < num_sprites; j++) {
+ 			int load_index = first_sprite + j;
+ 			_nfo_line++;
+-			LoadNextSprite(load_index, _file_index, _nfo_line); // XXX
++			LoadNextSprite(load_index, _file_index, _nfo_line, _cur_grf_container_ver); // XXX
+ 
+ 			/* Shore sprites now located at different addresses.
+ 			 * So detect when the old ones get replaced. */
+@@ -5568,7 +5574,7 @@
+ 		for (uint c = 0; c < num_char; c++) {
+ 			SetUnicodeGlyph(size, base_char + c, _cur_spriteid);
+ 			_nfo_line++;
+-			LoadNextSprite(_cur_spriteid++, _file_index, _nfo_line);
++			LoadNextSprite(_cur_spriteid++, _file_index, _nfo_line, _cur_grf_container_ver);
+ 		}
+ 	}
+ }
+@@ -6464,10 +6470,40 @@
+ }
+ 
+ 
++/** Signature of a container version 2 GRF: the eight bytes after a leading 0x0000. */
++static const byte _grf_cont_v2_sig[8] = {'G', 'R', 'F', 0x82, 0x0D, 0x0A, 0x1A, 0x0A};
++
++/**
++ * Get the container version of the currently opened GRF file.
++ *
++ * Container 1 has no header at all, which is why the probe has to be written
++ * this way round: a leading 16-bit zero is impossible in container 1 (it would
++ * be a zero-length sprite, i.e. end of file), so it is used as the marker for
++ * container 2 and followed by a signature. Anything else means container 1 and
++ * the file position is rewound so not a byte is consumed.
++ *
++ * @return 1 or 2, or 0 if the file is not a GRF at all.
++ */
++byte GetGRFContainerVersion()
++{
++	size_t pos = FioGetPos();
++
++	if (FioReadWord() == 0) {
++		for (uint i = 0; i < lengthof(_grf_cont_v2_sig); i++) {
++			if (FioReadByte() != _grf_cont_v2_sig[i]) return 0; // Invalid format
++		}
++		return 2;
++	}
++
++	/* Container version 1 has no header, rewind to start. */
++	FioSeekTo(pos, SEEK_SET);
++	return 1;
++}
++
+ void LoadNewGRFFile(GRFConfig *config, uint file_index, GrfLoadingStage stage)
+ {
+ 	const char *filename = config->filename;
+-	uint16 num;
++	uint32 num;
+ 
+ 	/* A .grf file is activated only if it was active when the game was
+ 	 * started.  If a game is loaded, only its active .grfs will be
+@@ -6501,10 +6537,37 @@
+ 
+ 	DEBUG(grf, 2, "LoadNewGRFFile: Reading NewGRF-file '%s'", filename);
+ 
++	_cur_grf_container_ver = GetGRFContainerVersion();
++	if (_cur_grf_container_ver == 0) {
++		DEBUG(grf, 7, "LoadNewGRFFile: Custom .grf has invalid format");
++		return;
++	}
++
++	if (stage == GLS_INIT || stage == GLS_ACTIVATION) {
++		/* The sprite offsets are needed in the init stage for NewGRF sounds
++		 * and in the activation stage for real sprites. Reading them also
++		 * consumes the sprite section offset that follows the signature. */
++		ReadGRFSpriteOffsets(_cur_grf_container_ver);
++	} else if (_cur_grf_container_ver >= 2) {
++		/* Not reading the offsets in this stage - but the field is still there
++		 * and must be stepped over, or everything after it is misread. This is
++		 * what made the file scan reject container 2 GRFs outright. */
++		FioReadDword();
++	}
++
++	if (_cur_grf_container_ver >= 2) {
++		byte compression = FioReadByte();
++		if (compression != 0) {
++			DEBUG(grf, 7, "LoadNewGRFFile: Unsupported compression format");
++			return;
++		}
++	}
++
+ 	/* Skip the first sprite; we don't care about how many sprites this
+ 	 * does contain; newest TTDPatches and George's longvehicles don't
+ 	 * neither, apparently. */
+-	if (FioReadWord() == 4 && FioReadByte() == 0xFF) {
++	num = _cur_grf_container_ver >= 2 ? FioReadDword() : FioReadWord();
++	if (num == 4 && FioReadByte() == 0xFF) {
+ 		FioReadDword();
+ 	} else {
+ 		DEBUG(grf, 7, "LoadNewGRFFile: Custom .grf has invalid format");
+@@ -6516,7 +6579,7 @@
+ 
+ 	ReusableBuffer<byte> buf;
+ 
+-	while ((num = FioReadWord()) != 0) {
++	while ((num = (_cur_grf_container_ver >= 2 ? FioReadDword() : FioReadWord())) != 0) {
+ 		byte type = FioReadByte();
+ 		_nfo_line++;
+ 
+@@ -6532,7 +6595,7 @@
+ 				FioSkipBytes(num);
+ 			}
+ 		} else {
+-			if (_skip_sprites == 0) {
++			if (_skip_sprites == 0 && !(_cur_grf_container_ver >= 2 && type == 0xFD)) {
+ 				grfmsg(0, "LoadNewGRFFile: Unexpected sprite, disabling");
+ 				config->status = GCS_DISABLED;
+ 				delete config->error;
+@@ -6540,8 +6603,14 @@
+ 				break;
+ 			}
+ 
+-			FioSkipBytes(7);
+-			SkipSpriteData(type, num - 8);
++			if (_cur_grf_container_ver >= 2 && type == 0xFD) {
++				/* A reference into the sprite section. Four bytes, already
++				 * accounted for by 'num' - just step over them. */
++				FioSkipBytes(num);
++			} else {
++				FioSkipBytes(7);
++				SkipSpriteData(type, (uint16)(num - 8));
++			}
+ 		}
+ 
+ 		if (_skip_sprites > 0) _skip_sprites--;
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/news_type.h b/news_type.h
 --- a/news_type.h	2010-02-12 17:42:29.000000000 +0100
 +++ b/news_type.h	2026-07-20 12:44:29.045714100 +0200
@@ -3712,8 +3962,16 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  };
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/spritecache.cpp b/spritecache.cpp
 --- a/spritecache.cpp	2010-01-15 17:41:15.000000000 +0100
-+++ b/spritecache.cpp	2026-07-21 17:34:18.210586800 +0200
-@@ -21,6 +21,24 @@
++++ b/spritecache.cpp	2026-07-29 14:14:43.534782200 +0200
+@@ -11,6 +11,7 @@
+ 
+ #include "stdafx.h"
+ #include "fileio_func.h"
++#include <map>
+ #include "spriteloader/grf.hpp"
+ #include "gfx_func.h"
+ #ifdef WITH_PNG
+@@ -21,6 +22,24 @@
  
  #include "table/sprites.h"
  
@@ -3738,7 +3996,106 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  /* Default of 4MB spritecache */
  uint _sprite_cache_size = 4;
  
-@@ -206,6 +224,41 @@
+@@ -34,6 +53,7 @@
+ 	int16 lru;
+ 	SpriteTypeByte type; ///< In some cases a single sprite is misused by two NewGRFs. Once as real sprite and once as recolour sprite. If the recolour sprite gets into the cache it might be drawn as real sprite which causes enormous trouble.
+ 	bool warned;         ///< True iff the user has been warned about incorrect use of this sprite
++	byte container_ver;  ///< Container format of the GRF this sprite came from (1 or 2).
+ };
+ 
+ 
+@@ -113,9 +133,10 @@
+  * Read the sprite header data and then skip the real payload.
+  * @return type of sprite; ST_INVALID if the sprite is a pseudo- or unusable sprite
+  */
+-static SpriteType ReadSpriteHeaderSkipData()
++static SpriteType ReadSpriteHeaderSkipData(byte container_version, size_t *file_pos)
+ {
+-	uint16 num = FioReadWord();
++	/* The size field grew from 16 to 32 bits in container version 2. */
++	uint32 num = container_version >= 2 ? FioReadDword() : FioReadWord();
+ 
+ 	if (num == 0) return ST_INVALID;
+ 
+@@ -127,8 +148,76 @@
+ 		return (num == 1) ? ST_INVALID : ST_RECOLOUR;
+ 	}
+ 
++	if (container_version >= 2 && type == 0xFD) {
++		/* Not a sprite at all: a four-byte reference INTO the sprite section.
++		 * Resolve it now, so the cache records where the pixels really are
++		 * rather than where the reference was. */
++		if (num != 4) {
++			FioSkipBytes(num);
++			return ST_INVALID;
++		}
++		*file_pos = GetGRFSpriteOffset(FioReadDword());
++		return ST_NORMAL;
++	}
++
+ 	FioSkipBytes(7);
+-	return SkipSpriteData(type, num - 8) ? ST_NORMAL : ST_INVALID;
++	SpriteType type_v1 = SkipSpriteData(type, (uint16)(num - 8)) ? ST_NORMAL : ST_INVALID;
++	/* An inline sprite is illegal in container version 2 - the data has been
++	 * skipped above so the stream stays in step, but the sprite is refused. */
++	if (container_version >= 2) return ST_INVALID;
++	return type_v1;
++}
++
++/** File offset of every sprite id found in the sprite section of the GRF
++ * currently being read. Rebuilt per file by ReadGRFSpriteOffsets. */
++static std::map<uint32, size_t> _grf_sprite_offsets;
++
++/**
++ * Get the file offset for a specific sprite in the sprite section of a GRF.
++ * @return Position of the sprite, or SIZE_MAX if the GRF has no such sprite -
++ *         which is not an error: sets are routinely stripped of sprites.
++ */
++size_t GetGRFSpriteOffset(uint32 id)
++{
++	return _grf_sprite_offsets.find(id) != _grf_sprite_offsets.end() ? _grf_sprite_offsets[id] : SIZE_MAX;
++}
++
++/**
++ * Parse the sprite section of a container version 2 GRF.
++ *
++ * This is the structural difference between the two containers. In version 1
++ * every sprite sits inline, right where the data stream refers to it. In
++ * version 2 the sprites live in a separate section at the end of the file and
++ * the data stream only names them by id, so the whole section has to be walked
++ * once up front to learn where each id lives.
++ *
++ * @param container_version Container version of the GRF being processed. For
++ *        version 1 this only clears the table, which still matters: a stale
++ *        table from the previous file would hand out nonsense offsets.
++ */
++void ReadGRFSpriteOffsets(byte container_version)
++{
++	_grf_sprite_offsets.clear();
++
++	if (container_version >= 2) {
++		/* Seek to the sprite section, whose position is stored right here. */
++		size_t data_offset = FioReadDword();
++		size_t old_pos = FioGetPos();
++		FioSeekTo(data_offset, SEEK_CUR);
++
++		/* Record the offset of the FIRST occurrence of each id; the further
++		 * entries are the other zoom levels and colour depths of the same
++		 * sprite, which LoadSpriteV2 walks through itself. */
++		uint32 id, prev_id = 0;
++		while ((id = FioReadDword()) != 0) {
++			if (id != prev_id) _grf_sprite_offsets[id] = FioGetPos() - 4;
++			prev_id = id;
++			FioSkipBytes(FioReadDword());
++		}
++
++		/* Back to the data section. */
++		FioSeekTo(old_pos, SEEK_SET);
++	}
+ }
+ 
+ /* Check if the given Sprite ID exists */
+@@ -206,6 +295,41 @@
  			FioReadBlock(dest, num);
  		}
  
@@ -3780,7 +4137,15 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		return sc->ptr;
  	}
  
-@@ -260,6 +313,43 @@
+@@ -253,24 +377,63 @@
+ 
+ 	assert(sprite_type == ST_NORMAL || sprite_type == ST_FONT);
+ 
+-	SpriteLoaderGrf sprite_loader;
++	SpriteLoaderGrf sprite_loader(sc->container_ver);
+ 	SpriteLoader::Sprite sprite;
+ 
+ 	if (!sprite_loader.LoadSprite(&sprite, file_slot, file_pos, sprite_type)) {
  		if (id == SPR_IMG_QUERY) usererror("Okay... something went horribly wrong. I couldn't load the fallback sprite. What should I do?");
  		return (void*)GetRawSprite(SPR_IMG_QUERY, ST_NORMAL);
  	}
@@ -3824,6 +4189,313 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	sc->ptr = BlitterFactoryBase::GetCurrentBlitter()->Encode(&sprite, &AllocSprite);
  
  	return sc->ptr;
+ }
+ 
+ 
+-bool LoadNextSprite(int load_index, byte file_slot, uint file_sprite_id)
++bool LoadNextSprite(int load_index, byte file_slot, uint file_sprite_id, byte container_version)
+ {
+ 	size_t file_pos = FioGetPos();
+ 
+-	SpriteType type = ReadSpriteHeaderSkipData();
++	/* file_pos is passed by reference: for a container 2 sprite reference the
++	 * real position is inside the sprite section, not here. */
++	SpriteType type = ReadSpriteHeaderSkipData(container_version, &file_pos);
+ 
+ 	if (type == ST_INVALID) return false;
+ 
+@@ -293,6 +456,7 @@
+ 	sc->id = file_sprite_id;
+ 	sc->type = type;
+ 	sc->warned = false;
++	sc->container_ver = container_version;
+ 
+ 	return true;
+ }
+@@ -309,6 +473,7 @@
+ 	scnew->id = scold->id;
+ 	scnew->type = scold->type;
+ 	scnew->warned = false;
++	scnew->container_ver = scold->container_ver;
+ }
+ 
+ /**
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/spritecache.h b/spritecache.h
+--- a/spritecache.h	2010-01-17 16:05:25.000000000 +0100
++++ b/spritecache.h	2026-07-29 14:14:43.533789400 +0200
+@@ -43,8 +43,15 @@
+ void GfxInitSpriteMem();
+ void IncreaseSpriteLRU();
+ 
+-bool LoadNextSprite(int load_index, byte file_index, uint file_sprite_id);
++bool LoadNextSprite(int load_index, byte file_index, uint file_sprite_id, byte container_version);
+ bool SkipSpriteData(byte type, uint16 num);
++
++/* GRF container version 2 support. The container version is per FILE, so it
++ * travels with every sprite: a container v1 base set and container v2 NewGRFs
++ * coexist in one game. */
++byte GetGRFContainerVersion();
++void ReadGRFSpriteOffsets(byte container_version);
++size_t GetGRFSpriteOffset(uint32 id);
+ void DupSprite(SpriteID old_spr, SpriteID new_spr);
+ 
+ #endif /* SPRITECACHE_H */
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/spriteloader/grf.cpp b/spriteloader/grf.cpp
+--- a/spriteloader/grf.cpp	2010-01-01 19:45:40.000000000 +0100
++++ b/spriteloader/grf.cpp	2026-07-29 14:12:54.991686400 +0200
+@@ -38,28 +38,21 @@
+ 	return false;
+ }
+ 
+-bool SpriteLoaderGrf::LoadSprite(SpriteLoader::Sprite *sprite, uint8 file_slot, size_t file_pos, SpriteType sprite_type)
++/**
++ * Decode the image data of a single sprite.
++ * @param container_format 1 for the classic container, 2 for the new one. It
++ *        changes two things and only two: the per-row offset table becomes
++ *        32-bit once the decoded sprite exceeds 64 KB, and the per-chunk
++ *        header becomes 4 bytes instead of 2 once the sprite is wider than
++ *        256 pixels. The compression itself is identical.
++ */
++static bool DecodeSingleSprite(SpriteLoader::Sprite *sprite, uint8 file_slot, size_t file_pos, SpriteType sprite_type, int num, byte type, byte container_format)
+ {
+-	/* Open the right file and go to the correct position */
+-	FioSeekToFile(file_slot, file_pos);
+-
+-	/* Read the size and type */
+-	int num = FioReadWord();
+-	byte type = FioReadByte();
+-
+-	/* Type 0xFF indicates either a colourmap or some other non-sprite info; we do not handle them here */
+-	if (type == 0xFF) return false;
+-
+-	sprite->height = FioReadByte();
+-	sprite->width  = FioReadWord();
+-	sprite->x_offs = FioReadWord();
+-	sprite->y_offs = FioReadWord();
+-
+-	/* 0x02 indicates it is a compressed sprite, so we can't rely on 'num' to be valid.
+-	 *  In case it is uncompressed, the size is 'num' - 8 (header-size). */
+-	num = (type & 0x02) ? sprite->width * sprite->height : num - 8;
+-
+-	byte *dest_orig = AllocaM(byte, num);
++	/* MALLOC, where this used to alloca. Container v2 sprites are routinely far
++	 * larger than anything the classic container held, and this port runs on a
++	 * 1 MB stack - a big sprite would walk straight off the end of it with no
++	 * diagnostic at all. The decode below is unchanged. */
++	byte *dest_orig = MallocT<byte>(num);
+ 	byte *dest = dest_orig;
+ 	const int dest_size = num;
+ 
+@@ -71,7 +64,7 @@
+ 			/* Plain bytes to read */
+ 			int size = (code == 0) ? 0x80 : code;
+ 			num -= size;
+-			if (num < 0) return WarnCorruptSprite(file_slot, file_pos, __LINE__);
++			if (num < 0) { free(dest_orig); return WarnCorruptSprite(file_slot, file_pos, __LINE__); }
+ 			for (; size > 0; size--) {
+ 				*dest = FioReadByte();
+ 				dest++;
+@@ -79,10 +72,10 @@
+ 		} else {
+ 			/* Copy bytes from earlier in the sprite */
+ 			const uint data_offset = ((code & 7) << 8) | FioReadByte();
+-			if (dest - data_offset < dest_orig) return WarnCorruptSprite(file_slot, file_pos, __LINE__);
++			if (dest - data_offset < dest_orig) { free(dest_orig); return WarnCorruptSprite(file_slot, file_pos, __LINE__); }
+ 			int size = -(code >> 3);
+ 			num -= size;
+-			if (num < 0) return WarnCorruptSprite(file_slot, file_pos, __LINE__);
++			if (num < 0) { free(dest_orig); return WarnCorruptSprite(file_slot, file_pos, __LINE__); }
+ 			for (; size > 0; size--) {
+ 				*dest = *(dest - data_offset);
+ 				dest++;
+@@ -90,7 +83,7 @@
+ 		}
+ 	}
+ 
+-	if (num != 0) return WarnCorruptSprite(file_slot, file_pos, __LINE__);
++	if (num != 0) { free(dest_orig); return WarnCorruptSprite(file_slot, file_pos, __LINE__); }
+ 
+ 	sprite->AllocateData(sprite->width * sprite->height);
+ 
+@@ -99,30 +92,45 @@
+ 		for (int y = 0; y < sprite->height; y++) {
+ 			bool last_item = false;
+ 			/* Look up in the header-table where the real data is stored for this row */
+-			int offset = (dest_orig[y * 2 + 1] << 8) | dest_orig[y * 2];
++			int offset;
++			if (container_format >= 2 && dest_size > 0xFFFF) {
++				offset = (dest_orig[y * 4 + 3] << 24) | (dest_orig[y * 4 + 2] << 16) | (dest_orig[y * 4 + 1] << 8) | dest_orig[y * 4];
++			} else {
++				offset = (dest_orig[y * 2 + 1] << 8) | dest_orig[y * 2];
++			}
+ 
+ 			/* Go to that row */
+ 			dest = dest_orig + offset;
+ 
+ 			do {
+-				if (dest + 2 > dest_orig + dest_size) {
+-					free(sprite->data);
++				if (dest + (container_format >= 2 && sprite->width > 256 ? 4 : 2) > dest_orig + dest_size) {
++					free(sprite->data); free(dest_orig);
+ 					return WarnCorruptSprite(file_slot, file_pos, __LINE__);
+ 				}
+ 
+ 				SpriteLoader::CommonPixel *data;
+-				/* Read the header:
+-				 *  0 .. 14  - length
+-				 *  15       - last_item
+-				 *  16 .. 31 - transparency bytes */
+-				last_item  = ((*dest) & 0x80) != 0;
+-				int length =  (*dest++) & 0x7F;
+-				int skip   =   *dest++;
++				int length, skip;
++				if (container_format >= 2 && sprite->width > 256) {
++					/*  0 .. 14  - length
++					 *  15       - last_item
++					 *  16 .. 31 - transparency bytes */
++					last_item = (dest[1] & 0x80) != 0;
++					length    = ((dest[1] & 0x7F) << 8) | dest[0];
++					skip      = (dest[3] << 8) | dest[2];
++					dest += 4;
++				} else {
++					/*  0 .. 6  - length
++					 *  7       - last_item
++					 *  8 .. 15 - transparency bytes */
++					last_item = ((*dest) & 0x80) != 0;
++					length    =  (*dest++) & 0x7F;
++					skip      =   *dest++;
++				}
+ 
+ 				data = &sprite->data[y * sprite->width + skip];
+ 
+ 				if (skip + length > sprite->width || dest + length > dest_orig + dest_size) {
+-					free(sprite->data);
++					free(sprite->data); free(dest_orig);
+ 					return WarnCorruptSprite(file_slot, file_pos, __LINE__);
+ 				}
+ 
+@@ -139,7 +147,7 @@
+ 		}
+ 	} else {
+ 		if (dest_size < sprite->width * sprite->height) {
+-			free(sprite->data);
++			free(sprite->data); free(dest_orig);
+ 			return WarnCorruptSprite(file_slot, file_pos, __LINE__);
+ 		}
+ 
+@@ -164,5 +172,94 @@
+ 	for (int i = 0; i < sprite->width * sprite->height; i++)
+ 		if (sprite->data[i].m != 0) sprite->data[i].a = 0xFF;
+ 
++	free(dest_orig);
+ 	return true;
+ }
++
++/** Classic container: the sprite header sits inline, right where we are. */
++static bool LoadSpriteV1(SpriteLoader::Sprite *sprite, uint8 file_slot, size_t file_pos, SpriteType sprite_type)
++{
++	/* Open the right file and go to the correct position */
++	FioSeekToFile(file_slot, file_pos);
++
++	/* Read the size and type */
++	int num = FioReadWord();
++	byte type = FioReadByte();
++
++	/* Type 0xFF indicates either a colourmap or some other non-sprite info; we do not handle them here */
++	if (type == 0xFF) return false;
++
++	sprite->height = FioReadByte();
++	sprite->width  = FioReadWord();
++	sprite->x_offs = FioReadWord();
++	sprite->y_offs = FioReadWord();
++
++	/* 0x02 indicates it is a compressed sprite, so we can't rely on 'num' to be valid.
++	 *  In case it is uncompressed, the size is 'num' - 8 (header-size). */
++	num = (type & 0x02) ? sprite->width * sprite->height : num - 8;
++
++	return DecodeSingleSprite(sprite, file_slot, file_pos, sprite_type, num, type, 1);
++}
++
++/**
++ * Container version 2: the sprite lives in a separate sprite section, and the
++ * same id can carry SEVERAL encodings one after another - different colour
++ * depths and zoom levels. This port wants exactly one of them, 8bpp at zoom 0;
++ * that is the only reason this is a loop.
++ */
++static bool LoadSpriteV2(SpriteLoader::Sprite *sprite, uint8 file_slot, size_t file_pos, SpriteType sprite_type)
++{
++	/* The sprite is not present in the sprite section at all. */
++	if (file_pos == SIZE_MAX) return false;
++
++	FioSeekToFile(file_slot, file_pos);
++
++	uint32 id = FioReadDword();
++
++	do {
++		int num = (int)FioReadDword();
++		size_t start_pos = FioGetPos();
++		byte type = FioReadByte();
++
++		/* Type 0xFF is a colourmap or other non-sprite info; not ours to decode. */
++		if (type == 0xFF) return false;
++
++		byte colour = type & 0x07;   /* bit 0 RGB, bit 1 alpha, bit 2 palette */
++		byte zoom   = FioReadByte();
++
++		/* Palette-only (8bpp) at zoom 0 is the single encoding this port can
++		 * use. A 32bpp or zoomed variant is skipped and the loop tries the next
++		 * encoding of the same id; a set that ships only 32bpp sprites ends up
++		 * with none, which is correct and is what the caller reports. */
++		if (colour == 0x04 && (sprite_type != ST_NORMAL || zoom == 0)) {
++			sprite->height = FioReadWord();
++			sprite->width  = FioReadWord();
++			sprite->x_offs = FioReadWord();
++			sprite->y_offs = FioReadWord();
++
++			/* Mask the colour bits out; what remains are the encoding flags. */
++			type &= ~0x07;
++
++			/* Chunked sprites store their decompressed size; plain ones do not. */
++			int decomp_size = (type & 0x08) ? (int)FioReadDword() : sprite->width * sprite->height;
++
++			bool valid = DecodeSingleSprite(sprite, file_slot, file_pos, sprite_type, decomp_size, type, 2);
++			if (FioGetPos() != start_pos + num) return WarnCorruptSprite(file_slot, file_pos, __LINE__);
++			return valid;
++		}
++
++		/* Not the encoding we want - step over it. Two header bytes (type and
++		 * zoom) have already been consumed. */
++		FioSkipBytes(num - 2);
++	} while (FioReadDword() == id);
++
++	return false;
++}
++
++bool SpriteLoaderGrf::LoadSprite(SpriteLoader::Sprite *sprite, uint8 file_slot, size_t file_pos, SpriteType sprite_type)
++{
++	if (this->container_ver >= 2) {
++		return LoadSpriteV2(sprite, file_slot, file_pos, sprite_type);
++	}
++	return LoadSpriteV1(sprite, file_slot, file_pos, sprite_type);
++}
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/spriteloader/grf.hpp b/spriteloader/grf.hpp
+--- a/spriteloader/grf.hpp	2009-08-21 22:21:05.000000000 +0200
++++ b/spriteloader/grf.hpp	2026-07-29 14:12:54.990686100 +0200
+@@ -15,7 +15,14 @@
+ #include "spriteloader.hpp"
+ 
+ class SpriteLoaderGrf : public SpriteLoader {
++	/** Container format of the GRF this sprite comes from: 1 (classic) or 2.
++	 * Per-sprite rather than global because a game can have a container v1
++	 * base set and container v2 NewGRFs loaded at the same time - which is in
++	 * fact the normal case for this port. */
++	byte container_ver;
+ public:
++	SpriteLoaderGrf(byte container_ver) : container_ver(container_ver) {}
++
+ 	/**
+ 	 * Load a sprite from the disk and return a sprite struct which is the same for all loaders.
+ 	 */
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/string_func.h b/string_func.h
 --- a/string_func.h	2010-10-27 22:15:18.000000000 +0200
 +++ b/string_func.h	2026-07-19 11:14:58.380076000 +0200

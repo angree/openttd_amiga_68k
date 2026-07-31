@@ -7,6 +7,10 @@
 /*
 
 !/.gitignore
+# Keeps *.sh at LF in the working tree despite core.autocrlf=true - a CRLF build
+# script is not executable under WSL and fails in a way that still looks like a
+# successful build.
+!/.gitattributes
 !/README.md
 !/BUILDING.md
 !/LICENSE

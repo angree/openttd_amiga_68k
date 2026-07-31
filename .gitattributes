@@ -1,0 +1,9 @@
+# core.autocrlf is true on this machine, which rewrites shell scripts to CRLF in
+# the working tree. The build scripts are executed by bash under WSL, where a
+# trailing \r is part of the token: the script then dies with
+#   line 44: $'\r': command not found
+#   line 49: cd: '/home/angree/build/openttd-1.0.5\r': No such file or directory
+# and nothing is built, while the log still looks like a build ran. That is how
+# build-with-ice-retry.sh was silently broken by an unrelated commit.
+*.sh text eol=lf
+*.py text eol=lf

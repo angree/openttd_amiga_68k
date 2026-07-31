@@ -44,7 +44,7 @@
 
 export PATH=/opt/amiga/bin:/usr/local/bin:/usr/bin:/bin
 TREE=/home/angree/build/openttd-1.0.5
-FORCE_O0="window.o cargotype.o order_cmd.o order_gui.o settings_gui.o rail_cmd.o signal.o sound/amiga_s.o misc_cmd.o"
+FORCE_O0="window.o cargotype.o order_cmd.o order_gui.o settings_gui.o rail_cmd.o signal.o sound/amiga_s.o misc_cmd.o roadveh_cmd.o"
 
 cd "$TREE" || exit 1
 

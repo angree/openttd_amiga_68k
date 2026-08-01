@@ -25,6 +25,13 @@ int AmigaMusic_ScanDir(const char *dir,
 		char paths[][AMIGA_MUSIC_PATH_MAX],
 		char names[][AMIGA_MUSIC_NAME_MAX], int max);
 
+
+/* Resolve PROGDIR: to a real AmigaDOS path ("Work:Games/OpenTTD"), or NULL.
+ * Used by the file layer so the game finds its own lang/ and data/ whatever
+ * the current directory happens to be - see the comment in the .c file.
+ */
+const char *AmigaProgDirPath(void);
+
 #ifdef __cplusplus
 }
 #endif

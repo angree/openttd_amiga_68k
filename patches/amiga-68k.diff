@@ -110,33 +110,34 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		_current_company = company;
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/articulated_vehicles.cpp b/articulated_vehicles.cpp
 --- a/articulated_vehicles.cpp	2010-02-14 17:31:35.000000000 +0100
-+++ b/articulated_vehicles.cpp	2026-07-31 08:53:54.667471200 +0200
-@@ -34,6 +34,24 @@
++++ b/articulated_vehicles.cpp	2026-08-01 00:44:51.911246700 +0200
+@@ -34,6 +34,25 @@
  {
  	assert(front == NULL || front->engine_type == front_type);
  
-+	/* AMIGA PORT: road vehicles are capped at TWO cars.
++	/* AMIGA PORT: no cap. The set says how many parts each vehicle has, and
++	 * that is what it gets.
 +	 *
-+	 * Modern tram sets offer units of up to three cars. Three does not fit the
-+	 * tile and was unnerving to drive; two still fits and is what this port
-+	 * allows. Capacity follows automatically - the game sums the parts it
-+	 * actually builds, so a two-car tram reports two cars' worth.
++	 * There used to be a two-car limit here, added when a three-car tram
++	 * overflowed the purchase list and when a consist could be advertised as
++	 * three cars and built as one. Both of those were fixed at their real
++	 * cause - the icon is clipped to its column now, and the length is a cargo
++	 * subtype the vehicle is built with - so the limit only did harm. It cut
++	 * fixed multi-section trams in half, leaving a coupler joined to nothing,
++	 * and it stopped the sets that offer a third length from ever reaching it.
 +	 *
-+	 * index is the part number, 1 being the first TRAILER, so allowing index 1
-+	 * and refusing 2 and up gives lead car + one trailer.
++	 * Read from the artwork, this set ranges from two parts (Ringhoffer,
++	 * Vienna) through three (Bombardier NGT8) to five (Stadler Vario); the
++	 * callback simply stops answering when a vehicle has no more. What limits
++	 * the REFIT menu is the part count, computed in BuildRefitList, so the menu
++	 * can never offer a length the vehicle has no car for.
 +	 *
-+	 * The guard sits HERE, in the one function every path goes through -
-+	 * counting, capacity, drawing and building alike. An earlier attempt put it
-+	 * in CountArticulatedParts and AddArticulatedParts, which cover only
-+	 * building, so the purchase list carried on exactly as before.
-+	 *
-+	 * Trains keep their full articulation; theirs works. */
-+	if (Engine::Get(front_type)->type == VEH_ROAD && index >= 2) return INVALID_ENGINE;
++	 * Trains were never capped; theirs works. */
 +
  	uint16 callback = GetVehicleCallback(CBID_VEHICLE_ARTIC_ENGINE, index, 0, front_type, front);
  	if (callback == CALLBACK_FAILED || GB(callback, 0, 8) == 0xFF) return INVALID_ENGINE;
  
-@@ -41,6 +59,19 @@
+@@ -41,6 +60,19 @@
  	return GetNewEngineID(GetEngineGRF(front_type), Engine::Get(front_type)->type, GB(callback, 0, 7));
  }
  
@@ -184,6 +185,22 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  /** All data of a music set. */
  struct MusicSet : BaseSet<MusicSet, NUM_SONGS_AVAILABLE, GM_DIR> {
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/build_vehicle_gui.cpp b/build_vehicle_gui.cpp
+--- a/build_vehicle_gui.cpp	2010-11-14 10:27:20.000000000 +0100
++++ b/build_vehicle_gui.cpp	2026-07-31 16:06:15.220384600 +0200
+@@ -697,7 +697,11 @@
+  */
+ void DrawEngineList(VehicleType type, int l, int r, int y, const GUIEngineList *eng_list, uint16 min, uint16 max, EngineID selected_id, bool show_count, GroupID selected_group)
+ {
+-	static const int sprite_widths[]  = { 60, 60, 76, 67 };
++	/* AMIGA PORT: road vehicles get 84 px, not 60. Tram sets draw a whole
++	 * multi-car unit in one purchase-list sprite; 84 is the width their
++	 * artwork actually needs (see MAX_ICON_PX in roadveh_cmd.cpp) and
++	 * reserving it here is what keeps the icon off the vehicle names. */
++	static const int sprite_widths[]  = { 60, 84, 76, 67 };
+ 	static const int sprite_y_offsets[] = { -1, -1, -2, -2 };
+ 
+ 	/* Obligatory sanity checks! */
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/command.cpp b/command.cpp
 --- a/command.cpp	2010-04-18 00:27:49.000000000 +0200
 +++ b/command.cpp	2026-07-23 14:31:31.126008600 +0200
@@ -264,27 +281,50 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	} else {
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/engine.cpp b/engine.cpp
 --- a/engine.cpp	2010-10-02 16:51:33.000000000 +0200
-+++ b/engine.cpp	2026-07-31 08:54:36.628187700 +0200
++++ b/engine.cpp	2026-07-31 15:34:43.087930000 +0200
 @@ -842,6 +842,15 @@
  
  	if (!e->CanCarryCargo()) return false;
  
-+	/* AMIGA PORT: road vehicles cannot be refitted.
++	/* AMIGA PORT: road vehicles CAN be refitted again.
 +	 *
-+	 * Modern tram sets use refit as a way to buy and sell extra trailers, not
-+	 * to change cargo - their own descriptions say so. This port caps a tram
-+	 * at two cars, so that mechanism has nothing to do here and would only
-+	 * offer the player a way back into the multi-car mess. Turning it off also
-+	 * removes a refit menu whose entries were never about cargo. */
-+	if (e->type == VEH_ROAD) return false;
++	 * This used to return false here. Tram sets do not use refit to change
++	 * cargo, they use it to choose the consist length - their cargo subtypes
++	 * read "short (single motor car)", "medium (motor car with trailer)",
++	 * "long (motor car with two trailers)" - and switching it off left every
++	 * tram pinned to subtype 0, the single car. See CmdBuildRoadVeh, which now
++	 * starts them on the two-car subtype. */
 +
  	const EngineInfo *ei = &e->info;
  	if (ei->refit_mask == 0) return false;
  
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/engine_type.h b/engine_type.h
+--- a/engine_type.h	2010-01-15 17:41:15.000000000 +0100
++++ b/engine_type.h	2026-07-31 15:05:46.577779200 +0200
+@@ -101,6 +101,7 @@
+ 	uint8 power;             ///< Power in 10hp units
+ 	uint8 tractive_effort;   ///< Coefficient of tractive effort
+ 	uint8 air_drag;          ///< Coefficient of air drag
++	byte shorten_factor;     ///< length on the map is 8 - shorten_factor
+ };
+ 
+ /** Information about a vehicle
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/fileio.cpp b/fileio.cpp
 --- a/fileio.cpp	2010-07-17 13:45:42.000000000 +0200
-+++ b/fileio.cpp	2026-07-20 01:45:09.685159700 +0200
-@@ -22,11 +22,13 @@
++++ b/fileio.cpp	2026-08-01 15:27:31.685501300 +0200
+@@ -11,6 +11,11 @@
+ 
+ #include "stdafx.h"
+ #include "fileio_func.h"
++
++#if defined(__AMIGA__)
++/* PROGDIR: resolver - plain C, the one file allowed <proto/dos.h>. */
++#include "music/amiga_mscan.h"
++#endif
+ #include "variables.h"
+ #include "debug.h"
+ #include "fios.h"
+@@ -22,11 +27,13 @@
  #include <Path.h>
  #include <storage/FindDirectory.h>
  #else
@@ -299,7 +339,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  #include <sys/stat.h>
  #include <algorithm>
  
-@@ -431,7 +433,7 @@
+@@ -431,7 +438,7 @@
  	CreateDirectory(OTTD2FS(name), NULL);
  #elif defined(OS2) && !defined(__INNOTEK_LIBC__)
  	mkdir(OTTD2FS(name));
@@ -308,6 +348,52 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	char buf[MAX_PATH];
  	ttd_strlcpy(buf, name, MAX_PATH);
  
+@@ -952,11 +959,45 @@
+ 
+ 	_do_scan_working_directory = DoScanWorkingDirectory();
+ 
++#if defined(__AMIGA__)
++	/* AMIGA PORT: ask AmigaOS where the program lives, do not guess from argv[0].
++	 *
++	 * On Amiga this is the ONLY search path there is - SP_WORKING_DIR,
++	 * SP_PERSONAL_DIR, SP_SHARED_DIR and SP_INSTALLATION_DIR are all NULL
++	 * above - so if it is wrong the game finds no lang/ and dies at startup
++	 * with "No available language packs (invalid versions?)".
++	 *
++	 * And it WAS wrong. ChangeWorkingDirectory() takes argv[0], looks for the
++	 * last PATHSEPCHAR and chdir()s to what is in front of it. An AmigaDOS
++	 * path has no '/' in it at all when the program sits in a volume root -
++	 * "Work:openttd" - so strrchr() returns NULL, nothing is changed, and the
++	 * "binary directory" ends up being whatever the current directory happened
++	 * to be. Started from a Shell sitting anywhere else, or from a script that
++	 * does not CD first, the game cannot find its own files. Our own run script
++	 * does `CD Work:` before launching, which is exactly why this never showed
++	 * up in testing and only ever appeared in user reports.
++	 *
++	 * PROGDIR: is the assign AmigaOS gives every launched program, pointing at
++	 * the drawer the executable came from. The music scanner already resolves
++	 * it for the same reason. Resolved here to a real path so the trailing
++	 * separator logic below behaves as it does everywhere else. */
++	{
++		const char *progdir = AmigaProgDirPath();
++		if (progdir != NULL && *progdir != '\0') {
++			strecpy(tmp, progdir, lastof(tmp));
++		} else {
++			if (getcwd(tmp, MAX_PATH) == NULL) *tmp = '\0';
++		}
++	}
++	AppendPathSeparator(tmp, MAX_PATH);
++	_searchpaths[SP_BINARY_DIR] = strdup(tmp);
++#else
+ 	/* Change the working directory to that one of the executable */
+ 	ChangeWorkingDirectory(exe);
+ 	if (getcwd(tmp, MAX_PATH) == NULL) *tmp = '\0';
+ 	AppendPathSeparator(tmp, MAX_PATH);
+ 	_searchpaths[SP_BINARY_DIR] = strdup(tmp);
++#endif
+ 
+ 	if (_searchpaths[SP_WORKING_DIR] != NULL) {
+ 		/* Go back to the current working directory. */
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/fios.cpp b/fios.cpp
 --- a/fios.cpp	2009-10-04 19:16:41.000000000 +0200
 +++ b/fios.cpp	2026-07-20 01:45:09.685159700 +0200
@@ -2984,7 +3070,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  #endif /* NETWORK_UDP_H */
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/newgrf.cpp b/newgrf.cpp
 --- a/newgrf.cpp	2010-11-14 10:31:31.000000000 +0100
-+++ b/newgrf.cpp	2026-07-29 15:30:46.353738800 +0200
++++ b/newgrf.cpp	2026-07-31 15:05:46.578778500 +0200
 @@ -69,6 +69,12 @@
  static GRFFile *_cur_grffile;
  static SpriteID _cur_spriteid;
@@ -3024,7 +3110,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  						grfmsg(1, "RailVehicleChangeInfo: Invalid track type %d specified, ignoring", tracktype);
  						break;
  				}
-@@ -875,6 +898,42 @@
+@@ -875,6 +898,41 @@
  				AlterVehicleListOrder(e->index, buf->ReadExtended());
  				break;
  
@@ -3060,14 +3146,13 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +				break;
 +
 +			case 0x23: // Shorter vehicle
-+				/* Road vehicles have no length in this build. */
-+				buf->ReadByte();
++				rvi->shorten_factor = buf->ReadByte();
 +				break;
 +
  			default:
  				ret = CommonVehicleChangeInfo(ei, prop, buf);
  				break;
-@@ -989,6 +1048,29 @@
+@@ -989,6 +1047,29 @@
  				AlterVehicleListOrder(e->index, buf->ReadExtended());
  				break;
  
@@ -3097,7 +3182,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  			default:
  				ret = CommonVehicleChangeInfo(ei, prop, buf);
  				break;
-@@ -1099,6 +1181,28 @@
+@@ -1099,6 +1180,28 @@
  				AlterVehicleListOrder(e->index, buf->ReadExtended());
  				break;
  
@@ -3126,7 +3211,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  			default:
  				ret = CommonVehicleChangeInfo(ei, prop, buf);
  				break;
-@@ -1862,6 +1966,24 @@
+@@ -1862,6 +1965,24 @@
  				buf->Skip(4);
  				break;
  
@@ -3151,7 +3236,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  			default:
  				ret = CIR_UNKNOWN;
  				break;
-@@ -1938,6 +2060,24 @@
+@@ -1938,6 +2059,24 @@
  				break;
  			}
  
@@ -3176,7 +3261,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  			default:
  				ret = CIR_UNKNOWN;
  				break;
-@@ -2048,7 +2188,15 @@
+@@ -2048,7 +2187,15 @@
  					case 0x05: cs->town_effect = TE_GOODS; break;
  					case 0x09: cs->town_effect = TE_WATER; break;
  					case 0x0B: cs->town_effect = TE_FOOD; break;
@@ -3193,7 +3278,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  						grfmsg(1, "CargoChangeInfo: Unknown town growth substitute value %d, setting to none.", substitute_type);
  					case 0xFF: cs->town_effect = TE_NONE; break;
  				}
-@@ -3002,7 +3150,7 @@
+@@ -3002,7 +3149,7 @@
  
  	for (int i = 0; i < num_sets * num_ents; i++) {
  		_nfo_line++;
@@ -3202,7 +3287,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	}
  }
  
-@@ -3804,6 +3952,27 @@
+@@ -3804,6 +3951,27 @@
  }
  
  /* Action 0x04 */
@@ -3230,7 +3315,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  static void FeatureNewName(ByteReader *buf)
  {
  	/* <04> <veh-type> <language-id> <num-veh> <offset> <data...>
-@@ -3852,16 +4021,19 @@
+@@ -3852,16 +4020,19 @@
  			case GSF_TRAIN:
  			case GSF_ROAD:
  			case GSF_SHIP:
@@ -3253,7 +3338,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  			case GSF_INDUSTRIES: {
  				AddGRFString(_cur_grffile->grfid, id, lang, new_scheme, name, STR_UNDEFINED);
-@@ -4019,16 +4191,16 @@
+@@ -4019,16 +4190,16 @@
  		/* Special not-TTDP-compatible case used in openttd(d/w).grf
  		 * Missing shore sprites and initialisation of SPR_SHORE_BASE */
  		grfmsg(2, "GraphicsNew: Loading 10 missing shore sprites from openttd(d/w).grf.");
@@ -3280,7 +3365,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		if (_loaded_newgrf_features.shore == SHORE_REPLACE_NONE) _loaded_newgrf_features.shore = SHORE_REPLACE_ONLY_NEW;
  		return;
  	}
-@@ -4065,7 +4237,7 @@
+@@ -4065,7 +4236,7 @@
  
  	for (; num > 0; num--) {
  		_nfo_line++;
@@ -3289,7 +3374,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	}
  
  	if (type == 0x0D) _loaded_newgrf_features.shore = SHORE_REPLACE_ACTION_5;
-@@ -4651,7 +4823,7 @@
+@@ -4651,7 +4822,7 @@
  		for (uint j = 0; j < num_sprites; j++) {
  			int load_index = first_sprite + j;
  			_nfo_line++;
@@ -3298,7 +3383,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  			/* Shore sprites now located at different addresses.
  			 * So detect when the old ones get replaced. */
-@@ -5568,7 +5740,7 @@
+@@ -5568,7 +5739,7 @@
  		for (uint c = 0; c < num_char; c++) {
  			SetUnicodeGlyph(size, base_char + c, _cur_spriteid);
  			_nfo_line++;
@@ -3307,7 +3392,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		}
  	}
  }
-@@ -6464,10 +6636,40 @@
+@@ -6464,10 +6635,40 @@
  }
  
  
@@ -3349,7 +3434,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  	/* A .grf file is activated only if it was active when the game was
  	 * started.  If a game is loaded, only its active .grfs will be
-@@ -6501,10 +6703,37 @@
+@@ -6501,10 +6702,37 @@
  
  	DEBUG(grf, 2, "LoadNewGRFFile: Reading NewGRF-file '%s'", filename);
  
@@ -3388,7 +3473,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		FioReadDword();
  	} else {
  		DEBUG(grf, 7, "LoadNewGRFFile: Custom .grf has invalid format");
-@@ -6516,7 +6745,7 @@
+@@ -6516,7 +6744,7 @@
  
  	ReusableBuffer<byte> buf;
  
@@ -3397,7 +3482,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		byte type = FioReadByte();
  		_nfo_line++;
  
-@@ -6532,7 +6761,7 @@
+@@ -6532,7 +6760,7 @@
  				FioSkipBytes(num);
  			}
  		} else {
@@ -3406,7 +3491,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  				grfmsg(0, "LoadNewGRFFile: Unexpected sprite, disabling");
  				config->status = GCS_DISABLED;
  				delete config->error;
-@@ -6540,8 +6769,14 @@
+@@ -6540,8 +6768,14 @@
  				break;
  			}
  
@@ -3423,6 +3508,17 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		}
  
  		if (_skip_sprites > 0) _skip_sprites--;
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/newgrf_properties.h b/newgrf_properties.h
+--- a/newgrf_properties.h	2010-02-24 00:26:37.000000000 +0100
++++ b/newgrf_properties.h	2026-07-31 15:05:46.577779200 +0200
+@@ -30,6 +30,7 @@
+ 	PROP_ROADVEH_RUNNING_COST_FACTOR            = 0x09, ///< Yearly runningcost
+ 	PROP_ROADVEH_CARGO_CAPACITY                 = 0x0F, ///< Capacity
+ 	PROP_ROADVEH_COST_FACTOR                    = 0x11, ///< Purchase cost
++	PROP_ROADVEH_SHORTEN_FACTOR                 = 0x23, ///< Shorter vehicle
+ 
+ 	PROP_SHIP_COST_FACTOR                       = 0x0A, ///< Purchase cost
+ 	PROP_SHIP_SPEED                             = 0x0B, ///< Max. speed: 1 unit = 1/3.2 mph = 0.5 km-ish/h
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/news_type.h b/news_type.h
 --- a/news_type.h	2010-02-12 17:42:29.000000000 +0100
 +++ b/news_type.h	2026-07-20 12:44:29.045714100 +0200
@@ -3726,8 +3822,8 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		if (ret.Failed()) {
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/rev.cpp b/rev.cpp
 --- a/rev.cpp	1970-01-01 01:00:00.000000000 +0100
-+++ b/rev.cpp	2026-07-27 17:04:15.558630600 +0200
-@@ -0,0 +1,71 @@
++++ b/rev.cpp	2026-08-01 12:07:21.651671000 +0200
+@@ -0,0 +1,76 @@
 +/* $Id: rev.cpp.in 21279 2010-11-20 20:25:53Z rubidium $ */
 +
 +/*
@@ -3758,7 +3854,12 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 + * norev000 is for non-releases that are made on systems without
 + * subversion or sources that are not a checkout of subversion.
 + */
-+const char _openttd_revision[] = "1.0.5" " / AmiTTD " AMIGA_TTD_VERSION " - port by G. Korycki + Claude";
++/* AMIGA PORT: the port version leads - see the same comment in rev.cpp.
++ * Multiplayer compares only the first 14 characters of this string, so the
++ * version has to be inside them or releases with different content accept
++ * each other. Keep this file and rev.cpp in step: the PC tree regenerates
++ * rev.cpp from here, the Amiga tree never runs configure and keeps its own. */
++const char _openttd_revision[] = "AmiTTD " AMIGA_TTD_VERSION " / OpenTTD 1.0.5 - port by G. Korycki + Claude";
 +
 +/**
 + * The text version of OpenTTD's build date.
@@ -3797,11 +3898,11 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +/**
 + * Variable used by MorphOS to show the version.
 + */
-+extern const char morphos_versions_tag[] = "$VER: OpenTTD 1.0.5 (27.07.26) OpenTTD Team [MorphOS, PowerPC]";
++extern const char morphos_versions_tag[] = "$VER: OpenTTD 1.0.5 (01.08.26) OpenTTD Team [MorphOS, PowerPC]";
 +#endif
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/rev.cpp.in b/rev.cpp.in
 --- a/rev.cpp.in	2010-11-20 21:25:53.000000000 +0100
-+++ b/rev.cpp.in	2026-07-23 20:25:38.679546800 +0200
++++ b/rev.cpp.in	2026-08-01 12:06:30.842615300 +0200
 @@ -11,6 +11,7 @@
  
  #include "stdafx.h"
@@ -3810,18 +3911,23 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  /**
   * The text version of OpenTTD's revision.
-@@ -27,7 +28,7 @@
+@@ -27,7 +28,12 @@
   * norev000 is for non-releases that are made on systems without
   * subversion or sources that are not a checkout of subversion.
   */
 -const char _openttd_revision[] = "1.0.5";
-+const char _openttd_revision[] = "1.0.5" " / AmiTTD " AMIGA_TTD_VERSION " - port by G. Korycki + Claude";
++/* AMIGA PORT: the port version leads - see the same comment in rev.cpp.
++ * Multiplayer compares only the first 14 characters of this string, so the
++ * version has to be inside them or releases with different content accept
++ * each other. Keep this file and rev.cpp in step: the PC tree regenerates
++ * rev.cpp from here, the Amiga tree never runs configure and keeps its own. */
++const char _openttd_revision[] = "AmiTTD " AMIGA_TTD_VERSION " / OpenTTD 1.0.5 - port by G. Korycki + Claude";
  
  /**
   * The text version of OpenTTD's build date.
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/roadveh_cmd.cpp b/roadveh_cmd.cpp
 --- a/roadveh_cmd.cpp	2010-07-08 21:52:28.000000000 +0200
-+++ b/roadveh_cmd.cpp	2026-07-31 10:10:07.939427800 +0200
++++ b/roadveh_cmd.cpp	2026-08-01 07:32:30.602753900 +0200
 @@ -10,6 +10,7 @@
  /** @file roadveh_cmd.cpp Handling of road vehicles. */
  
@@ -3830,7 +3936,15 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  #include "landscape.h"
  #include "roadveh.h"
  #include "command_func.h"
-@@ -149,6 +150,47 @@
+@@ -19,6 +20,7 @@
+ #include "company_func.h"
+ #include "vehicle_gui.h"
+ #include "articulated_vehicles.h"
++#include "newgrf.h"
+ #include "newgrf_engine.h"
+ #include "newgrf_sound.h"
+ #include "pathfinder/yapf/yapf.h"
+@@ -149,18 +151,93 @@
  {
  	SpriteID sprite = GetRoadVehIcon(engine);
  	const Sprite *real_sprite = GetSprite(sprite, ST_NORMAL);
@@ -3849,15 +3963,25 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +	 * simply is that wide - so the fix is to clip. The icon is drawn
 +	 * left-aligned into a temporary drawing area the width of the column, so
 +	 * a long unit shows its front end and stops at the column edge. */
-+	/* One car, and no more. Measured from the artwork: the multi-unit images in
-+	 * these sets are 102x15 for three cars and 55x15 for two, i.e. about 34
-+	 * pixels of sprite per car. Anything wider than one car is cut to the front
-+	 * car, so every row of the list shows one vehicle of a consistent size -
-+	 * which is what the built-in vehicles look like and what the column was
-+	 * laid out for. */
-+	/* 56, not 72: two cars of artwork is 68 px and that still reached into the
-+	 * names on this screen. Trimmed by the 16 px the overlap actually was. */
-+	static const int MAX_ICON_PX = 56;
++	/* 84, and the number is measured, not chosen. Every purchase-list strip in
++	 * these sets is laid out the same way: the cars first, then a gap, then a
++	 * crate standing for the cargo. Scanning the artwork column by column, the
++	 * cars end by pixel 82 in the widest strip and the crate never starts before
++	 * 86 - so a cut at 84 drops the crate and cannot fall inside a car.
++	 *
++	 * The previous 56 was picked to keep the icon out of the vehicle names, and
++	 * it did, but it cut straight through a tram body. What that exposes is the
++	 * dark underframe and window band, which reads as a black block stuck to the
++	 * back of the car - and it also made the gap to the next car look wrong. The
++	 * names are safe a different way now: sprite_widths[VEH_ROAD] in
++	 * build_vehicle_gui.cpp reserves the same 84 px, so the text starts after
++	 * the icon instead of underneath it.
++	 *
++	 * Consequence worth knowing: a set whose strip holds three cars now shows
++	 * three, while this port builds two. The icon is the set's own artwork for
++	 * the type, not a picture of the consist, and showing it whole beats
++	 * chopping it. */
++	static const int MAX_ICON_PX = 84;
 +
 +	int avail = right - left + 1;
 +	if (avail > MAX_ICON_PX) avail = MAX_ICON_PX;
@@ -3878,7 +4002,115 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	preferred_x = Clamp(preferred_x, left - real_sprite->x_offs, right - real_sprite->width - real_sprite->x_offs);
  	DrawSprite(sprite, pal, preferred_x, y);
  }
-@@ -969,18 +1011,33 @@
+ 
+ static uint GetRoadVehLength(const RoadVehicle *v)
+ {
++	/* AMIGA PORT: road vehicles DO have a length here.
++	 *
++	 * This used to ask callback 11 and nothing else, and 1.0.5 threw away
++	 * Action 0 property 0x23 ("shorter vehicle") for road vehicles entirely -
++	 * the reader consumed the byte and dropped it. Every road vehicle was
++	 * therefore a full 8/8 unit long. That is invisible on a bus, but a tram
++	 * set builds multi-car units out of articulated parts and spaces them by
++	 * exactly this length: a Tatra K2 declares 3/8 shorter, got 8/8, and its
++	 * two halves ended up a third of a car too far apart, with the ground
++	 * showing through the joint.
++	 *
++	 * Trains in this build already honour their own 0x21 the same way; this
++	 * only gives road vehicles the equivalent. Sets that say nothing keep
++	 * shorten_factor 0 and are unaffected.
++	 *
++	 * grf_version 8 moved the value from callback 11 to callback 36 asking for
++	 * the property, which is what modern sets implement - so try that first
++	 * for them, and fall back to the property's plain value. Taken from
++	 * OpenTTD 1.2.0's GetRoadVehLength. */
++	const Engine *e = Engine::Get(v->engine_type);
+ 	uint length = 8;
+ 
+-	uint16 veh_len = GetVehicleCallback(CBID_VEHICLE_LENGTH, 0, 0, v->engine_type, v);
+-	if (veh_len != CALLBACK_FAILED) {
+-		length -= Clamp(veh_len, 0, 7);
++	uint16 veh_len = CALLBACK_FAILED;
++	if (e->grffile != NULL && e->grffile->grf_version >= 8) {
++		veh_len = GetVehicleProperty(v, PROP_ROADVEH_SHORTEN_FACTOR, CALLBACK_FAILED);
++	} else {
++		veh_len = GetVehicleCallback(CBID_VEHICLE_LENGTH, 0, 0, v->engine_type, v);
+ 	}
++	if (veh_len == CALLBACK_FAILED) veh_len = e->u.road.shorten_factor;
++	if (veh_len != 0) length -= Clamp(veh_len, 0, 7);
+ 
+ 	return length;
+ }
+@@ -278,15 +355,68 @@
+ 
+ 		if (e->flags & ENGINE_EXCLUSIVE_PREVIEW) SetBit(v->vehicle_flags, VF_BUILT_AS_PROTOTYPE);
+ 
++		/* AMIGA PORT: a tram is built as ONE car and grows by refit.
++		 *
++		 * These sets express consist length as a cargo subtype: 0 is "short
++		 * (single motor car)", 1 is "medium (motor car with trailer)". Building
++		 * on subtype 0 is what the purchase list quotes and prices, so that is
++		 * what the player gets; the second car is bought afterwards in the
++		 * refit menu, and paid for there.
++		 *
++		 * The articulated part is still created either way - it has to exist
++		 * before refit can turn it on, because neither this build nor upstream
++		 * OpenTTD adds vehicles to a consist during a refit. At subtype 0 it
++		 * simply carries and draws nothing. */
+ 		AddArticulatedParts(v);
+ 		v->InvalidateNewGRFCacheOfChain();
+ 
+ 		/* Call various callbacks after the whole consist has been constructed */
+ 		for (RoadVehicle *u = v; u != NULL; u = u->Next()) {
++			/* AMIGA PORT: every part carries the same subtype, not just the front.
++			 *
++			 * The subtype IS the consist length for these sets, and each part
++			 * reads its OWN when it picks a sprite. Setting it on the front
++			 * alone left the trailer on subtype 0, "short (single motor car)" -
++			 * a trailer told it is not there, which drew as a stub with the
++			 * ground showing through. That is why refitting by hand worked
++			 * while building did not: CmdRefitVehicle walks the whole chain. */
++			u->cargo_subtype = v->cargo_subtype;
+ 			u->cargo_cap = GetVehicleCapacity(u);
+ 			v->InvalidateNewGRFCache();
+ 			u->InvalidateNewGRFCache();
+ 		}
++		/* AMIGA PORT: a vehicle with no refit menu is built at its longest.
++		 *
++		 * Some of these trams are fixed multi-section units - no cargo suffix
++		 * callback, so nothing for the player to choose - and yet the set still
++		 * keys their SHAPE on the cargo subtype. The Stadler Vario is the case:
++		 * "3 or 5 sections" in its own description, and the group that answers
++		 * property 0x23 dispatches on var 0xF2, the subtype.
++		 *
++		 * The part COUNT is the same either way - five - so an earlier attempt
++		 * that probed for the most parts found nothing. What changes is the
++		 * per-part LENGTH: on subtype 0 the last two parts come back as 1/8
++		 * each and collapse under their neighbours, so a five-piece tram drew
++		 * as three. Measured: shorten factors 5,4,5,7,7 against 5,4,5,4,5.
++		 *
++		 * So probe by total length, which is what actually differs, and only
++		 * for vehicles the player cannot configure - where there IS a refit
++		 * menu the choice is theirs and the vehicle starts short. */
++		if (HasBit(e->info.callback_mask, CBM_VEHICLE_ARTIC_ENGINE) &&
++				!HasBit(e->info.callback_mask, CBM_VEHICLE_CARGO_SUFFIX) && v->Next() != NULL) {
++			byte best_subtype = v->cargo_subtype;
++			uint best_length = 0;
++			for (uint st = 0; st < 4; st++) {
++				for (RoadVehicle *u = v; u != NULL; u = u->Next()) u->cargo_subtype = st;
++				v->InvalidateNewGRFCacheOfChain();
++				uint total = 0;
++				for (RoadVehicle *u = v; u != NULL; u = u->Next()) total += GetRoadVehLength(u);
++				if (total > best_length) { best_length = total; best_subtype = st; }
++			}
++			for (RoadVehicle *u = v; u != NULL; u = u->Next()) u->cargo_subtype = best_subtype;
++			v->InvalidateNewGRFCacheOfChain();
++		}
++
+ 		RoadVehUpdateCache(v);
+ 
+ 		VehicleMove(v, false);
+@@ -969,18 +1099,33 @@
  	}
  
  	if (v->reverse_ctr != 0) {
@@ -3921,7 +4153,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  				return_track(_road_reverse_table[enterdir]);
  			}
  		}
-@@ -1244,7 +1301,29 @@
+@@ -1244,7 +1389,29 @@
  					 *   going to cause the tram to split up.
  					 * - Or the front of the tram can drive over the next tile.
  					 */
@@ -3952,7 +4184,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  					/*
  					 * Taking the 'small' corner for trams only happens when:
  					 * - We are not the from vehicle of an articulated tram.
-@@ -1259,9 +1338,14 @@
+@@ -1259,9 +1426,14 @@
  					tile = v->tile;
  					start_frame = RVC_TURN_AROUND_START_FRAME_SHORT_TRAM;
  				} else {
@@ -3970,7 +4202,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  				}
  			} else if (IsNormalRoadTile(v->tile) && GetDisallowedRoadDirections(v->tile) != DRD_NONE) {
  				v->cur_speed = 0;
-@@ -1535,6 +1619,8 @@
+@@ -1535,6 +1707,8 @@
  
  static bool RoadVehController(RoadVehicle *v)
  {
@@ -3979,7 +4211,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	/* decrease counters */
  	v->tick_counter++;
  	v->current_order_time++;
-@@ -1614,6 +1700,9 @@
+@@ -1614,6 +1788,9 @@
  
  bool RoadVehicle::Tick()
  {
@@ -3991,8 +4223,47 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		return RoadVehController(this);
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/saveload/afterload.cpp b/saveload/afterload.cpp
 --- a/saveload/afterload.cpp	2010-10-02 16:51:33.000000000 +0200
-+++ b/saveload/afterload.cpp	2026-07-23 20:51:24.726096400 +0200
-@@ -608,7 +608,15 @@
++++ b/saveload/afterload.cpp	2026-07-31 20:34:58.791934600 +0200
+@@ -264,7 +264,15 @@
+ 
+ 	CheckTrainsLengths();
+ 	ShowNewGRFError();
+-	ShowAIDebugWindowIfAIError();
++	/* AMIGA PORT: no AI debug window on load.
++	 *
++	 * This opens whenever a company's Squirrel AI is dead - which it always is
++	 * here, because the savegame names an AI script that this build does not
++	 * carry and the framework substitutes a dummy that immediately stops. The
++	 * window it opens is a Squirrel script debugger; this port's computer
++	 * players are the native C++ AI in ai_old/, which it cannot show anything
++	 * about. So it was a window that appeared on every single load and had
++	 * nothing to say. */
+ }
+ 
+ typedef void (CDECL *SignalHandlerPointer)(int);
+@@ -564,7 +572,20 @@
+ 	}
+ 
+ 	switch (gcf_res) {
+-		case GLC_COMPATIBLE: _switch_mode_errorstr = STR_NEWGRF_COMPATIBLE_LOAD_WARNING; break;
++		/* AMIGA PORT: GLC_COMPATIBLE raises no popup here.
++		 *
++		 * "Compatible" means a NewGRF with the same GRF ID but a different
++		 * checksum was loaded in place of the one the savegame recorded. For a
++		 * set the player installed themselves that is worth a warning. For the
++		 * tram set this port SHIPS it is the normal state of affairs: every
++		 * time the set is corrected the checksum moves, and every existing save
++		 * then opens with a red box that the player can do nothing about and
++		 * that says nothing they need to act on.
++		 *
++		 * The flag itself is untouched, so the NewGRF window still marks the
++		 * file as compatible-loaded, and a genuinely MISSING NewGRF still
++		 * warns and pauses below - that one the player must act on. */
++		case GLC_COMPATIBLE: break;
+ 		case GLC_NOT_FOUND:  _switch_mode_errorstr = STR_NEWGRF_DISABLED_WARNING; _pause_mode = PM_PAUSED_ERROR; break;
+ 		default: break;
+ 	}
+@@ -608,7 +629,15 @@
  	{
  		Company *c;
  		FOR_ALL_COMPANIES(c) {
@@ -5281,6 +5552,70 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	FreeHeightMap();
  	GenerateWorldSetAbortCallback(NULL);
  }
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/vehicle_cmd.cpp b/vehicle_cmd.cpp
+--- a/vehicle_cmd.cpp	2010-07-08 21:39:20.000000000 +0200
++++ b/vehicle_cmd.cpp	2026-07-31 16:13:46.448272300 +0200
+@@ -304,6 +304,33 @@
+ 
+ 		if (new_cid != v->cargo_type) {
+ 			cost.AddCost(GetRefitCost(v->engine_type));
++		} else if (v->type == VEH_ROAD && v->cargo_cap != amount) {
++			/* AMIGA PORT: a subtype-only refit is free upstream, and here it is not.
++			 *
++			 * Stock OpenTTD charges nothing when the cargo TYPE does not change,
++			 * which is right for subtypes that pick a livery. Tram sets use the
++			 * subtype to pick the consist length instead - "short (single motor
++			 * car)" versus "medium (motor car with trailer)" - so a free refit
++			 * means a free tram car, and going back gives nothing for the car
++			 * you just scrapped.
++			 *
++			 * Priced off the capacity that actually appears or disappears,
++			 * measured in whole cars: one car's worth of capacity costs one
++			 * car. Selling one back returns half, the same rough deal as
++			 * selling any used vehicle rather than its list price.
++			 *
++			 * Only road vehicles, and only when the cargo type is unchanged, so
++			 * ordinary refitting and the clone/autoreplace paths are untouched. */
++			/* One car's worth, straight from Action 0. NOT
++			 * GetDisplayDefaultCapacity(), which runs the set's callbacks and
++			 * came back as half this - every refit was then billed for two
++			 * cars instead of one. */
++			uint per_car = e->u.road.capacity;
++			if (per_car > 0) {
++				int delta = (int)amount - (int)v->cargo_cap;
++				Money car_price = e->GetCost();
++				cost.AddCost(car_price * delta / (int)per_car);
++			}
+ 		}
+ 
+ 		if (flags & DC_EXEC) {
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/vehicle_gui.cpp b/vehicle_gui.cpp
+--- a/vehicle_gui.cpp	2010-10-27 22:15:18.000000000 +0200
++++ b/vehicle_gui.cpp	2026-07-31 20:32:56.443635700 +0200
+@@ -272,7 +272,22 @@
+ 
+ 				u->cargo_type = cid;
+ 
+-				for (uint refit_cyc = 0; refit_cyc < MAX_REFIT_CYCLE; refit_cyc++) {
++				/* AMIGA PORT: a road vehicle is offered one length per car.
++				 *
++				 * For tram sets the subtype IS the consist length - "short
++				 * (single motor car)", "medium (motor car with trailer)",
++				 * "long (motor car with two trailers)" - and a vehicle only has
++				 * as many lengths as it has parts to fill. Offering more would
++				 * promise a car that never gets built and charge capacity for
++				 * it; a Ringhoffer has two parts and must stop at "medium".
++				 *
++				 * Sets that use the subtype for real cargo variants on road
++				 * vehicles would lose entries here; none does, and the tram
++				 * sets this port targets all use it for length. */
++				uint max_cyc = MAX_REFIT_CYCLE;
++				if (u->type == VEH_ROAD) max_cyc = 1 + CountArticulatedParts(u->engine_type, false);
++
++				for (uint refit_cyc = 0; refit_cyc < max_cyc; refit_cyc++) {
+ 					u->cargo_subtype = refit_cyc;
+ 
+ 					/* Make sure we don't pick up anything cached. */
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/video/dedicated_v.cpp b/video/dedicated_v.cpp
 --- a/video/dedicated_v.cpp	2010-10-02 16:34:00.000000000 +0200
 +++ b/video/dedicated_v.cpp	2026-07-24 21:35:58.261694900 +0200

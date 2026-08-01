@@ -131,3 +131,13 @@ Thumbs.db
 # the real OpenTTD font glyphs out of, and we do not ship grf files - so the
 # generated file itself has to be published for the port to build and run.
 !/splash.dat
+
+# The tram set we ship, and the source of our changes to it. It is a MODIFIED
+# GPL v2 work by other authors, so the corresponding source has to be available:
+# retram.py is the complete, scripted transformation and poltrams-original.grf
+# is what it transforms. Must come after the "*.grf" rule above to win.
+!/newgrf/
+!/newgrf/*.md
+!/newgrf/*.grf
+!/newgrf/tools/
+!/newgrf/tools/*.py

@@ -97,3 +97,31 @@ int AmigaMusic_ScanDir(const char *dir,
 	UnLock(lock);
 	return count;
 }
+
+/* Resolve PROGDIR: to a real AmigaDOS path, e.g. "Work:Games/OpenTTD".
+ *
+ * It lives here because this is the one plain-C file in the port that may
+ * include <proto/dos.h> - the C++ side cannot, the OTTD_Point collision
+ * documented in amiga_m.cpp is why. The caller is fileio.cpp, which needs it
+ * to find lang/, data/ and openttd.cfg no matter what the current directory
+ * is when the game is started.
+ *
+ * Returns NULL if PROGDIR: cannot be resolved, so the caller can fall back.
+ */
+const char *AmigaProgDirPath(void)
+{
+	static char buf[AMIGA_MUSIC_PATH_MAX];
+	static int resolved = 0;
+
+	if (!resolved) {
+		BPTR lock = Lock("PROGDIR:", ACCESS_READ);
+		buf[0] = '\0';
+		if (lock != 0) {
+			if (!NameFromLock(lock, buf, (LONG)sizeof(buf))) buf[0] = '\0';
+			UnLock(lock);
+		}
+		resolved = 1;
+	}
+
+	return (buf[0] != '\0') ? buf : 0;
+}

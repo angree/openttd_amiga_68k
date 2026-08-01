@@ -47,6 +47,19 @@ there is no screen mode to pick, since the window inherits the Workbench's.
 
 ![OpenTTD running in a window on the Workbench](screenshots/window-mode-workbench.png)
 
+**NewGRF** sets load since 1.2.0, and with them the first new vehicle type this
+port has had: **trams**. OpenTTD 1.0.5 reads GRF container v1 only, and
+everything published since 2012 uses container v2 — which is why modern sets
+came back as "invalid NewGRF" regardless of what was in them. The v2 reader is
+backported (8bpp, zoom 0), together with the Action 0 properties GRFv8 sets
+rely on. Switchable in Advanced Settings → Amiga → *NewGRF*, default on; turning
+it off skips the scan and saves the memory a set costs (~136 KB for a small
+one). Action 14 is not implemented, so a set's parameters must be written into
+`openttd.cfg` by hand.
+
+A tram set ships with the release, so the tram tools are on the road toolbar
+from the first game.
+
 **If it runs too slowly, use a lores mode** — it converts a quarter of the pixels
 of `640x480` and is not interlaced. On an 030, lores is the only playable
 configuration, and even then generate a small map.
@@ -109,6 +122,10 @@ corrupts data above `-O0`.
 - Chunky-to-planar by Mikael Kalms, public domain —
   <https://github.com/Kalmalyzer/kalms-c2p>
 - OpenGFX / OpenSFX by the OpenTTD community
+- Tram set: **PolTrams** by Sojita, Voyager One (graphics) and McZapkie (NML
+  code, graphics), GPL v2 — shipped in a modified form (vehicles renamed to
+  their non-Polish equivalents, freight trams reduced to one cargo). The
+  modification is noted in the set's own description in the NewGRF window.
 - bebbo's amiga-gcc — <https://github.com/bebbo/amiga-gcc>
 
 ## Licence

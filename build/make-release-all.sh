@@ -45,7 +45,7 @@ SEVENZIP="/c/Program Files/7-Zip/7z.exe"
 BINVER=$(python -c "
 import sys
 d = open(sys.argv[1], 'rb').read()
-i = d.find(b'1.0.5 / AmiTTD ')
+i = d.find(b'AmiTTD ')
 print(d[i:d.find(bytes([0]), i)].decode('latin-1') if i >= 0 else '')
 " "$SRC/openttd")
 echo "amiga binary reports: ${BINVER:-<none>}"

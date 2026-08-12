@@ -39,6 +39,36 @@ WAV="$REPO/WAV"
 SEVENZIP="/c/Program Files/7-Zip/7z.exe"
 [ -x "$SEVENZIP" ] || { echo "FATAL: need 7-Zip (never Compress-Archive: it writes backslashes)"; exit 1; }
 
+# --- Original Transport Tycoon Deluxe data must NEVER be redistributed. -------
+# This shipped for real: AmiTTD-PC/data/ held sample.cat (the original TTD sound
+# file, 1608618 bytes) because someone copied a whole data drawer from an
+# installation that had the game, and it went out in the v1.1.1 and v1.2.0 PC
+# archives. Nothing detected it - the script happily packed whatever was there.
+# We ship OpenGFX and OpenSFX precisely so none of this is needed, so a hit here
+# is always a mistake. Refuse to build rather than publish it again.
+#
+# Matches the original set only: opengfx's ogfx*.grf and opensfx.cat are ours to
+# ship and must not trip this.
+assert_no_original_ttd_data() {
+  local dir="$1" label="$2" hits
+  hits=$(find "$dir" \( \
+      -iname 'sample.cat' -o -iname 'gm.cat' -o \
+      -iname 'trg1*.grf'  -o -iname 'trgc*.grf' -o -iname 'trgh*.grf' -o \
+      -iname 'trgi*.grf'  -o -iname 'trgt*.grf' -o -iname 'trgr*.grf' -o \
+      -iname '*.rom' \) -print 2>/dev/null)
+  if [ -n "$hits" ]; then
+    echo "FATAL: original Transport Tycoon Deluxe data found in $label:"
+    echo "$hits" | sed 's/^/  /'
+    echo "We may not redistribute it. Remove it and build again."
+    exit 1
+  fi
+  echo "  $label: no original TTD data  OK"
+}
+
+echo "--- licence check ---"
+assert_no_original_ttd_data "$SRC"   "Amiga tree"
+assert_no_original_ttd_data "$PCSRC" "PC tree"
+
 # --- sanity: the binary and the language files must come from the same build --
 # `strings` is not reliably present in Git Bash and does not handle the m68k
 # hunk binary, so read the revision out of it directly.

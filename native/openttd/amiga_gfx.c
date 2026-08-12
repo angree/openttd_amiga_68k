@@ -266,6 +266,7 @@ static int    g_win_maxw, g_win_maxh;/* public screen size = chunky buffer size 
 static LONG   g_pen[256];            /* pen granted for game colour i, -1 none */
 static UBYTE  g_pen_rgb[256 * 3];    /* what that pen ACTUALLY shows */
 static int    g_pen_n;               /* how many of g_pen[] are valid */
+static UBYTE  g_pen_owned[256];      /* 1 = WE obtained this pen and hold a reference */
 static UBYTE  g_lut[256];            /* game colour index -> pen to draw */
 static UBYTE *g_wb_scratch;          /* remap band, pen path only */
 static struct RastPort g_temprp;     /* WritePixelArray8 scratch, no-CGX only */
@@ -739,9 +740,14 @@ int amigagfx_wb_available(void)
 	return 1;
 }
 
-/* Hand every pen back. Reference counted by Intuition, so this must run once
- * per SUCCESSFUL ObtainBestPen - duplicates in g_pen[] are separate references
- * and each one has to be released, which is why the loop does not skip them. */
+/* Hand every pen back. Reference counted by Intuition, so this must run EXACTLY
+ * once per SUCCESSFUL ObtainBestPen. Duplicates in g_pen[] are NOT separate
+ * references - they are copies of a pen number, taken without asking Intuition
+ * again - so releasing them hands back pens we never took. Pass 2 deliberately
+ * SHARES pens the Workbench already owns, so the over-release freed the
+ * system its own colours: that is what turned NewIcons black into pink or
+ * orange, a different shade on every run, and it happened on every full
+ * palette update rather than only at exit. */
 static void wb_pens_release(void)
 {
 	int i;
@@ -749,10 +755,10 @@ static void wb_pens_release(void)
 	if (g_pubscreen != NULL) {
 		struct ColorMap *cm = g_pubscreen->ViewPort.ColorMap;
 		for (i = 0; i < g_pen_n; i++) {
-			if (g_pen[i] >= 0) ReleasePen(cm, (ULONG)g_pen[i]);
+			if (g_pen_owned[i] && g_pen[i] >= 0) ReleasePen(cm, (ULONG)g_pen[i]);
 		}
 	}
-	for (i = 0; i < 256; i++) g_pen[i] = -1;
+	for (i = 0; i < 256; i++) { g_pen[i] = -1; g_pen_owned[i] = 0; }
 	g_pen_n = 0;
 }
 
@@ -829,6 +835,7 @@ static void wb_pens_obtain(void)
 				continue;
 			}
 			g_pen[i] = p;
+			g_pen_owned[i] = 1;   /* a real reference - release exactly this many */
 			/* What the pen SHOWS, not what we asked for. The difference is the
 			 * whole point: the nearest-match table must measure distance
 			 * against reality, or an animated colour will jump to a pen that

@@ -311,7 +311,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  /** Information about a vehicle
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/fileio.cpp b/fileio.cpp
 --- a/fileio.cpp	2010-07-17 13:45:42.000000000 +0200
-+++ b/fileio.cpp	2026-08-01 15:27:31.685501300 +0200
++++ b/fileio.cpp	2026-08-12 11:09:39.473264000 +0200
 @@ -11,6 +11,11 @@
  
  #include "stdafx.h"
@@ -339,7 +339,66 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  #include <sys/stat.h>
  #include <algorithm>
  
-@@ -431,7 +438,7 @@
+@@ -34,7 +41,7 @@
+ /* FILE IO ROUTINES ******************************/
+ /*************************************************/
+ 
+-#define FIO_BUFFER_SIZE 512
++#define FIO_BUFFER_SIZE 32768
+ 
+ struct Fio {
+ 	byte *buffer, *buffer_end;             ///< position pointer in local buffer and last valid byte of buffer
+@@ -117,14 +124,16 @@
+ 
+ void FioSkipBytes(int n)
+ {
+-	for (;;) {
+-		int m = min(_fio.buffer_end - _fio.buffer, n);
+-		_fio.buffer += m;
+-		n -= m;
+-		if (n == 0) break;
+-		FioReadByte();
+-		n--;
+-	}
++	/* Consume what is buffered, then SEEK over the rest instead of reading it.
++	 * The original loop refilled the buffer over and over, so skipping a sprite
++	 * physically read every byte of it. On a real Amiga filesystem each refill
++	 * is a separate request, and that is what made startup take minutes. */
++	if (n <= 0) return;
++
++	int m = min((int)(_fio.buffer_end - _fio.buffer), n);
++	_fio.buffer += m;
++	n -= m;
++	if (n > 0) FioSeekTo(FioGetPos() + n, SEEK_SET);
+ }
+ 
+ uint16 FioReadWord()
+@@ -141,7 +150,10 @@
+ 
+ void FioReadBlock(void *ptr, size_t size)
+ {
+-	FioSeekTo(FioGetPos(), SEEK_SET);
++	/* Only reposition when the buffer still holds unread data. Otherwise the
++	 * stdio position already IS the logical position, and the seek only throws
++	 * away stdio own buffer for nothing. */
++	if (_fio.buffer != _fio.buffer_end) FioSeekTo(FioGetPos(), SEEK_SET);
+ 	_fio.pos += fread(ptr, 1, size, _fio.cur_fh);
+ }
+ 
+@@ -348,6 +360,12 @@
+ 		f = fopen(buf, mode);
+ 	}
+ #endif
++#if defined(__AMIGA__)
++	/* Give stdio a real buffer. On 68k the per-request cost of the filesystem
++	 * dominates loading, so the default buffer turns every file into thousands
++	 * of small dos.library reads. */
++	if (f != NULL) setvbuf(f, NULL, _IOFBF, 32768);
++#endif
+ 	if (f != NULL && filesize != NULL) {
+ 		/* Find the size of the file */
+ 		fseek(f, 0, SEEK_END);
+@@ -431,7 +449,7 @@
  	CreateDirectory(OTTD2FS(name), NULL);
  #elif defined(OS2) && !defined(__INNOTEK_LIBC__)
  	mkdir(OTTD2FS(name));
@@ -348,7 +407,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	char buf[MAX_PATH];
  	ttd_strlcpy(buf, name, MAX_PATH);
  
-@@ -952,11 +959,45 @@
+@@ -952,11 +970,45 @@
  
  	_do_scan_working_directory = DoScanWorkingDirectory();
  
@@ -776,7 +835,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  extern int _num_resolutions;
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/gfxinit.cpp b/gfxinit.cpp
 --- a/gfxinit.cpp	2010-08-09 23:48:19.000000000 +0200
-+++ b/gfxinit.cpp	2026-07-29 14:15:58.197941100 +0200
++++ b/gfxinit.cpp	2026-08-12 11:09:39.473264000 +0200
 @@ -41,6 +41,10 @@
  	_landscape_spriteindexes_3,
  };
@@ -869,6 +928,24 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  }
  
  bool GraphicsSet::FillSetDetails(IniFile *ini, const char *path, const char *full_filename)
+@@ -234,6 +264,17 @@
+ 
+ 	if (f == NULL) return CR_NO_FILE;
+ 
++#if defined(__AMIGA__)
++	/* Checksumming the base sets means reading every byte of them on EVERY
++	 * start - about 17 MB with the shipped OpenGFX and OpenSFX, of which
++	 * opensfx.cat alone is 12.5 MB. On a real Amiga that is minutes of disk
++	 * I/O spent re-confirming what was already true the last time. What the
++	 * caller acts on is whether the file is THERE; a corrupt one it could not
++	 * repair anyway. */
++	FioFCloseFile(f);
++	return CR_MATCH;
++#endif
++
+ 	Md5 checksum;
+ 	uint8 buffer[1024];
+ 	uint8 digest[16];
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/ini.cpp b/ini.cpp
 --- a/ini.cpp	2009-10-04 19:16:41.000000000 +0200
 +++ b/ini.cpp	2026-07-27 23:47:11.604108700 +0200
@@ -1817,8 +1894,16 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/network/network.cpp b/network/network.cpp
 --- a/network/network.cpp	2010-11-14 13:42:29.000000000 +0100
-+++ b/network/network.cpp	2026-07-25 10:29:30.361262100 +0200
-@@ -20,6 +20,7 @@
++++ b/network/network.cpp	2026-08-12 12:06:18.565002700 +0200
+@@ -10,6 +10,7 @@
+ /** @file network.cpp Base functions for networking support. */
+ 
+ #include "../stdafx.h"
++#include "../amiga_ttd_version.h"
+ 
+ #ifdef ENABLE_NETWORK
+ 
+@@ -20,6 +21,7 @@
  #include "network_server.h"
  #include "network_content.h"
  #include "network_udp.h"
@@ -1826,7 +1911,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  #include "network_gamelist.h"
  #include "network_base.h"
  #include "core/udp.h"
-@@ -1067,6 +1068,7 @@
+@@ -1067,6 +1069,7 @@
  	_network_content_client.SendReceive();
  	TCPConnecter::CheckCallbacks();
  	NetworkHTTPSocketHandler::HTTPReceive();
@@ -1834,7 +1919,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  	if (_network_udp_server) {
  		_udp_server_socket->ReceivePackets();
-@@ -1284,14 +1286,27 @@
+@@ -1284,14 +1287,27 @@
  
  	memset(&_network_game_info, 0, sizeof(_network_game_info));
  
@@ -1865,6 +1950,20 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	NetworkDisconnect(true);
  	NetworkUDPClose();
  
+@@ -1308,7 +1324,12 @@
+  */
+ bool IsNetworkCompatibleVersion(const char *other)
+ {
+-	return strncmp(_openttd_revision, other, NETWORK_REVISION_LENGTH - 1) == 0;
++	/* Compare ONLY "AmiTTD X.Y". The third digit is a patch level and must not
++	 * split the player base: 1.2.0, 1.2.1 and 1.2.9 all play together. Breaking
++	 * changes move the first or second digit instead. Stock compares the full
++	 * 14 characters, which made every release refuse the previous one even when
++	 * nothing about the protocol had moved. */
++	return strncmp(_openttd_revision, other, AMIGA_TTD_NETWORK_COMPAT_CHARS) == 0;
+ }
+ 
+ #endif /* ENABLE_NETWORK */
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/network/network_command.cpp b/network/network_command.cpp
 --- a/network/network_command.cpp	2010-07-08 21:48:39.000000000 +0200
 +++ b/network/network_command.cpp	2026-07-23 14:31:38.681531900 +0200

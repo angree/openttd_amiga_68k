@@ -71,9 +71,11 @@ configuration, and even then generate a small map.
 
 ## Requirements
 
-- **68020 minimum, no FPU needed.** 68040/40 recommended, 68060/50 for full
-  speed; tested on a bare 020, an 030 with no coprocessor, and an 040. Slow at
-  stock 030 speeds. (The FPU requirement was removed in 0.7.0 — the cause was
+- **68020 minimum to start, no FPU needed** — but starting and playing are not
+  the same thing. For a game that actually plays, expect a **68030/50 with an
+  RTG board** or a **68040 with AGA**; 68060 for full speed. Tested on a bare
+  020, an 030 with no coprocessor, and an 040. (The FPU requirement was removed
+  in 0.7.0 — the cause was
   `printf` pulling FPU code into libnix's prologue, not the maths; building with
   `-mcpu=68020 -msoft-float` fixes it. Only map generation uses floating point.)
 - **AGA, or OCS/ECS, or a Picasso96 / CyberGraphX RTG card.** RTG is worth having

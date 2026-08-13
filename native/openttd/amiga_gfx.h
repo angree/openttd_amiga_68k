@@ -155,6 +155,10 @@ int amigagfx_game_height(void);
 
 void amigagfx_close(void);
 
+/* Hide (1) or restore (0) the Intuition pointer over our window. Safe to call
+ * before the window exists; it is re-applied when one opens. */
+void amigagfx_set_hide_system_pointer(int on);
+
 /* The chunky 8bpp framebuffer, in Fast RAM. This becomes _screen.dst_ptr, so
  * OpenTTD's blitter draws straight into it with no conversion. */
 unsigned char *amigagfx_chunky(void);

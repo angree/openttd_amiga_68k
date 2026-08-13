@@ -11,7 +11,7 @@
 #ifndef AMIGA_TTD_VERSION_H
 #define AMIGA_TTD_VERSION_H
 
-#define AMIGA_TTD_VERSION "1.2.2"
+#define AMIGA_TTD_VERSION "1.2.4"
 #define AMIGA_TTD_DATE    "20260813"
 
 /* How many leading characters of _openttd_revision decide MULTIPLAYER

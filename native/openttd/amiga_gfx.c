@@ -269,6 +269,99 @@ static ULONG g_ctable[256];    /* CTABFMT_XRGB8 mirror of the palette */
 #define WB_SCRATCH_ROWS 32     /* rows remapped per band on the pen path */
 
 static struct Screen *g_pubscreen;   /* the screen our window sits on, or NULL */
+
+/* ------------------------------------------------------- SYSTEM POINTER ---
+ * Hide the Intuition (Workbench) mouse pointer over our window.
+ *
+ * Intuition has no "no pointer" call. The way to do it is SetPointer() with a
+ * sprite made of zeros, and the sprite data MUST live in Chip RAM. One line is
+ * enough: two words of header, one line x two bit planes, two words of
+ * terminator. ClearPointer() puts the system pointer back.
+ *
+ * This is per WINDOW, which is what makes it safe in both of our modes. On our
+ * own screen the pointer is simply gone. In a window on the Workbench it is
+ * gone only while it is over our window, and the normal pointer returns over
+ * everything else - which is what you want; a game has no business blanking
+ * the pointer across the whole system.
+ *
+ * Independent of amiga.hide_game_pointer, which hides the cursor the GAME
+ * draws. Turning both on leaves no pointer at all; that is allowed. */
+static UWORD *g_blank_pointer;      /* Chip RAM, all zeros */
+static int    g_hide_sys_pointer;   /* what the setting asked for */
+static int    g_pointer_blanked;    /* what is actually on screen right now */
+
+/* Make sure the Chip RAM sprite exists. Returns 0 if it could not be had, in
+ * which case the pointer simply stays visible. */
+static int wb_pointer_have_sprite(void)
+{
+	if (g_blank_pointer == NULL) {
+		/* 6 words: 2 header + 1 line x 2 planes + 2 terminator. MEMF_CLEAR
+		 * gives us the zeros, which is exactly what makes it invisible. */
+		g_blank_pointer = (UWORD *)AllocVec(6 * sizeof(UWORD),
+		                                    MEMF_CHIP | MEMF_CLEAR);
+	}
+	return g_blank_pointer != NULL;
+}
+
+static void wb_pointer_blank(int on)
+{
+	if (g_window == NULL || on == g_pointer_blanked) return;
+
+	if (on) {
+		if (!wb_pointer_have_sprite()) return;
+		SetPointer(g_window, g_blank_pointer, 1, 16, 0, 0);
+		g_pointer_blanked = 1;
+	} else {
+		ClearPointer(g_window);
+		g_pointer_blanked = 0;
+	}
+}
+
+/* Intuition ties a custom pointer to the ACTIVE WINDOW, not to where the mouse
+ * happens to be. Blanking it once therefore left the pointer invisible across
+ * the WHOLE Workbench for as long as our window stayed active - the mouse could
+ * be over another window entirely and still have nothing to show.
+ *
+ * So we follow the mouse ourselves. IDCMP_MOUSEMOVE already arrives with
+ * coordinates relative to the inside of the window, which makes "outside" just
+ * a coordinate beyond 0..width / 0..height. The Intuition calls are made only
+ * on a transition, not on every move.
+ *
+ * On our own screen the game window is a backdrop covering everything, so the
+ * mouse is always inside and the pointer stays hidden - which is exactly what
+ * that mode should do. */
+static void wb_pointer_track(int inner_x, int inner_y)
+{
+	if (!g_hide_sys_pointer || g_window == NULL) return;
+
+	wb_pointer_blank(inner_x >= 0 && inner_y >= 0 &&
+	                 inner_x < g_width && inner_y < g_height);
+}
+
+static void wb_pointer_apply(void)
+{
+	if (g_window == NULL) return;
+	/* Applied without knowing where the mouse is - assume inside, the next
+	 * mouse move corrects it. */
+	wb_pointer_blank(g_hide_sys_pointer);
+}
+
+void amigagfx_set_hide_system_pointer(int on)
+{
+	g_hide_sys_pointer = on ? 1 : 0;
+	wb_pointer_apply();
+}
+
+static void wb_pointer_free(void)
+{
+	if (g_window != NULL) ClearPointer(g_window);
+	if (g_blank_pointer != NULL) {
+		FreeVec(g_blank_pointer);
+		g_blank_pointer = NULL;
+	}
+	g_pointer_blanked = 0;
+}
+
 static int    g_pitch;               /* chunky stride; == g_width off window mode */
 static int    g_win_mode;            /* non-zero while a Workbench window is open */
 static int    g_win_depth;           /* depth of the public screen */
@@ -1328,6 +1421,7 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 
 void amigagfx_close(void)
 {
+	wb_pointer_free();
 	input_device_close();
 	/* Pens are Intuition's, borrowed for the session, and they MUST go back
 	 * before the window that justified holding them - otherwise the Workbench
@@ -1918,6 +2012,7 @@ int amigagfx_poll(AmigaGfxEvent *ev)
 
 		switch (cls) {
 		case IDCMP_MOUSEMOVE:
+			wb_pointer_track(ev->x, ev->y);
 			ev->type = AMIGAGFX_EV_MOUSEMOVE;
 			break;
 		case IDCMP_CLOSEWINDOW:

@@ -11,6 +11,7 @@
 
 #include <stddef.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "amiga_mscan.h"
 
@@ -108,6 +109,24 @@ int AmigaMusic_ScanDir(const char *dir,
  *
  * Returns NULL if PROGDIR: cannot be resolved, so the caller can fall back.
  */
+/* Silence the game when it is started from its Workbench icon.
+ *
+ * A program launched from Workbench has no console attached. The moment
+ * anything is written to stdout the C library opens one for it, and that is
+ * the window that pops up over the game when it is started from the icon -
+ * full of debug output nobody asked for.
+ *
+ * Started from a Shell the output IS wanted: it goes wherever the user pointed
+ * it, which is how Work:run captures it. So the test is simply whether we have
+ * a CLI. Cli() returns NULL only for a Workbench launch. */
+void AmigaSilenceIfWorkbench(void)
+{
+	if (Cli() != 0) return;      /* a Shell started us - leave the output alone */
+
+	freopen("NIL:", "w", stdout);
+	freopen("NIL:", "w", stderr);
+}
+
 const char *AmigaProgDirPath(void)
 {
 	static char buf[AMIGA_MUSIC_PATH_MAX];

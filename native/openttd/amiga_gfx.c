@@ -93,6 +93,18 @@ void amigagfx_set_verbose(int verbose)
 #define AMIGA_MEM_LOG      "PROGDIR:amiga_mem.log"
 #define AMIGA_MEM_MAXLINES 100
 
+/* Free Fast RAM right now, in bytes. Used by the file loader to decide whether
+ * it can afford to hold whole files in memory. Same source as the memory probe
+ * below, so the number in amiga_mem.log and the one the decision used agree. */
+unsigned long AmigaFreeFastMem(void)
+{
+	unsigned long v;
+	Forbid();
+	v = AvailMem(MEMF_FAST);
+	Permit();
+	return v;
+}
+
 void AmigaMemProbe(const char *label)
 {
 	static int mem_lines = 0;

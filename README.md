@@ -64,6 +64,12 @@ from the first game.
 of `640x480` and is not interlaced. On an 030, lores is the only playable
 configuration, and even then generate a small map.
 
+**Loading is much faster if you have RAM to spare.** With more than 50 MB free,
+the game reads each data file once into memory instead of fetching it off the
+disk in small pieces, which is what made startup take minutes on a real hard
+drive. Advanced Settings → Amiga → *Fast load*, on by default; below 50 MB free
+it switches itself off and loads the old way, so a 24 MB machine is unaffected.
+
 ## What does not
 
 - Memory use is high: ~24 MB total required. The OCS modes cut colours, not

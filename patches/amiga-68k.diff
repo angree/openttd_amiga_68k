@@ -311,8 +311,8 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  /** Information about a vehicle
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/fileio.cpp b/fileio.cpp
 --- a/fileio.cpp	2010-07-17 13:45:42.000000000 +0200
-+++ b/fileio.cpp	2026-08-12 11:09:39.473264000 +0200
-@@ -11,6 +11,11 @@
++++ b/fileio.cpp	2026-08-13 12:23:05.991635500 +0200
+@@ -11,22 +11,30 @@
  
  #include "stdafx.h"
  #include "fileio_func.h"
@@ -324,7 +324,12 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  #include "variables.h"
  #include "debug.h"
  #include "fios.h"
-@@ -22,11 +27,13 @@
+ #include "string_func.h"
+ #include "tar_type.h"
++#include "settings_type.h"
+ #ifdef WIN32
+ #include <windows.h>
+ #elif defined(__HAIKU__)
  #include <Path.h>
  #include <storage/FindDirectory.h>
  #else
@@ -339,7 +344,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  #include <sys/stat.h>
  #include <algorithm>
  
-@@ -34,7 +41,7 @@
+@@ -34,7 +42,7 @@
  /* FILE IO ROUTINES ******************************/
  /*************************************************/
  
@@ -348,7 +353,129 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  struct Fio {
  	byte *buffer, *buffer_end;             ///< position pointer in local buffer and last valid byte of buffer
-@@ -117,14 +124,16 @@
+@@ -45,6 +53,12 @@
+ 	byte buffer_start[FIO_BUFFER_SIZE];    ///< local buffer when read from file
+ 	const char *filenames[MAX_FILE_SLOTS]; ///< array of filenames we (should) have open
+ 	char *shortnames[MAX_FILE_SLOTS];      ///< array of short names for spriteloader's use
++#if defined(__AMIGA__)
++	byte  *mem[MAX_FILE_SLOTS];            ///< whole file held in RAM, or NULL (see FAST LOAD below)
++	size_t mem_size[MAX_FILE_SLOTS];       ///< size of that copy
++	byte  *cur_mem;                        ///< RAM copy of the CURRENT file, or NULL for normal reading
++	size_t cur_mem_size;                   ///< size of the current RAM copy
++#endif
+ #if defined(LIMITED_FDS)
+ 	uint open_handles;                     ///< current amount of open handles
+ 	uint usage_count[MAX_FILE_SLOTS];      ///< count how many times this file has been opened
+@@ -53,6 +67,71 @@
+ 
+ static Fio _fio;
+ 
++#if defined(__AMIGA__)
++/* ------------------------------------------------------------- FAST LOAD ---
++ * Startup on a real Amiga is dominated by the NUMBER of disk requests, not by
++ * the number of bytes. A reporter on an A1200/68060 measured 3:50 to the title
++ * screen from a PFS partition and 2:20 from FFS, against 0:50 from a RAM disk -
++ * while COPYING the entire game to that RAM disk took 16 seconds. The bytes
++ * were never the problem; seeking around a file in small pieces was.
++ *
++ * So: read each data file ONCE, in one sequential go, and serve every later
++ * read from memory. That turns the whole startup into the 16-second case.
++ *
++ * It costs roughly 16 MB with the shipped data. The setting defaults to on,
++ * but the decision below ALSO checks free Fast RAM and quietly switches itself
++ * off when there is not enough - a 24 MB machine therefore keeps working
++ * exactly as before without the player having to know this exists. The setting
++ * on disk is never rewritten; only this run behaves differently.
++ *
++ * Every step can fail safely: no memory, a short read, or a file that does not
++ * start at offset 0 (tar members) simply leaves mem[] NULL and that file is
++ * read the old way. */
++extern "C" unsigned long AmigaFreeFastMem(void);   /* ULONG on 68k, but Amiga headers must not be dragged into this file */
++
++#define FASTLOAD_MIN_FREE (50UL * 1024 * 1024)   ///< matches the setting's own label
++
++static int _fastload_state = 0;   ///< 0 = undecided, 1 = on, -1 = off
++
++/** Decide once, and write down why, so the choice can be checked afterwards. */
++static void FastLoadDecide()
++{
++	if (_fastload_state != 0) return;
++
++	unsigned long freemem = AmigaFreeFastMem();
++	const char *why;
++
++	if (!_settings_client.amiga.fast_load) {
++		_fastload_state = -1;
++		why = "OFF - switched off in Advanced Settings -> Amiga";
++	} else if (freemem < FASTLOAD_MIN_FREE) {
++		_fastload_state = -1;
++		why = "OFF - not enough free Fast RAM, reading from disk as before";
++	} else {
++		_fastload_state = 1;
++		why = "ON - whole data files kept in RAM";
++	}
++
++	FILE *lg = fopen("PROGDIR:amiga_load.log", "w");
++	if (lg != NULL) {
++		fprintf(lg, "fast load: %s\n", why);
++		fprintf(lg, "setting amiga.fast_load : %s\n", _settings_client.amiga.fast_load ? "true" : "false");
++		fprintf(lg, "free Fast RAM           : %lu KB\n", (unsigned long)(freemem / 1024));
++		fprintf(lg, "required                : %lu KB\n", (unsigned long)(FASTLOAD_MIN_FREE / 1024));
++		fclose(lg);
++	}
++}
++
++/** Append one line per file, so it is visible what was cached and what was not. */
++static void FastLoadNote(const char *filename, size_t size, const char *what)
++{
++	FILE *lg = fopen("PROGDIR:amiga_load.log", "a");
++	if (lg == NULL) return;
++	fprintf(lg, "  %-28s %8lu KB  %s\n", filename, (unsigned long)(size / 1024), what);
++	fclose(lg);
++}
++#endif /* __AMIGA__ */
++
+ /** Whether the working directory should be scanned. */
+ static bool _do_scan_working_directory = true;
+ 
+@@ -70,6 +149,14 @@
+ void FioSeekTo(size_t pos, int mode)
+ {
+ 	if (mode == SEEK_CUR) pos += FioGetPos();
++#if defined(__AMIGA__)
++	if (_fio.cur_mem != NULL) {
++		/* Keep buffer == buffer_end so FioGetPos() keeps working unchanged. */
++		_fio.buffer = _fio.buffer_end = _fio.buffer_start;
++		_fio.pos = pos;
++		return;
++	}
++#endif
+ 	_fio.buffer = _fio.buffer_end = _fio.buffer_start + FIO_BUFFER_SIZE;
+ 	_fio.pos = pos;
+ 	fseek(_fio.cur_fh, _fio.pos, SEEK_SET);
+@@ -99,11 +186,21 @@
+ 	assert(f != NULL);
+ 	_fio.cur_fh = f;
+ 	_fio.filename = _fio.filenames[slot];
++#if defined(__AMIGA__)
++	_fio.cur_mem      = _fio.mem[slot];
++	_fio.cur_mem_size = _fio.mem_size[slot];
++#endif
+ 	FioSeekTo(pos, SEEK_SET);
+ }
+ 
+ byte FioReadByte()
+ {
++#if defined(__AMIGA__)
++	if (_fio.cur_mem != NULL) {
++		if (_fio.pos >= _fio.cur_mem_size) return 0;
++		return _fio.cur_mem[_fio.pos++];
++	}
++#endif
+ 	if (_fio.buffer == _fio.buffer_end) {
+ 		_fio.buffer = _fio.buffer_start;
+ 		size_t size = fread(_fio.buffer, 1, FIO_BUFFER_SIZE, _fio.cur_fh);
+@@ -117,14 +214,23 @@
  
  void FioSkipBytes(int n)
  {
@@ -359,7 +486,13 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 -		if (n == 0) break;
 -		FioReadByte();
 -		n--;
--	}
++#if defined(__AMIGA__)
++	if (_fio.cur_mem != NULL) {
++		if (n > 0) _fio.pos += (size_t)n;
++		if (_fio.pos > _fio.cur_mem_size) _fio.pos = _fio.cur_mem_size;
++		return;
+ 	}
++#endif
 +	/* Consume what is buffered, then SEEK over the rest instead of reading it.
 +	 * The original loop refilled the buffer over and over, so skipping a sprite
 +	 * physically read every byte of it. On a real Amiga filesystem each refill
@@ -373,11 +506,21 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  }
  
  uint16 FioReadWord()
-@@ -141,7 +150,10 @@
+@@ -141,13 +247,34 @@
  
  void FioReadBlock(void *ptr, size_t size)
  {
 -	FioSeekTo(FioGetPos(), SEEK_SET);
++#if defined(__AMIGA__)
++	if (_fio.cur_mem != NULL) {
++		size_t left = (_fio.pos < _fio.cur_mem_size) ? _fio.cur_mem_size - _fio.pos : 0;
++		size_t n    = (size < left) ? size : left;
++		if (n > 0) memcpy(ptr, _fio.cur_mem + _fio.pos, n);
++		if (n < size) memset((byte *)ptr + n, 0, size - n);
++		_fio.pos += n;
++		return;
++	}
++#endif
 +	/* Only reposition when the buffer still holds unread data. Otherwise the
 +	 * stdio position already IS the logical position, and the seek only throws
 +	 * away stdio own buffer for nothing. */
@@ -385,7 +528,55 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	_fio.pos += fread(ptr, 1, size, _fio.cur_fh);
  }
  
-@@ -348,6 +360,12 @@
+ static inline void FioCloseFile(int slot)
+ {
+ 	if (_fio.handles[slot] != NULL) {
++#if defined(__AMIGA__)
++		if (_fio.mem[slot] != NULL) {
++			if (_fio.cur_mem == _fio.mem[slot]) { _fio.cur_mem = NULL; _fio.cur_mem_size = 0; }
++			free(_fio.mem[slot]);
++			_fio.mem[slot] = NULL;
++			_fio.mem_size[slot] = 0;
++		}
++#endif
+ 		fclose(_fio.handles[slot]);
+ 
+ 		free(_fio.shortnames[slot]);
+@@ -207,6 +334,33 @@
+ 	_fio.handles[slot] = f;
+ 	_fio.filenames[slot] = filename;
+ 
++#if defined(__AMIGA__)
++	_fio.mem[slot] = NULL;
++	_fio.mem_size[slot] = 0;
++	FastLoadDecide();
++	/* pos != 0 means the file lives inside a tar; leave those alone. */
++	if (_fastload_state > 0 && pos == 0) {
++		long sz;
++		fseek(f, 0, SEEK_END);
++		sz = ftell(f);
++		fseek(f, 0, SEEK_SET);
++		if (sz > 0) {
++			byte *m = (byte *)malloc((size_t)sz);
++			if (m == NULL) {
++				FastLoadNote(filename, (size_t)sz, "not cached - out of memory");
++			} else if (fread(m, 1, (size_t)sz, f) != (size_t)sz) {
++				free(m);
++				FastLoadNote(filename, (size_t)sz, "not cached - short read");
++			} else {
++				_fio.mem[slot] = m;
++				_fio.mem_size[slot] = (size_t)sz;
++				FastLoadNote(filename, (size_t)sz, "in RAM");
++			}
++		}
++		fseek(f, (long)pos, SEEK_SET);
++	}
++#endif
++
+ 	/* Store the filename without path and extension */
+ 	const char *t = strrchr(filename, PATHSEPCHAR);
+ 	_fio.shortnames[slot] = strdup(t == NULL ? filename : t);
+@@ -348,6 +502,12 @@
  		f = fopen(buf, mode);
  	}
  #endif
@@ -398,7 +589,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	if (f != NULL && filesize != NULL) {
  		/* Find the size of the file */
  		fseek(f, 0, SEEK_END);
-@@ -431,7 +449,7 @@
+@@ -431,7 +591,7 @@
  	CreateDirectory(OTTD2FS(name), NULL);
  #elif defined(OS2) && !defined(__INNOTEK_LIBC__)
  	mkdir(OTTD2FS(name));
@@ -407,7 +598,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	char buf[MAX_PATH];
  	ttd_strlcpy(buf, name, MAX_PATH);
  
-@@ -952,11 +970,45 @@
+@@ -952,11 +1112,45 @@
  
  	_do_scan_working_directory = DoScanWorkingDirectory();
  
@@ -1030,11 +1221,12 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  }
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/lang/english.txt b/lang/english.txt
 --- a/lang/english.txt	2010-11-14 10:31:31.000000000 +0100
-+++ b/lang/english.txt	2026-07-29 05:45:12.977313300 +0200
-@@ -1297,7 +1297,20 @@
++++ b/lang/english.txt	2026-08-13 12:21:18.552310100 +0200
+@@ -1297,7 +1297,21 @@
  STR_CONFIG_SETTING_LARGER_TOWNS_DISABLED                        :{LTBLUE}Proportion of towns that will become cities: {ORANGE}None
  STR_CONFIG_SETTING_CITY_SIZE_MULTIPLIER                         :{LTBLUE}Initial city size multiplier: {ORANGE}{STRING1}
  STR_CONFIG_SETTING_MODIFIED_ROAD_REBUILD                        :{LTBLUE}Remove absurd road-elements during the road construction: {ORANGE}{STRING1}
++STR_CONFIG_SETTING_AMIGA_FAST_LOAD                               :{LTBLUE}Fast load - keep data files in RAM (needs ~50 MB free; needs a restart): {ORANGE}{STRING1}
 +STR_CONFIG_SETTING_AMIGA_NEWGRF                                  :{LTBLUE}NewGRF support (off saves memory; needs a restart): {ORANGE}{STRING1}
 +STR_CONFIG_SETTING_AMIGA_FULLSCREEN                              :{LTBLUE}Fullscreen (own screen; off = resizable window on Workbench): {ORANGE}{STRING1}
 +STR_CONFIG_SETTING_AMIGA_WB_BAR                                 :{LTBLUE}Workbench bar visible (allows flip to Workbench, costs game area): {ORANGE}{STRING1}
@@ -3750,8 +3942,18 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  #	include <execinfo.h>
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/os/unix/unix.cpp b/os/unix/unix.cpp
 --- a/os/unix/unix.cpp	2010-05-18 23:44:47.000000000 +0200
-+++ b/os/unix/unix.cpp	2026-07-22 10:24:19.372936400 +0200
-@@ -44,6 +44,12 @@
++++ b/os/unix/unix.cpp	2026-08-13 13:58:53.663351600 +0200
+@@ -10,6 +10,9 @@
+ /** @file unix.cpp Implementation of Unix specific file handling. */
+ 
+ #include "../../stdafx.h"
++#if defined(__AMIGA__)
++#include "../../music/amiga_mscan.h"
++#endif
+ #include "../../textbuf_gui.h"
+ #include "../../functions.h"
+ #include "../../crashlog.h"
+@@ -44,6 +47,12 @@
  
  #ifdef __AMIGA__
  #warning add stack symbol to avoid that user needs to set stack manually (tokai)
@@ -3764,7 +3966,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  // ULONG __stack =
  #endif
  
-@@ -220,6 +226,9 @@
+@@ -220,6 +229,9 @@
  void ShowInfo(const char *str)
  {
  	fprintf(stderr, "%s\n", str);
@@ -3774,7 +3976,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  }
  
  #if !defined(__APPLE__)
-@@ -231,9 +240,34 @@
+@@ -231,9 +243,34 @@
  	} else {
  		fprintf(stderr, "Error: %s\n", buf);
  	}
@@ -3809,7 +4011,20 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  #ifdef WITH_COCOA
  void cocoaSetupAutoreleasePool();
  void cocoaReleaseAutoreleasePool();
-@@ -252,6 +286,7 @@
+@@ -243,6 +280,12 @@
+ {
+ 	int ret;
+ 
++#if defined(__AMIGA__)
++	/* FIRST thing, before anything can print: started from an icon means no
++	 * console, and the first byte written to stdout would make one appear. */
++	AmigaSilenceIfWorkbench();
++#endif
++
+ #ifdef WITH_COCOA
+ 	cocoaSetupAutoreleasePool();
+ 	/* This is passed if we are launched by double-clicking */
+@@ -252,6 +295,7 @@
  	}
  #endif
  	CrashLog::InitialiseCrashLog();
@@ -3817,7 +4032,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  	SetRandomSeed(time(NULL));
  
-@@ -279,6 +314,7 @@
+@@ -279,6 +323,7 @@
  #ifdef __AMIGA__
  /* usleep() implementation */
  #	include <devices/timer.h>
@@ -3825,7 +4040,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  #	include <dos/dos.h>
  
  	extern struct Device      *TimerBase    = NULL;
-@@ -294,21 +330,44 @@
+@@ -294,21 +339,44 @@
  		snooze(milliseconds * 1000);
  	#elif defined(__AMIGA__)
  	{
@@ -4642,7 +4857,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/settings_gui.cpp b/settings_gui.cpp
 --- a/settings_gui.cpp	2010-10-27 22:17:45.000000000 +0200
-+++ b/settings_gui.cpp	2026-07-29 05:44:07.738278100 +0200
++++ b/settings_gui.cpp	2026-08-13 12:21:18.541330900 +0200
 @@ -88,10 +88,27 @@
  	return STR_UNDEFINED;
  }
@@ -4695,13 +4910,14 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  				break;
  
  			case GOW_SCREENSHOT_DROPDOWN: // Change screenshot format
-@@ -1468,7 +1499,24 @@
+@@ -1468,7 +1499,25 @@
  /** Vehicles sub-page */
  static SettingsPage _settings_vehicles_page = {_settings_vehicles, lengthof(_settings_vehicles)};
  
 +#ifdef __AMIGA__
 +static SettingEntry _settings_amiga[] = {
 +	SettingEntry("amiga.fullscreen"),
++	SettingEntry("amiga.fast_load"),
 +	SettingEntry("amiga.newgrf"),
 +	SettingEntry("amiga.wb_bar"),
 +	SettingEntry("amiga.hide_game_pointer"),
@@ -4722,8 +4938,8 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	SettingEntry(&_settings_vehicles_page,     STR_CONFIG_SETTING_VEHICLES),
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/settings_type.h b/settings_type.h
 --- a/settings_type.h	2010-04-03 22:19:26.000000000 +0200
-+++ b/settings_type.h	2026-07-29 05:44:07.721701100 +0200
-@@ -392,11 +392,62 @@
++++ b/settings_type.h	2026-08-13 12:21:18.533810100 +0200
+@@ -392,11 +392,71 @@
  	LocaleSettings       locale;             ///< settings related to used currency/unit system in the current game
  };
  
@@ -4758,6 +4974,15 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +	                                         ///< load anything from the [newgrf] section, which is the only way to get that
 +	                                         ///< memory back on a 24 MB machine - once a GRF is in the sprite cache it stays.
 +	                                         ///< Read at startup, so a change needs a restart; the setting proc says so.
++	bool   fast_load;                        ///< hold whole data files in RAM instead of reading them off the disk in
++	                                         ///< pieces. Startup on a real Amiga is dominated by the NUMBER of disk
++	                                         ///< requests, not the bytes: a reporter measured 3:50 from PFS and 2:20
++	                                         ///< from FFS against 0:50 from a RAM disk, while COPYING the whole game
++	                                         ///< to that RAM disk took 16 seconds. Reading each file once, in one go,
++	                                         ///< is what closes that gap. Costs about 16 MB. Default TRUE, but it is
++	                                         ///< switched off by itself at startup when there is not enough free Fast
++	                                         ///< RAM, so a 24 MB machine keeps working without the player deciding
++	                                         ///< anything. Read once, at the first file open, so a change needs a restart.
 +	bool   wb_bar;                           ///< keep the system screen title bar visible (flip to Workbench); costs game area
 +	bool   hide_game_pointer;                ///< hide OpenTTD's own SOFTWARE cursor; the Intuition system pointer stays visible
 +	bool   ehb;                              ///< EHB 64-colour graphics: sprites are reduced 256 -> 64 as they enter the sprite
@@ -5395,7 +5620,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/table/settings.h b/table/settings.h
 --- a/table/settings.h	2010-11-14 10:27:20.000000000 +0100
-+++ b/table/settings.h	2026-07-29 05:44:07.722701400 +0200
++++ b/table/settings.h	2026-08-13 12:21:18.534809600 +0200
 @@ -36,6 +36,11 @@
  static bool ChangeDynamicEngines(int32 p1);
  static bool StationCatchmentChanged(int32 p1);
@@ -5478,7 +5703,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	  SDTC_STR(network.client_name,            SLE_STRB, S,  0,  NULL,                        STR_NULL,                                       UpdateClientName),
  	  SDTC_STR(network.server_password,        SLE_STRB, S, NO,  NULL,                        STR_NULL,                                       UpdateServerPassword),
  	  SDTC_STR(network.rcon_password,          SLE_STRB, S, NO,  NULL,                        STR_NULL,                                       UpdateRconPassword),
-@@ -650,6 +655,39 @@
+@@ -650,6 +655,40 @@
  	 SDTC_VAR(gui.right_mouse_btn_emulation, SLE_UINT8, S, MS, 0, 0, 2, 0, STR_CONFIG_SETTING_RIGHT_MOUSE_BTN_EMU, NULL),
  #endif
  
@@ -5493,6 +5718,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +	  * GUI: it is a record of where the player left the window, not a knob. */
 +	 SDTC_VAR(amiga.win_w,             SLE_UINT16, S,  0,     0,        0,     4096, 0, STR_NULL,                                       NULL),
 +	 SDTC_VAR(amiga.win_h,             SLE_UINT16, S,  0,     0,        0,     4096, 0, STR_NULL,                                       NULL),
++	 SDTC_BOOL(amiga.fast_load,                          S,  0,  true,                        STR_CONFIG_SETTING_AMIGA_FAST_LOAD,             NULL),
 +	 SDTC_BOOL(amiga.newgrf,                             S,  0,  true,                        STR_CONFIG_SETTING_AMIGA_NEWGRF,                AmigaNewGrfToggled),
 +	 SDTC_BOOL(amiga.wb_bar,                             S,  0,  true,                        STR_CONFIG_SETTING_AMIGA_WB_BAR,                AmigaWbBarToggled),
 +	 SDTC_BOOL(amiga.hide_game_pointer,                  S,  0,  false,                       STR_CONFIG_SETTING_AMIGA_HIDE_GAME_POINTER,     NULL),

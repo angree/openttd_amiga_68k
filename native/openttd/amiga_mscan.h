@@ -32,6 +32,10 @@ int AmigaMusic_ScanDir(const char *dir,
  */
 const char *AmigaProgDirPath(void);
 
+/* Send stdout/stderr to NIL: when the program was started from Workbench,
+ * so double-clicking the icon does not open a console full of debug text. */
+void AmigaSilenceIfWorkbench(void);
+
 #ifdef __cplusplus
 }
 #endif

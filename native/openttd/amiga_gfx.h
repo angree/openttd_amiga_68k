@@ -225,6 +225,9 @@ void amigagfx_set_verbose(int verbose);
  * needs Amiga headers, which OpenTTD C++ must never include. */
 void AmigaMemProbe(const char *label);
 
+/* Free Fast RAM in bytes (see amiga_gfx.c). */
+unsigned long AmigaFreeFastMem(void);
+
 /* Show the startup splash image (ASPL file, see build/make-splash.py) on the
  * already-open screen: fade in ~0.5 s, hold 2.5 s, fade out ~0.5 s. The image
  * is converted chunky-to-planar exactly once; the fade animates only the

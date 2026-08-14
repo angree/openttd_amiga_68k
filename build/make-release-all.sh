@@ -55,7 +55,13 @@ assert_no_original_ttd_data() {
       -iname 'sample.cat' -o -iname 'gm.cat' -o \
       -iname 'trg1*.grf'  -o -iname 'trgc*.grf' -o -iname 'trgh*.grf' -o \
       -iname 'trgi*.grf'  -o -iname 'trgt*.grf' -o -iname 'trgr*.grf' -o \
+      -iname '*.gm'       -o \
       -iname '*.rom' \) -print 2>/dev/null)
+  # *.gm is the original Transport Tycoon Deluxe music (GM_TT00.GM and friends).
+  # It is caught by extension rather than by name because the natural place to
+  # put it while testing MIDI playback is the release tree's own gm/ drawer -
+  # that is where orig_win.obm lives and where the game looks for it. The free
+  # OpenMSX set we may ship uses .mid, so nothing legitimate is blocked here.
   if [ -n "$hits" ]; then
     echo "FATAL: original Transport Tycoon Deluxe data found in $label:"
     echo "$hits" | sed 's/^/  /'

@@ -5055,7 +5055,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  };
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/spritecache.cpp b/spritecache.cpp
 --- a/spritecache.cpp	2010-01-15 17:41:15.000000000 +0100
-+++ b/spritecache.cpp	2026-08-13 17:46:56.917235700 +0200
++++ b/spritecache.cpp	2026-08-14 02:31:16.934542900 +0200
 @@ -11,6 +11,7 @@
  
  #include "stdafx.h"
@@ -5064,7 +5064,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  #include "spriteloader/grf.hpp"
  #include "gfx_func.h"
  #ifdef WITH_PNG
-@@ -21,8 +22,41 @@
+@@ -21,8 +22,42 @@
  
  #include "table/sprites.h"
  
@@ -5102,12 +5102,13 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +uint _sprite_cache_size = 8;
 +
 +#if defined(__AMIGA__)
-+extern "C" unsigned long AmigaFreeFastMem(void);   /* ULONG on 68k; Amiga headers must not enter this file */
++extern "C" unsigned long AmigaFreeFastMem(void);      /* ULONG on 68k; Amiga headers must not enter this file */
++extern "C" unsigned long AmigaLargestFastMem(void);   /* largest CONTIGUOUS block - what an allocation can really use */
 +#endif
  
  typedef SimpleTinyEnumT<SpriteType, byte> SpriteTypeByte;
  
-@@ -34,6 +68,7 @@
+@@ -34,6 +69,7 @@
  	int16 lru;
  	SpriteTypeByte type; ///< In some cases a single sprite is misused by two NewGRFs. Once as real sprite and once as recolour sprite. If the recolour sprite gets into the cache it might be drawn as real sprite which causes enormous trouble.
  	bool warned;         ///< True iff the user has been warned about incorrect use of this sprite
@@ -5115,7 +5116,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  };
  
  
-@@ -113,9 +148,10 @@
+@@ -113,9 +149,10 @@
   * Read the sprite header data and then skip the real payload.
   * @return type of sprite; ST_INVALID if the sprite is a pseudo- or unusable sprite
   */
@@ -5128,7 +5129,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  	if (num == 0) return ST_INVALID;
  
-@@ -127,8 +163,76 @@
+@@ -127,8 +164,76 @@
  		return (num == 1) ? ST_INVALID : ST_RECOLOUR;
  	}
  
@@ -5206,7 +5207,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  }
  
  /* Check if the given Sprite ID exists */
-@@ -206,6 +310,41 @@
+@@ -206,6 +311,41 @@
  			FioReadBlock(dest, num);
  		}
  
@@ -5248,7 +5249,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  		return sc->ptr;
  	}
  
-@@ -253,24 +392,63 @@
+@@ -253,24 +393,63 @@
  
  	assert(sprite_type == ST_NORMAL || sprite_type == ST_FONT);
  
@@ -5315,7 +5316,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  	if (type == ST_INVALID) return false;
  
-@@ -293,6 +471,7 @@
+@@ -293,6 +472,7 @@
  	sc->id = file_sprite_id;
  	sc->type = type;
  	sc->warned = false;
@@ -5323,7 +5324,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
  	return true;
  }
-@@ -309,6 +488,7 @@
+@@ -309,6 +489,7 @@
  	scnew->id = scold->id;
  	scnew->type = scold->type;
  	scnew->warned = false;
@@ -5331,7 +5332,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  }
  
  /**
-@@ -421,6 +601,27 @@
+@@ -421,6 +602,27 @@
  
  	DEBUG(sprite, 3, "DeleteEntryFromSpriteCache, inuse=" PRINTF_SIZE, GetSpriteCacheUsage());
  
@@ -5359,7 +5360,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	cur_lru = 0xffff;
  	for (i = 0; i != _spritecache_items; i++) {
  		SpriteCache *sc = GetSpriteCache(i);
-@@ -561,6 +762,35 @@
+@@ -561,6 +763,59 @@
  void GfxInitSpriteMem()
  {
  	/* initialize sprite cache heap */
@@ -5371,23 +5372,47 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +	 * customised" and lift it. A player who deliberately picked anything else
 +	 * keeps it. */
 +	if (_sprite_cache_size == 4) {
-+		/* ...but only where the extra 4 MB is actually there. The port asks for
-+		 * 24 MB and on such a machine this allocation would leave about 5 MB
-+		 * free instead of 9 - too thin to spend on a cache. Measured on a 32 MB
-+		 * machine: 25.3 MB free at start, 13.8 MB left at the title screen with
-+		 * 8 MB of cache. So require 24 MB free here; below that the old 4 MB
-+		 * stands and the game behaves exactly as it did before. */
++		/* ...and the machines that need this MOST are the small ones.
++		 *
++		 * Where fast load is active every data file is already in RAM, so an
++		 * evicted sprite is re-read out of memory and costs nothing. The cache
++		 * size barely matters there. It is the machine WITHOUT the RAM for fast
++		 * load that reads its graphics off the disk, and that is exactly where
++		 * an evicted sprite becomes a disk seek in the middle of the game -
++		 * the stuttering that was reported.
++		 *
++		 * An earlier version of this had the test the wrong way round: it asked
++		 * for 24 MB free, which handed the bigger cache to the machines that did
++		 * not need it and left 4 MB on the ones that did.
++		 *
++		 * So the bar is low on purpose - enough headroom to spend the extra 4 MB
++		 * and still keep about 8 MB for the map and everything else. On the
++		 * 24 MB machine this port asks for, roughly 15 MB is free at this point,
++		 * so it passes and the stutter goes. Only a genuinely tiny setup stays
++		 * at 4 MB. */
 +		unsigned long freemem = AmigaFreeFastMem();
-+		bool room = (freemem >= 24UL * 1024 * 1024);
-+		if (room) _sprite_cache_size = 8;
++		unsigned long largest = AmigaLargestFastMem();
++		unsigned long mb      = largest / (1024UL * 1024UL);
++		uint want;
++
++		/* Take the biggest cache that actually FITS, keeping 2 MB of the block
++		 * spare for everything else. Total free is the wrong number to judge by:
++		 * a real 24 MB machine measured 16.3 MB free but a largest block of
++		 * 8191 KB - one kilobyte under 8 MB - so asking for 8 MB failed the
++		 * allocation and the game stopped during sprite loading. */
++		want = (mb >= 6) ? (uint)(mb - 2) : 4;
++		if (want > 8) want = 8;
++		if (want < 4) want = 4;
++		_sprite_cache_size = want;
 +
 +		FILE *lg = fopen("PROGDIR:amiga_load.log", "a");
 +		if (lg != NULL) {
-+			fprintf(lg, "sprite cache: %u MB (%lu KB free)\n",
-+			        _sprite_cache_size, (unsigned long)(freemem / 1024));
-+			fprintf(lg, room
-+				? "  raised from the old shipped 4 MB, so graphics are not re-read from disk in play.\n"
-+				: "  kept at 4 MB - not enough free Fast RAM to afford more.\n");
++			fprintf(lg, "sprite cache: %u MB (%lu KB free, largest block %lu KB)\n",
++			        _sprite_cache_size,
++			        (unsigned long)(freemem / 1024), (unsigned long)(largest / 1024));
++			fprintf(lg, (want > 4)
++				? "  raised from the old shipped 4 MB, so fewer graphics are re-read from disk in play.\n"
++				: "  kept at 4 MB - no contiguous block big enough for more.\n");
 +			fclose(lg);
 +		}
 +	}

@@ -96,6 +96,19 @@ void amigagfx_set_verbose(int verbose)
 /* Free Fast RAM right now, in bytes. Used by the file loader to decide whether
  * it can afford to hold whole files in memory. Same source as the memory probe
  * below, so the number in amiga_mem.log and the one the decision used agree. */
+/* Largest CONTIGUOUS free Fast block, in bytes. Total free is not enough to
+ * decide an allocation by: a 24 MB machine was measured with 16.3 MB free but
+ * a largest block of 8191 KB - one kilobyte short of 8 MB, so an 8 MB malloc
+ * failed and took the game down with it. */
+unsigned long AmigaLargestFastMem(void)
+{
+	unsigned long v;
+	Forbid();
+	v = AvailMem(MEMF_FAST | MEMF_LARGEST);
+	Permit();
+	return v;
+}
+
 unsigned long AmigaFreeFastMem(void)
 {
 	unsigned long v;

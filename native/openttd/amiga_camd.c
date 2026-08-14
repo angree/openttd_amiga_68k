@@ -23,12 +23,23 @@
  * the C library up, and reaching into them from a second process is how you
  * get a crash that only ever happens on someone else's machine.
  *
- * ROUTING
- * -------
- * We send to the CAMD cluster named "out.0", which is the conventional first
- * MIDI output and what the MidiPorts preferences program fills in by default.
- * If nothing is routed there the messages simply go nowhere - that is the
- * user's setup to fix, and we say so in the log rather than failing.
+ * ROUTING - TWO WAYS OUT
+ * ----------------------
+ * 1. camd.library, to the cluster named "out.0". That is the conventional
+ *    first MIDI output and what the MidiPorts preferences program fills in.
+ *    It is the right route when the machine HAS CAMD set up, because CAMD is
+ *    what knows about the user's actual hardware.
+ * 2. serial.device at 31250 baud - raw MIDI down the serial port, which is
+ *    what a plain MIDI interface on an Amiga is. No CAMD, no drivers, no
+ *    configuration.
+ *
+ * The second exists because the first can succeed and still be silent: with
+ * camd.library installed but no driver in DEVS:midi, every note falls into an
+ * empty cluster. It is also the only route that works under WinUAE, whose
+ * serial port can be pointed straight at a Windows MIDI device.
+ *
+ * amiga.midi_out chooses: auto tries CAMD and falls back to serial, or force
+ * either one.
  */
 
 #include <exec/types.h>
@@ -38,6 +49,7 @@
 #include <dos/dos.h>
 #include <dos/dostags.h>
 #include <devices/timer.h>
+#include <devices/serial.h>
 #include <midi/camd.h>
 
 #include <proto/exec.h>
@@ -82,6 +94,35 @@ static volatile LONG   g_started;         /* 1 = player is up, -1 = it failed */
 
 static struct MidiNode *g_midi_node;
 static struct MidiLink *g_midi_link;
+
+/* How the notes leave the machine. */
+#define OUT_NONE   0
+#define OUT_CAMD   1
+#define OUT_SERIAL 2
+static int g_out_mode;
+static int g_routing = 0;      /* 0 auto, 1 CAMD only, 2 serial only */
+
+/* Serial output, owned by the player process - it is the only task that ever
+ * touches the device, which is what an exec IORequest requires. */
+static struct MsgPort  *g_ser_port;
+static struct IOExtSer *g_ser_req;
+static ULONG            g_ser_sig;
+
+/* TWO buffers, and the write is asynchronous. A blocking write was the first
+ * thing the user heard: at 31250 baud a byte takes 320 microseconds, so a
+ * six-note chord plus its controllers - sixty bytes - is nineteen MILLISECONDS
+ * with DoIO() standing still in the middle of the song. Every event after it
+ * ran late, which is exactly the "slows down, plays unevenly" report.
+ *
+ * So: notes are appended to the fill buffer, the other buffer is out on the
+ * wire under SendIO, and the player waits on the serial reply alongside its
+ * timer. Nothing blocks; the wire drains while the clock keeps running. */
+#define SER_BUF_SIZE 1024
+static UBYTE g_ser_buf[2][SER_BUF_SIZE];
+static int   g_ser_len[2];
+static int   g_ser_fill;       /* buffer notes are appended to */
+static int   g_ser_busy;       /* a SendIO is outstanding on 1 - g_ser_fill */
+static long  g_ser_dropped;
 
 static const char *g_error = "";
 
@@ -251,10 +292,118 @@ static int SongLoad(MidiSong *s, const char *path)
 
 /* ------------------------------------------------------------- CAMD output */
 
+/* Start a write if one is not already running and there is something to send. */
+static void SerKick(void)
+{
+	int send;
+
+	if (g_ser_req == NULL || g_ser_busy) return;
+	if (g_ser_len[g_ser_fill] == 0) return;
+
+	send = g_ser_fill;
+	g_ser_fill = 1 - g_ser_fill;
+	g_ser_len[g_ser_fill] = 0;
+
+	g_ser_req->IOSer.io_Command = CMD_WRITE;
+	g_ser_req->IOSer.io_Length  = g_ser_len[send];
+	g_ser_req->IOSer.io_Data    = (APTR)g_ser_buf[send];
+	SendIO((struct IORequest *)g_ser_req);
+	g_ser_busy = 1;
+}
+
+/* Called when the serial reply arrives: the wire is free, send what piled up. */
+static void SerDone(void)
+{
+	if (!g_ser_busy) return;
+	WaitIO((struct IORequest *)g_ser_req);
+	g_ser_busy = 0;
+	SerKick();
+}
+
+/* Finish anything outstanding. Only used when stopping - never in the loop. */
+static void SerDrain(void)
+{
+	if (g_ser_req == NULL) return;
+	if (g_ser_busy) { WaitIO((struct IORequest *)g_ser_req); g_ser_busy = 0; }
+	while (g_ser_len[g_ser_fill] != 0) {
+		SerKick();
+		if (!g_ser_busy) break;
+		WaitIO((struct IORequest *)g_ser_req);
+		g_ser_busy = 0;
+	}
+}
+
+static void SerPut(UBYTE status, UBYTE d1, UBYTE d2)
+{
+	int n = ((status & 0xF0) == 0xC0 || (status & 0xF0) == 0xD0) ? 2 : 3;
+	int f = g_ser_fill;
+
+	/* A real MIDI cable carries 3125 bytes a second and no more. A passage
+	 * denser than that cannot be sent on time by anyone, so drop it rather than
+	 * fall further and further behind - a late note is worse than a lost one. */
+	if (g_ser_len[f] + n > SER_BUF_SIZE) { g_ser_dropped += n; return; }
+
+	g_ser_buf[f][g_ser_len[f]++] = status;
+	g_ser_buf[f][g_ser_len[f]++] = d1;
+	if (n == 3) g_ser_buf[f][g_ser_len[f]++] = d2;
+}
+
 static void Put3(UBYTE status, UBYTE d1, UBYTE d2)
 {
-	if (g_midi_link == NULL) return;
-	PutMidi(g_midi_link, (LONG)(((ULONG)status << 24) | ((ULONG)d1 << 16) | ((ULONG)d2 << 8)));
+	if (g_out_mode == OUT_SERIAL) {
+		SerPut(status, d1, d2);
+	} else if (g_midi_link != NULL) {
+		PutMidi(g_midi_link, (LONG)(((ULONG)status << 24) | ((ULONG)d1 << 16) | ((ULONG)d2 << 8)));
+	}
+}
+
+/* 31250 baud, 8 data bits, one stop bit, no handshaking of any kind - the MIDI
+ * electrical standard. SERF_RAD_BOOGIE turns off the parity and XON/XOFF
+ * processing that would otherwise eat data bytes that happen to look like
+ * control characters, which in MIDI they routinely do. */
+static int SerOpen(void)
+{
+	g_ser_port = CreateMsgPort();
+	if (g_ser_port == NULL) return 0;
+	g_ser_req = (struct IOExtSer *)CreateIORequest(g_ser_port, sizeof(struct IOExtSer));
+	if (g_ser_req == NULL) return 0;
+
+	g_ser_req->io_SerFlags = SERF_XDISABLED | SERF_RAD_BOOGIE;
+	if (OpenDevice((STRPTR)SERIALNAME, 0, (struct IORequest *)g_ser_req, 0) != 0) {
+		DeleteIORequest((struct IORequest *)g_ser_req);
+		g_ser_req = NULL;
+		return 0;
+	}
+
+	g_ser_req->io_Baud       = 31250;
+	g_ser_req->io_ReadLen    = 8;
+	g_ser_req->io_WriteLen   = 8;
+	g_ser_req->io_StopBits   = 1;
+	g_ser_req->io_SerFlags   = SERF_XDISABLED | SERF_RAD_BOOGIE;
+	g_ser_req->IOSer.io_Command = SDCMD_SETPARAMS;
+	g_ser_sig = 1UL << g_ser_port->mp_SigBit;
+	if (DoIO((struct IORequest *)g_ser_req) != 0) {
+		MidiLog("serial.device refused 31250 baud");
+		CloseDevice((struct IORequest *)g_ser_req);
+		DeleteIORequest((struct IORequest *)g_ser_req);
+		g_ser_req = NULL;
+		return 0;
+	}
+	return 1;
+}
+
+static void SerClose(void)
+{
+	if (g_ser_req != NULL) {
+		SerDrain();
+		CloseDevice((struct IORequest *)g_ser_req);
+		DeleteIORequest((struct IORequest *)g_ser_req);
+		g_ser_req = NULL;
+	}
+	if (g_ser_port != NULL) {
+		DeleteMsgPort(g_ser_port);
+		g_ser_port = NULL;
+	}
 }
 
 /* Channel volume, scaled by OpenTTD's slider. Sending CC 7 rather than
@@ -430,23 +579,46 @@ static void PlayerProc(void)
 		return;
 	}
 
+	/* The serial port is opened HERE, not in the caller: an exec IORequest
+	 * belongs to the task whose port it replies to, and this process is the
+	 * only one that ever writes a note. */
+	if (g_out_mode == OUT_SERIAL && !SerOpen()) {
+		g_started = -1;
+		Signal(g_starter, SIGF_SINGLE);
+		SerClose();
+		CloseDevice((struct IORequest *)treq);
+		DeleteIORequest((struct IORequest *)treq);
+		DeleteMsgPort(tport);
+		return;
+	}
+
 	g_started = 1;
 	Signal(g_starter, SIGF_SINGLE);
 
 	for (;;) {
 		ULONG sigs;
 
+		/* The serial reply is NOT a clock tick. Treating it as one made the
+		 * song race: every completed write aborted the timer and played the
+		 * next event at once, so a three-minute track went by in seconds. A
+		 * serial wake-up is serviced and then we go straight back to waiting;
+		 * only the timer, or a new request, moves the song on. */
+		ULONG wake = SIG_CMD | SIGBREAKF_CTRL_C | g_ser_sig | (timer_running ? timer_sig : 0);
+
+		sigs = Wait(wake);
+		if ((sigs & g_ser_sig) != 0) SerDone();
+
+		if (g_quit || (sigs & SIGBREAKF_CTRL_C) != 0) break;
+
+		if ((sigs & (SIG_CMD | (timer_running ? timer_sig : 0))) == 0) continue;
+
 		if (timer_running) {
-			sigs = Wait(SIG_CMD | SIGBREAKF_CTRL_C | timer_sig);
+			/* Either it expired, or a request came in and we cut it short. */
 			if ((sigs & timer_sig) == 0) AbortIO((struct IORequest *)treq);
 			WaitIO((struct IORequest *)treq);
 			SetSignal(0, timer_sig);
 			timer_running = 0;
-		} else {
-			sigs = Wait(SIG_CMD | SIGBREAKF_CTRL_C);
 		}
-
-		if (g_quit || (sigs & SIGBREAKF_CTRL_C) != 0) break;
 
 		/* A new request? Copy it out under Forbid so it cannot change while we
 		 * are reading it. */
@@ -479,11 +651,13 @@ static void PlayerProc(void)
 			if (g_playing) {
 				int ch;
 				for (ch = 0; ch < 16; ch++) SendChannelVolume(ch);
+				SerKick();
 			}
 		}
 
 		if (g_playing) {
 			LONG wait = StepSong(&g_song);
+			SerKick();
 			if (wait < 0) {
 				AllNotesOff();
 				g_playing = 0;          /* OpenTTD polls this and moves on */
@@ -502,7 +676,9 @@ static void PlayerProc(void)
 		WaitIO((struct IORequest *)treq);
 	}
 	AllNotesOff();
+	SerDrain();
 	SongFree(&g_song);
+	SerClose();
 	CloseDevice((struct IORequest *)treq);
 	DeleteIORequest((struct IORequest *)treq);
 	DeleteMsgPort(tport);
@@ -530,6 +706,20 @@ static struct Library *OpenCamd(void)
 	return lib;
 }
 
+static void TearDownCamd(void)
+{
+	if (g_midi_link != NULL) { RemoveMidiLink(g_midi_link); g_midi_link = NULL; }
+	if (g_midi_node != NULL) { DeleteMidi(g_midi_node);     g_midi_node = NULL; }
+	if (CamdBase    != NULL) { CloseLibrary(CamdBase);      CamdBase    = NULL; }
+}
+
+static int StartPlayer(void);
+
+void AmigaMidi_SetRouting(int mode)
+{
+	g_routing = (mode >= 0 && mode <= 2) ? mode : 0;
+}
+
 int AmigaMidi_Probe(void)
 {
 	struct Library *lib = OpenCamd();
@@ -540,16 +730,28 @@ int AmigaMidi_Probe(void)
 
 int AmigaMidi_Start(void)
 {
-	struct Process *proc;
-
 	if (g_player != NULL) return 1;
 
 	g_error = "";
+	g_out_mode = OUT_NONE;
+
+	/* Forced straight to the serial port: skip CAMD entirely. */
+	if (g_routing == 2) {
+		g_out_mode = OUT_SERIAL;
+		MidiLog("routing: serial.device (forced)");
+		return StartPlayer();
+	}
+
 	CamdBase = OpenCamd();
 	if (CamdBase == NULL) {
-		g_error = "camd.library not found (LIBS: or libs/ beside the game)";
-		MidiLog("camd.library not found - MIDI unavailable");
-		return 0;
+		if (g_routing == 1) {
+			g_error = "camd.library not found (LIBS: or libs/ beside the game)";
+			MidiLog("camd.library not found and CAMD was forced - MIDI unavailable");
+			return 0;
+		}
+		MidiLog("no camd.library - falling back to raw MIDI on the serial port");
+		g_out_mode = OUT_SERIAL;
+		return StartPlayer();
 	}
 
 	g_midi_node = CreateMidi(MIDI_Name, (Tag)"OpenTTD",
@@ -597,6 +799,17 @@ int AmigaMidi_Start(void)
 			? "out.0 reports a receiver"
 			: "out.0 reports NO receiver - expect silence until a MIDI driver is set up");
 
+	g_out_mode = OUT_CAMD;
+
+	return StartPlayer();
+}
+
+/* Bring the player process up and wait for it to say whether it managed to
+ * open everything it needs. Shared by both routes. */
+static int StartPlayer(void)
+{
+	struct Process *proc;
+
 	g_starter = FindTask(NULL);
 	g_started = 0;
 	g_quit    = 0;
@@ -611,9 +824,7 @@ int AmigaMidi_Start(void)
 	if (proc == NULL) {
 		g_error = "cannot start the MIDI player process";
 		MidiLog("CreateNewProc failed");
-		RemoveMidiLink(g_midi_link); g_midi_link = NULL;
-		DeleteMidi(g_midi_node);     g_midi_node = NULL;
-		CloseLibrary(CamdBase);      CamdBase = NULL;
+		TearDownCamd();
 		return 0;
 	}
 
@@ -621,16 +832,19 @@ int AmigaMidi_Start(void)
 	Wait(SIGF_SINGLE);
 
 	if (g_started != 1) {
-		g_error = "the MIDI player could not open timer.device";
-		MidiLog("player process failed to open timer.device");
+		g_error = (g_out_mode == OUT_SERIAL)
+				? "cannot open the serial port for MIDI (something else is using it?)"
+				: "the MIDI player could not open timer.device";
+		MidiLog("player process failed to start");
 		g_player = NULL;
-		RemoveMidiLink(g_midi_link); g_midi_link = NULL;
-		DeleteMidi(g_midi_node);     g_midi_node = NULL;
-		CloseLibrary(CamdBase);      CamdBase = NULL;
+		TearDownCamd();
+		g_out_mode = OUT_NONE;
 		return 0;
 	}
 
-	MidiLog("camd.library opened, sending to cluster out.0");
+	MidiLog(g_out_mode == OUT_CAMD
+			? "playing MIDI through camd.library, cluster out.0"
+			: "playing MIDI as raw bytes on serial.device at 31250 baud");
 	return 1;
 }
 
@@ -643,9 +857,8 @@ void AmigaMidi_Shutdown(void)
 		Signal(g_player, SIGBREAKF_CTRL_C);
 		Wait(SIGF_SINGLE);
 	}
-	if (g_midi_link != NULL) { RemoveMidiLink(g_midi_link); g_midi_link = NULL; }
-	if (g_midi_node != NULL) { DeleteMidi(g_midi_node);     g_midi_node = NULL; }
-	if (CamdBase    != NULL) { CloseLibrary(CamdBase);      CamdBase    = NULL; }
+	TearDownCamd();
+	g_out_mode = OUT_NONE;
 }
 
 int AmigaMidi_Play(const char *path)

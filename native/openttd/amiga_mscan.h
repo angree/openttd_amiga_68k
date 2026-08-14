@@ -39,6 +39,10 @@ int AmigaMusic_ScanDirExt(const char *dir, const char *ext,
  */
 const char *AmigaProgDirPath(void);
 
+/* Show one line in an Intuition requester. Used for fatal startup errors, which
+ * otherwise only reach a log file the player has no reason to open. */
+void AmigaErrorRequester(const char *text);
+
 /* Send stdout/stderr to NIL: when the program was started from Workbench,
  * so double-clicking the icon does not open a console full of debug text. */
 void AmigaSilenceIfWorkbench(void);

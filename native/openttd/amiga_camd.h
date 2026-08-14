@@ -18,6 +18,11 @@
 extern "C" {
 #endif
 
+/* Where the notes go: 0 = try camd.library and fall back to the serial port,
+ * 1 = camd.library only, 2 = raw MIDI on serial.device only. Call before
+ * AmigaMidi_Start; it does nothing afterwards. */
+void AmigaMidi_SetRouting(int mode);
+
 /* Is camd.library there at all? Opens and closes it, nothing more, so it is
  * cheap enough to call from a settings callback. Returns 1 if MIDI has any
  * chance of working on this machine. */

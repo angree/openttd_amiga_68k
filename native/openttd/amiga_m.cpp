@@ -340,10 +340,81 @@ static int ScanMidiDirectory(int source)
 	return _song_count;
 }
 
+/* ------------------------------------------- reading the config TOO EARLY --
+ *
+ * openttd.cfg is NOT loaded yet when this scanner first runs. openttd.cpp does
+ *
+ *     BaseGraphics::FindSets();
+ *     BaseSounds::FindSets();
+ *     BaseMusic::FindSets();     <- music.cpp asks us for the song list here
+ *     ...
+ *     LoadFromConfig();          <- and the settings only arrive here
+ *
+ * so _settings_client.amiga.music_source is still zero at that point, whatever
+ * the player put in the file. That is exactly the bug the user hit: they picked
+ * MIDI, and got the sampled music with no complaint, because by the time
+ * anything could complain the catalogue had already been built from music/.
+ *
+ * It cost an afternoon to find because it hid: MusicDriver_Amiga::Start() runs
+ * AFTER the config is loaded, deletes the log and scans again, so the log
+ * showed the right answer while the song list OpenTTD kept was built from the
+ * wrong one.
+ *
+ * Moving LoadFromConfig() up would be a change to the startup order of a
+ * program that has plenty of other opinions about it. Reading the two keys we
+ * need, ourselves, out of the file the game is about to read anyway, is a much
+ * smaller thing to be wrong about - and it cannot disagree with the settings
+ * system, because both read the same file. */
+static int AmigaCfgEnum(const char *key, const char *const *names, int nnames, int def)
+{
+	char line[512];
+	char want[64];
+	bool in_amiga = false;
+	FILE *f;
+	int result = def;
+
+	snprintf(want, sizeof(want), "%s", key);
+
+	f = fopen("PROGDIR:openttd.cfg", "r");
+	if (f == NULL) return def;
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		char k[64], v[64];
+		char *eq;
+
+		if (line[0] == '[') {
+			in_amiga = (strncmp(line, "[amiga]", 7) == 0);
+			continue;
+		}
+		if (!in_amiga) continue;
+
+		eq = strchr(line, '=');
+		if (eq == NULL) continue;
+		*eq = '\0';
+		MusTrimCopy(k, sizeof(k), line);
+		if (!MusEqualNoCase(k, want)) continue;
+		MusTrimCopy(v, sizeof(v), eq + 1);
+
+		if (v[0] >= '0' && v[0] <= '9') {
+			result = v[0] - '0';
+		} else {
+			int i;
+			for (i = 0; i < nnames; i++) {
+				if (MusEqualNoCase(v, names[i])) { result = i; break; }
+			}
+		}
+		break;
+	}
+	fclose(f);
+
+	if (result < 0 || result >= nnames) result = def;
+	return result;
+}
+
 static void ScanMusicDirectories()
 {
 	int n, i;
-	int source;
+	int source, routing;
 
 	_song_count = 0;
 	_normal_count = 0;
@@ -354,8 +425,15 @@ static void ScanMusicDirectories()
 	 * Both can fail on a machine that has no MIDI set up at all, and a player
 	 * left with silence would have no idea why, so every failure falls back to
 	 * the sampled music and says what happened in the log. */
-	source = (int)_settings_client.amiga.music_source;
+	{
+		static const char *const src_names[] = { "sampled", "openmsx", "original" };
+		static const char *const out_names[] = { "auto", "camd", "serial" };
+		source = AmigaCfgEnum("music_source", src_names, 3, 0);
+		routing = AmigaCfgEnum("midi_out",    out_names, 3, 0);
+	}
+	MusLog("config: music_source=%d midi_out=%d", source, routing);
 	if (source != 0) {
+		AmigaMidi_SetRouting(routing);
 		if (AmigaMidi_Start()) {
 			if (ScanMidiDirectory(source) > 0) {
 				_midi_mode = 1;
@@ -468,8 +546,11 @@ const char *MusicDriver_Amiga::Start(const char * const *param)
 	remove(MUS_LOG);
 	_mus_log_lines = 0;
 	ScanMusicDirectories();
+	/* Which MIDI route was taken is logged by the player itself, in
+	 * amiga_midi.log - naming camd.library here was simply wrong once the
+	 * serial route existed. */
 	MusLog(_midi_mode
-			? "AMIGA-MUSIC-v4 started: MIDI out through camd.library"
+			? "AMIGA-MUSIC-v4 started: MIDI (see amiga_midi.log for the route)"
 			: "AMIGA-MUSIC-v4 started: sampled music through Paula");
 	return NULL;   /* never fail: an explicit driver failure is fatal upstream */
 }

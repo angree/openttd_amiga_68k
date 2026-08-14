@@ -6,8 +6,10 @@
  */
 
 #include <proto/dos.h>
+#include <proto/intuition.h>
 #include <dos/dos.h>
 #include <dos/dosextens.h>
+#include <intuition/intuition.h>
 
 #include <stddef.h>
 #include <string.h>
@@ -165,4 +167,31 @@ const char *AmigaProgDirPath(void)
 	}
 
 	return (buf[0] != '\0') ? buf : 0;
+}
+
+/* Put a fatal error where the player can actually see it.
+ *
+ * Before this, a startup failure printed one line to stdout - which the run
+ * script sends to a file - and then the program simply exited. From the outside
+ * that is a game that does not start, with no explanation whatsoever; the user
+ * hit exactly this with a stale set of language files and had nothing to go on.
+ * An Intuition requester costs nothing and turns it into a sentence.
+ *
+ * It lives here for the usual reason: this is the one plain-C file allowed the
+ * <proto/*> headers. IntuitionBase is opened for us by the C library at
+ * startup, so it is available even this early - but it is still checked,
+ * because a NULL base is better handled than crashed on. */
+void AmigaErrorRequester(const char *text)
+{
+	struct EasyStruct es;
+
+	if (IntuitionBase == 0 || text == 0) return;
+
+	es.es_StructSize   = sizeof(es);
+	es.es_Flags        = 0;
+	es.es_Title        = (UBYTE *)"AmiTTD";
+	es.es_TextFormat   = (UBYTE *)"%s";
+	es.es_GadgetFormat = (UBYTE *)"OK";
+
+	EasyRequestArgs(0, &es, 0, (APTR)&text);
 }

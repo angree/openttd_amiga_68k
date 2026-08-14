@@ -32,12 +32,14 @@
 
 #include "../stdafx.h"
 #include "../openttd.h"                 /* _game_mode, GM_MENU */
+#include "../settings_type.h"           /* _settings_client.amiga.music_source */
 #include "amiga_m.h"
 
 extern "C" {
 #include "../sound/amiga_audio.h"
 #include "../sound/amiga_adpcm.h"
 #include "amiga_mscan.h"
+#include "amiga_camd.h"
 }
 
 /* OpenTTD's current 1-based song number, exported by music_gui.cpp. */
@@ -73,6 +75,14 @@ static int  _normal_count = 0;  /* Nowe + Extra (the in-game default set) */
 static int  _old_count    = 0;  /* Stare */
 static bool _scan_done    = false;
 
+/* Which of the three sources the catalogue was built from. Decided ONCE, at
+ * the first scan, because music.cpp asks for the song list while the base sets
+ * are being scanned - long before this driver is started - and OpenTTD keeps
+ * that list for the rest of the run. Changing amiga.music_source therefore
+ * needs a restart, which is what the setting says.
+ * 0 = sampled WAV through Paula, 1 = MIDI out through camd.library. */
+static int _midi_mode = 0;
+
 static AdpcmStream *_cur_stream = NULL;
 static bool  _cur_is_menu = false;   /* game mode the loaded track was chosen for */
 static int   _cur_song    = 0;       /* song number of the loaded track */
@@ -107,13 +117,257 @@ static bool CatAdd(const char *path, const char *name)
 	return true;
 }
 
+/* ------------------------------------------------------------------ MIDI --
+ *
+ * The MIDI sources live in PROGDIR:gm/ and describe themselves with a music
+ * base set file (.obm) sitting next to the songs. We read it for two things a
+ * bare directory listing cannot give us: the running order the set intends,
+ * and the real track titles - "GM_TT04.GM" is a file name, not a song name.
+ *
+ * A set splits its songs into theme / old / new / ezy. This port ignores
+ * OpenTTD's era selection (see the header comment), so the mapping is the one
+ * the WAV directories already use: theme is track 1, new + ezy are the in-game
+ * rotation, and old is the "Old Style" playlist.
+ */
+
+#define OBM_MAX_NAMES  80
+#define OBM_MAX_NORMAL 24
+#define OBM_MAX_OLD    16
+
+struct ObmSet {
+	char theme[AMIGA_MUSIC_NAME_MAX];
+	char normal[OBM_MAX_NORMAL][AMIGA_MUSIC_NAME_MAX];
+	int  normal_n;
+	char old[OBM_MAX_OLD][AMIGA_MUSIC_NAME_MAX];
+	int  old_n;
+	char name_file[OBM_MAX_NAMES][AMIGA_MUSIC_NAME_MAX];
+	char name_text[OBM_MAX_NAMES][AMIGA_MUSIC_NAME_MAX];
+	int  names_n;
+	bool ok;
+};
+
+static ObmSet _obm;
+
+static int MusLower(int c) { return (c >= 'A' && c <= 'Z') ? c + ('a' - 'A') : c; }
+
+static bool MusEqualNoCase(const char *a, const char *b)
+{
+	while (*a != '\0' && *b != '\0') {
+		if (MusLower((unsigned char)*a) != MusLower((unsigned char)*b)) return false;
+		a++; b++;
+	}
+	return *a == *b;
+}
+
+/* Copy the value part of "key = value", trimmed at both ends. */
+static void MusTrimCopy(char *dst, size_t dst_size, const char *src)
+{
+	size_t len;
+	while (*src == ' ' || *src == '\t') src++;
+	snprintf(dst, dst_size, "%s", src);
+	len = strlen(dst);
+	while (len > 0 && (dst[len - 1] == ' '  || dst[len - 1] == '\t' ||
+	                   dst[len - 1] == '\r' || dst[len - 1] == '\n')) {
+		dst[--len] = '\0';
+	}
+}
+
+/* Read one .obm. Returns false when it is missing or says nothing, in which
+ * case the caller falls back to a plain directory listing. */
+static bool ReadObm(const char *path)
+{
+	char line[512];
+	char key[64];
+	int  section = 0;    /* 1 = [files], 2 = [names] */
+	FILE *f;
+
+	memset(&_obm, 0, sizeof(_obm));
+
+	f = fopen(path, "r");
+	if (f == NULL) return false;
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		char *eq;
+		if (line[0] == ';' || line[0] == '#') continue;
+		if (line[0] == '[') {
+			section = 0;
+			if (strncmp(line, "[files]", 7) == 0) section = 1;
+			if (strncmp(line, "[names]", 7) == 0) section = 2;
+			continue;
+		}
+		if (section == 0) continue;
+
+		eq = strchr(line, '=');
+		if (eq == NULL) continue;
+		*eq = '\0';
+		MusTrimCopy(key, sizeof(key), line);
+		if (key[0] == '\0') continue;
+
+		if (section == 1) {
+			char val[AMIGA_MUSIC_NAME_MAX];
+			MusTrimCopy(val, sizeof(val), eq + 1);
+			if (val[0] == '\0') continue;      /* an unused slot, e.g. "old_8 =" */
+			if (MusEqualNoCase(key, "theme")) {
+				snprintf(_obm.theme, sizeof(_obm.theme), "%s", val);
+			} else if ((strncmp(key, "new_", 4) == 0 || strncmp(key, "ezy_", 4) == 0) &&
+					_obm.normal_n < OBM_MAX_NORMAL) {
+				snprintf(_obm.normal[_obm.normal_n++], AMIGA_MUSIC_NAME_MAX, "%s", val);
+			} else if (strncmp(key, "old_", 4) == 0 && _obm.old_n < OBM_MAX_OLD) {
+				snprintf(_obm.old[_obm.old_n++], AMIGA_MUSIC_NAME_MAX, "%s", val);
+			}
+		} else if (_obm.names_n < OBM_MAX_NAMES) {
+			char val[AMIGA_MUSIC_NAME_MAX];
+			MusTrimCopy(val, sizeof(val), eq + 1);
+			if (val[0] == '\0') continue;
+			snprintf(_obm.name_file[_obm.names_n], AMIGA_MUSIC_NAME_MAX, "%s", key);
+			snprintf(_obm.name_text[_obm.names_n], AMIGA_MUSIC_NAME_MAX, "%s", val);
+			_obm.names_n++;
+		}
+	}
+	fclose(f);
+
+	_obm.ok = (_obm.theme[0] != '\0' || _obm.normal_n > 0 || _obm.old_n > 0);
+	return _obm.ok;
+}
+
+/* The set's own title for a file, or the bare file name when it has none. */
+static const char *ObmTitle(const char *file, const char *fallback)
+{
+	int i;
+	for (i = 0; i < _obm.names_n; i++) {
+		if (MusEqualNoCase(_obm.name_file[i], file)) return _obm.name_text[i];
+	}
+	return fallback;
+}
+
+/* Which scanned entry is this .obm file name? Compared without the suffix,
+ * because that is what the scanner hands back, and without regard to case,
+ * because orig_win.obm spells the files "GM_TT00.GM" while a real drawer may
+ * hold "gm_tt00.gm". Returns -1 when the set names a song that is not there. */
+static int FindScanned(int n, const char *file, const char *ext)
+{
+	char base[AMIGA_MUSIC_NAME_MAX];
+	size_t len, ext_len;
+	int i;
+
+	snprintf(base, sizeof(base), "%s", file);
+	len = strlen(base);
+	ext_len = strlen(ext);
+	if (len > ext_len && MusEqualNoCase(base + len - ext_len, ext)) base[len - ext_len] = '\0';
+
+	for (i = 0; i < n; i++) {
+		if (MusEqualNoCase(_dir_names[i], base)) return i;
+	}
+	return -1;
+}
+
+/* Build the catalogue out of PROGDIR:gm/. Returns the number of songs found,
+ * or 0 when there is nothing to play - the caller then falls back to WAV. */
+static int ScanMidiDirectory(int source)
+{
+	const char *ext = (source == 2) ? ".gm" : ".mid";
+	const char *obm = (source == 2) ? "PROGDIR:gm/orig_win.obm" : "PROGDIR:gm/openmsx.obm";
+	bool used[MUS_MAX_DIR_TRACKS];
+	int n, i, j, idx;
+
+	n = AmigaMusic_ScanDirExt("PROGDIR:gm", ext, _dir_paths, _dir_names, MUS_MAX_DIR_TRACKS);
+	MusLog("gm scan: %d file(s) matching *%s", n, ext);
+	if (n == 0) return 0;
+
+	for (i = 0; i < MUS_MAX_DIR_TRACKS; i++) used[i] = false;
+
+	if (ReadObm(obm)) {
+		MusLog("%s: theme=%d normal=%d old=%d names=%d", obm,
+				_obm.theme[0] != '\0' ? 1 : 0, _obm.normal_n, _obm.old_n, _obm.names_n);
+
+		idx = (_obm.theme[0] != '\0') ? FindScanned(n, _obm.theme, ext) : -1;
+		if (idx >= 0) {
+			CatAdd(_dir_paths[idx], ObmTitle(_obm.theme, _dir_names[idx]));
+			used[idx] = true;
+		} else {
+			CatAdd("", "Amiga music");   /* song 1 stays reserved for the theme */
+		}
+
+		for (i = 0; i < _obm.normal_n; i++) {
+			idx = FindScanned(n, _obm.normal[i], ext);
+			if (idx < 0 || used[idx]) continue;
+			if (CatAdd(_dir_paths[idx], ObmTitle(_obm.normal[i], _dir_names[idx]))) {
+				_normal_count++;
+				used[idx] = true;
+			}
+		}
+
+		/* Anything in the drawer the set does not mention still plays: someone
+		 * who drops their own .mid in should hear it, not have it ignored.
+		 * Songs the set files under "old" are left for the loop below. */
+		for (i = 0; i < n; i++) {
+			bool in_old = false;
+			if (used[i]) continue;
+			for (j = 0; j < _obm.old_n; j++) {
+				if (FindScanned(n, _obm.old[j], ext) == i) { in_old = true; break; }
+			}
+			if (in_old) continue;
+			if (CatAdd(_dir_paths[i], _dir_names[i])) {
+				_normal_count++;
+				used[i] = true;
+			}
+		}
+
+		for (i = 0; i < _obm.old_n; i++) {
+			idx = FindScanned(n, _obm.old[i], ext);
+			if (idx < 0 || used[idx]) continue;
+			if (CatAdd(_dir_paths[idx], ObmTitle(_obm.old[i], _dir_names[idx]))) {
+				_old_count++;
+				used[idx] = true;
+			}
+		}
+	} else {
+		/* No description file: play what is there, in the order AmigaDOS gave
+		 * it, with the first track doubling as the menu theme. */
+		MusLog("no %s - plain directory listing", obm);
+		CatAdd(_dir_paths[0], _dir_names[0]);
+		for (i = 0; i < n; i++) {
+			if (CatAdd(_dir_paths[i], _dir_names[i])) _normal_count++;
+		}
+	}
+
+	return _song_count;
+}
+
 static void ScanMusicDirectories()
 {
 	int n, i;
+	int source;
 
 	_song_count = 0;
 	_normal_count = 0;
 	_old_count = 0;
+	_midi_mode = 0;
+
+	/* Sources 1 and 2 play MIDI through camd.library instead of sampled WAV.
+	 * Both can fail on a machine that has no MIDI set up at all, and a player
+	 * left with silence would have no idea why, so every failure falls back to
+	 * the sampled music and says what happened in the log. */
+	source = (int)_settings_client.amiga.music_source;
+	if (source != 0) {
+		if (AmigaMidi_Start()) {
+			if (ScanMidiDirectory(source) > 0) {
+				_midi_mode = 1;
+				_scan_done = true;
+				MusLog("MIDI catalogue: songs=%d (normal=%d old=%d)",
+						_song_count, _normal_count, _old_count);
+				return;
+			}
+			MusLog("nothing playable in PROGDIR:gm - using sampled music");
+			AmigaMidi_Shutdown();
+		} else {
+			MusLog("MIDI unavailable: %s - using sampled music", AmigaMidi_LastError());
+		}
+		/* Whatever a half-finished MIDI scan added must not be kept. */
+		_song_count = 0;
+		_normal_count = 0;
+		_old_count = 0;
+	}
 
 	/* Track 1: the menu theme. Prefer music/Title; fall back to the first
 	 * in-game track, or a placeholder so song 1 always exists. */
@@ -194,11 +448,17 @@ const char *MusicDriver_Amiga::Start(const char * const *param)
 	remove(MUS_LOG);
 	_mus_log_lines = 0;
 	ScanMusicDirectories();
-	MusLog("AMIGA-MUSIC-v3 (song number = track) started");
+	MusLog(_midi_mode
+			? "AMIGA-MUSIC-v4 started: MIDI out through camd.library"
+			: "AMIGA-MUSIC-v4 started: sampled music through Paula");
 	return NULL;   /* never fail: an explicit driver failure is fatal upstream */
 }
 
-void MusicDriver_Amiga::Stop() { this->StopSong(); }
+void MusicDriver_Amiga::Stop()
+{
+	this->StopSong();
+	if (_midi_mode) AmigaMidi_Shutdown();
+}
 
 void MusicDriver_Amiga::PlaySong(const char *filename)
 {
@@ -225,8 +485,17 @@ void MusicDriver_Amiga::PlaySong(const char *filename)
 	_cur_is_menu = (_game_mode == GM_MENU);
 
 	if (path[0] == '\0') {
-		MusLog("silent: song=%d (no WAV in that slot)", cs);
+		MusLog("silent: song=%d (nothing in that slot)", cs);
 		return;   /* IsSongPlaying() holds when the install has no music at all */
+	}
+
+	if (_midi_mode) {
+		if (AmigaMidi_Play(path)) {
+			MusLog("play song %d -> %s (menu=%d)", cs, path, _cur_is_menu ? 1 : 0);
+		} else {
+			MusLog("midi play FAILED: %s", path);
+		}
+		return;
 	}
 
 	_cur_stream = Adpcm_Open(path);
@@ -252,6 +521,11 @@ void MusicDriver_Amiga::PlaySong(const char *filename)
 
 void MusicDriver_Amiga::StopSong()
 {
+	if (_midi_mode) {
+		AmigaMidi_Stop();
+		return;
+	}
+
 	AmigaAudio_MusicStop();
 	if (_cur_stream != NULL) {
 		Adpcm_Close(_cur_stream);
@@ -261,6 +535,14 @@ void MusicDriver_Amiga::StopSong()
 
 bool MusicDriver_Amiga::IsSongPlaying()
 {
+	if (_midi_mode) {
+		/* Same shape as the sampled path below: an install with no music at all
+		 * claims to be playing, so OpenTTD stops asking every tick. */
+		if (_song_count == 0 || _cat_path[0][0] == '\0') return true;
+		if (_cur_is_menu != (_game_mode == GM_MENU)) return false;
+		return AmigaMidi_IsPlaying() != 0;
+	}
+
 	if (_cur_stream == NULL) {
 		/* No WAV loaded. With NO music at all (no-music tier / empty dirs) claim
 		 * "playing" so OpenTTD's loop stops calling PlaySong every tick and
@@ -275,5 +557,9 @@ bool MusicDriver_Amiga::IsSongPlaying()
 void MusicDriver_Amiga::SetVolume(byte vol)
 {
 	_cur_vol = vol;
+	if (_midi_mode) {
+		AmigaMidi_SetVolume((int)vol);   /* CC 7 on every channel */
+		return;
+	}
 	AmigaAudio_MusicSetVolume(VolToPaula(vol));
 }

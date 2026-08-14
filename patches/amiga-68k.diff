@@ -1221,12 +1221,16 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  }
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/lang/english.txt b/lang/english.txt
 --- a/lang/english.txt	2010-11-14 10:31:31.000000000 +0100
-+++ b/lang/english.txt	2026-08-14 01:32:48.839886200 +0200
-@@ -1297,7 +1297,22 @@
++++ b/lang/english.txt	2026-08-14 12:24:43.692595200 +0200
+@@ -1297,7 +1297,26 @@
  STR_CONFIG_SETTING_LARGER_TOWNS_DISABLED                        :{LTBLUE}Proportion of towns that will become cities: {ORANGE}None
  STR_CONFIG_SETTING_CITY_SIZE_MULTIPLIER                         :{LTBLUE}Initial city size multiplier: {ORANGE}{STRING1}
  STR_CONFIG_SETTING_MODIFIED_ROAD_REBUILD                        :{LTBLUE}Remove absurd road-elements during the road construction: {ORANGE}{STRING1}
 +STR_CONFIG_SETTING_AMIGA_FAST_LOAD                               :{LTBLUE}Fast load - keep data files in RAM (needs ~50 MB free; needs a restart): {ORANGE}{STRING1}
++STR_CONFIG_SETTING_AMIGA_MUSIC_SOURCE                            :{LTBLUE}Music (needs a restart): {ORANGE}{STRING1}
++STR_CONFIG_SETTING_AMIGA_MUSIC_SOURCE_SAMPLED                    :sampled, through Paula (music/)
++STR_CONFIG_SETTING_AMIGA_MUSIC_SOURCE_OPENMSX                    :OpenMSX MIDI, through camd.library (gm/)
++STR_CONFIG_SETTING_AMIGA_MUSIC_SOURCE_ORIGINAL                   :original TTD MIDI, through camd.library (your own gm/*.gm)
 +STR_CONFIG_SETTING_AMIGA_NEWGRF                                  :{LTBLUE}NewGRF support (off saves memory; needs a restart): {ORANGE}{STRING1}
 +STR_CONFIG_SETTING_AMIGA_FULLSCREEN                              :{LTBLUE}Fullscreen (own screen; off = resizable window on Workbench): {ORANGE}{STRING1}
 +STR_CONFIG_SETTING_AMIGA_WB_BAR                                 :{LTBLUE}Workbench bar visible (allows flip to Workbench, costs game area): {ORANGE}{STRING1}
@@ -1385,6 +1389,1287 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	new MainWindow;
  
  	/* XXX: these are not done */
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/music/amiga_camd.c b/music/amiga_camd.c
+--- a/music/amiga_camd.c	1970-01-01 01:00:00.000000000 +0100
++++ b/music/amiga_camd.c	2026-08-14 12:38:35.463443000 +0200
+@@ -0,0 +1,658 @@
++/* MIDI playback through camd.library for the AmigaOS port of OpenTTD 1.0.5.
++ *
++ * WHY THIS FILE EXISTS AT ALL
++ * --------------------------
++ * camd.library is not a music player. It is AmigaOS's MIDI router: it knows
++ * how to get a three-byte MIDI message out of the machine and into whatever
++ * the user has plugged in (a serial MIDI interface, an mt32-pi, a soundcard
++ * driver), and applications talk to it instead of to the hardware. What it
++ * does NOT do is read a song off disk or keep time. That is this file: a
++ * Standard MIDI File reader plus a clock.
++ *
++ * WHY A SEPARATE PROCESS
++ * ----------------------
++ * MIDI needs its events delivered on time, and OpenTTD's music driver has no
++ * per-frame callback we could hang a clock on - IsSongPlaying() is polled from
++ * the game loop, which stalls for as long as a frame takes. So the player runs
++ * as its own AmigaOS process waiting on timer.device, and the game only ever
++ * sends it "play this", "stop", "volume". A late frame then costs a dropped
++ * frame, not a dragged beat.
++ *
++ * The process uses AmigaDOS I/O and AllocVec only - never stdio and never
++ * malloc. libnix's stdio and its allocator belong to the process that started
++ * the C library up, and reaching into them from a second process is how you
++ * get a crash that only ever happens on someone else's machine.
++ *
++ * ROUTING
++ * -------
++ * We send to the CAMD cluster named "out.0", which is the conventional first
++ * MIDI output and what the MidiPorts preferences program fills in by default.
++ * If nothing is routed there the messages simply go nowhere - that is the
++ * user's setup to fix, and we say so in the log rather than failing.
++ */
++
++#include <exec/types.h>
++#include <exec/memory.h>
++#include <exec/ports.h>
++#include <exec/io.h>
++#include <dos/dos.h>
++#include <dos/dostags.h>
++#include <devices/timer.h>
++#include <midi/camd.h>
++
++#include <proto/exec.h>
++#include <proto/dos.h>
++#include <proto/camd.h>
++
++#include <string.h>
++
++#include "amiga_camd.h"
++
++struct Library *CamdBase = NULL;
++
++/* ------------------------------------------------------------------ limits */
++
++#define MIDI_MAX_TRACKS   48
++#define MIDI_MAX_FILE     (512UL * 1024)   /* no Standard MIDI File we play is near this */
++#define MIDI_PATH_MAX     256
++
++/* Events closer together than this are emitted in one go instead of costing
++ * another timer round trip. Three milliseconds is inaudible, and it keeps a
++ * dense song from asking timer.device for a thousand requests a second, which
++ * a 68020 cannot afford. */
++#define MIDI_MERGE_US     3000
++
++/* ------------------------------------------------------------ shared state */
++
++/* Written by the game task, read by the player process. Every change is made
++ * under Forbid() and followed by a Signal(), so the player always sees a whole
++ * request and never half of one. */
++static volatile ULONG  g_req_seq;         /* bumped for every new request */
++static volatile ULONG  g_done_seq;        /* what the player has picked up */
++static char            g_req_path[MIDI_PATH_MAX];
++static volatile LONG   g_req_kind;        /* 0 = stop, 1 = play g_req_path */
++static volatile LONG   g_volume = 127;    /* OpenTTD's 0..127 */
++static volatile LONG   g_vol_seq;         /* bumped when the volume changes */
++static volatile LONG   g_playing;         /* 1 while a song is running */
++static volatile LONG   g_quit;
++
++static struct Task    *g_player;
++static struct Task    *g_starter;
++static volatile LONG   g_started;         /* 1 = player is up, -1 = it failed */
++
++static struct MidiNode *g_midi_node;
++static struct MidiLink *g_midi_link;
++
++static const char *g_error = "";
++
++/* ----------------------------------------------------------------- logging */
++
++#define MIDI_LOG "PROGDIR:amiga_midi.log"
++static LONG g_log_lines;
++
++static void MidiLog(const char *s)
++{
++	BPTR fh;
++	if (g_log_lines >= 80) return;
++	g_log_lines++;
++	fh = Open((STRPTR)MIDI_LOG, MODE_READWRITE);
++	if (fh == 0) return;
++	Seek(fh, 0, OFFSET_END);
++	Write(fh, (APTR)s, (LONG)strlen(s));
++	Write(fh, (APTR)"\n", 1);
++	Close(fh);
++}
++
++/* ------------------------------------------------------- the file in memory */
++
++typedef struct {
++	const UBYTE *p;        /* read cursor */
++	const UBYTE *end;
++	ULONG        next_tick;
++	UBYTE        running;  /* running status byte */
++	UBYTE        done;
++} MidiTrack;
++
++typedef struct {
++	UBYTE     *data;
++	ULONG      size;
++	MidiTrack  trk[MIDI_MAX_TRACKS];
++	int        ntrk;
++	ULONG      division;   /* ticks per quarter note */
++	ULONG      tempo;      /* microseconds per quarter note */
++	ULONG      now_tick;
++	ULONG      pend_us;    /* time merged away below MIDI_MERGE_US, still owed */
++	UBYTE      chan_vol[16];
++} MidiSong;
++
++static MidiSong g_song;
++
++static ULONG Be32(const UBYTE *p)
++{
++	return ((ULONG)p[0] << 24) | ((ULONG)p[1] << 16) | ((ULONG)p[2] << 8) | (ULONG)p[3];
++}
++
++static ULONG Be16(const UBYTE *p)
++{
++	return ((ULONG)p[0] << 8) | (ULONG)p[1];
++}
++
++/* MIDI's variable-length quantity: seven bits per byte, high bit means
++ * "another byte follows". Bounded, so a truncated file cannot walk off the
++ * end of the buffer. */
++static ULONG ReadVar(const UBYTE **pp, const UBYTE *end)
++{
++	ULONG v = 0;
++	int n = 0;
++	const UBYTE *p = *pp;
++
++	while (p < end && n < 4) {
++		UBYTE b = *p++;
++		n++;
++		v = (v << 7) | (ULONG)(b & 0x7F);
++		if ((b & 0x80) == 0) break;
++	}
++	*pp = p;
++	return v;
++}
++
++static void SongFree(MidiSong *s)
++{
++	if (s->data != NULL) FreeVec(s->data);
++	s->data = NULL;
++	s->ntrk = 0;
++}
++
++/* Read the whole file in one go. Loading on a real Amiga is dominated by the
++ * NUMBER of disk requests (see amiga.fast_load), and a song is small. */
++static UBYTE *LoadWhole(const char *path, ULONG *out_size)
++{
++	BPTR   fh;
++	UBYTE *buf;
++	LONG   size, got;
++
++	fh = Open((STRPTR)path, MODE_OLDFILE);
++	if (fh == 0) return NULL;
++
++	if (Seek(fh, 0, OFFSET_END) < 0) { Close(fh); return NULL; }
++	size = Seek(fh, 0, OFFSET_BEGINNING);
++	if (size <= 14 || (ULONG)size > MIDI_MAX_FILE) { Close(fh); return NULL; }
++
++	buf = (UBYTE *)AllocVec((ULONG)size, MEMF_ANY);
++	if (buf == NULL) { Close(fh); return NULL; }
++
++	got = Read(fh, buf, size);
++	Close(fh);
++	if (got != size) { FreeVec(buf); return NULL; }
++
++	*out_size = (ULONG)size;
++	return buf;
++}
++
++/* Split a Standard MIDI File into its tracks. Formats 0, 1 and 2 all consist
++ * of MThd followed by MTrk chunks, so one walk handles them all; format 2's
++ * tracks are meant to be separate songs, but merging them is better than
++ * refusing to play. */
++static int SongLoad(MidiSong *s, const char *path)
++{
++	const UBYTE *p, *end;
++	ULONG div;
++	int i;
++
++	SongFree(s);
++	memset(s, 0, sizeof(*s));
++
++	s->data = LoadWhole(path, &s->size);
++	if (s->data == NULL) { g_error = "cannot read the file"; return 0; }
++
++	p   = s->data;
++	end = s->data + s->size;
++
++	if (memcmp(p, "MThd", 4) != 0) { SongFree(s); g_error = "not a MIDI file"; return 0; }
++	if (Be32(p + 4) < 6)           { SongFree(s); g_error = "broken MIDI header"; return 0; }
++
++	div = Be16(p + 12);
++	if ((div & 0x8000) != 0) {
++		/* SMPTE timing: the high byte is a negative frame rate, the low byte
++		 * ticks per frame. Nothing we ship uses it, and converting it would be
++		 * a guess, so refuse rather than play the song at the wrong speed. */
++		SongFree(s);
++		g_error = "SMPTE-timed MIDI is not supported";
++		return 0;
++	}
++	if (div == 0) div = 96;
++	s->division = div;
++	s->tempo    = 500000;   /* 120 bpm until the file says otherwise */
++
++	p = s->data + 8 + Be32(s->data + 4);
++	while (p + 8 <= end && s->ntrk < MIDI_MAX_TRACKS) {
++		ULONG len = Be32(p + 4);
++		if (memcmp(p, "MTrk", 4) == 0) {
++			const UBYTE *tp = p + 8;
++			const UBYTE *te = tp + len;
++			if (te > end || te < tp) te = end;   /* truncated last track: play what is there */
++			s->trk[s->ntrk].p       = tp;
++			s->trk[s->ntrk].end     = te;
++			s->trk[s->ntrk].running = 0;
++			s->trk[s->ntrk].done    = 0;
++			s->trk[s->ntrk].next_tick = ReadVar(&s->trk[s->ntrk].p, te);
++			s->ntrk++;
++		}
++		if (len > (ULONG)(end - p - 8)) break;
++		p += 8 + len;
++	}
++
++	if (s->ntrk == 0) { SongFree(s); g_error = "MIDI file has no tracks"; return 0; }
++
++	for (i = 0; i < 16; i++) s->chan_vol[i] = 100;   /* the GM default */
++	s->now_tick = 0;
++	return 1;
++}
++
++/* ------------------------------------------------------------- CAMD output */
++
++static void Put3(UBYTE status, UBYTE d1, UBYTE d2)
++{
++	if (g_midi_link == NULL) return;
++	PutMidi(g_midi_link, (LONG)(((ULONG)status << 24) | ((ULONG)d1 << 16) | ((ULONG)d2 << 8)));
++}
++
++/* Channel volume, scaled by OpenTTD's slider. Sending CC 7 rather than
++ * rewriting note velocities means a song that fades itself still fades. */
++static void SendChannelVolume(int ch)
++{
++	long v = (long)g_song.chan_vol[ch] * (long)g_volume / 127;
++	if (v > 127) v = 127;
++	if (v < 0)   v = 0;
++	Put3((UBYTE)(0xB0 | ch), 7, (UBYTE)v);
++}
++
++static void AllNotesOff(void)
++{
++	int ch;
++	for (ch = 0; ch < 16; ch++) {
++		Put3((UBYTE)(0xB0 | ch), 120, 0);   /* all sound off */
++		Put3((UBYTE)(0xB0 | ch), 123, 0);   /* all notes off */
++	}
++}
++
++static void ResetForNewSong(void)
++{
++	int ch;
++	AllNotesOff();
++	for (ch = 0; ch < 16; ch++) {
++		Put3((UBYTE)(0xB0 | ch), 121, 0);   /* reset all controllers */
++		g_song.chan_vol[ch] = 100;
++		SendChannelVolume(ch);
++	}
++}
++
++/* --------------------------------------------------------- the event pump */
++
++/* Emit every event due at the current tick and return how many microseconds
++ * to wait for the next one, or -1 once the song has ended. */
++static LONG StepSong(MidiSong *s)
++{
++	for (;;) {
++		int   best = -1;
++		ULONG best_tick = 0;
++		int   i;
++		MidiTrack *t;
++		UBYTE status;
++
++		for (i = 0; i < s->ntrk; i++) {
++			if (s->trk[i].done) continue;
++			if (best < 0 || s->trk[i].next_tick < best_tick) {
++				best = i;
++				best_tick = s->trk[i].next_tick;
++			}
++		}
++		if (best < 0) return -1;          /* every track has ended */
++
++		if (best_tick > s->now_tick) {
++			/* Nothing more to do at this instant, so work out the wait. The
++			 * delta is capped so that a file with an absurd one cannot
++			 * overflow the microsecond count. */
++			ULONG dt = best_tick - s->now_tick;
++			ULONG wait;
++
++			/* dt * tempo / division, without either the truncation of a
++			 * per-tick constant or a 32-bit overflow. The quotient part is
++			 * exact; the remainder part is bounded by 60000 * 32767, which
++			 * still fits. Doing it as tempo/division first loses 0.06% per
++			 * tick at the usual 500000/480, and that adds up over a song. */
++			if (dt > 60000UL) dt = 60000UL;
++			wait = dt * (s->tempo / s->division) +
++					(dt * (s->tempo % s->division)) / s->division;
++			s->now_tick = best_tick;
++
++			/* Gaps too short to be worth a timer request are merged - but the
++			 * time is CARRIED, not dropped. Discarding it cost 4% of the
++			 * running time (a 103.3 s theme played in 99.4 s), because at
++			 * 480 ticks per quarter almost every one- or two-tick gap is under
++			 * the threshold and there are thousands of them. */
++			s->pend_us += wait;
++			if (s->pend_us < MIDI_MERGE_US) continue;
++			wait = s->pend_us;
++			s->pend_us = 0;
++			return (LONG)wait;
++		}
++
++		t = &s->trk[best];
++		if (t->p >= t->end) { t->done = 1; continue; }
++
++		status = *t->p;
++		if (status & 0x80) {
++			t->p++;
++			if (status < 0xF0) t->running = status;
++		} else {
++			status = t->running;
++			if (status == 0) { t->done = 1; continue; }   /* garbage - drop the track */
++		}
++
++		if (status == 0xFF) {
++			/* Meta event: only tempo and end-of-track mean anything to us. */
++			UBYTE type;
++			ULONG len;
++			if (t->p >= t->end) { t->done = 1; continue; }
++			type = *t->p++;
++			len  = ReadVar(&t->p, t->end);
++			if (len > (ULONG)(t->end - t->p)) len = (ULONG)(t->end - t->p);
++			if (type == 0x2F) { t->done = 1; continue; }
++			if (type == 0x51 && len >= 3) {
++				ULONG tempo = ((ULONG)t->p[0] << 16) | ((ULONG)t->p[1] << 8) | (ULONG)t->p[2];
++				if (tempo != 0) s->tempo = tempo;
++			}
++			t->p += len;
++		} else if (status == 0xF0 || status == 0xF7) {
++			/* System exclusive. We do not forward it: a GM reset from the file
++			 * would be welcome, but a dump aimed at whatever synth the song was
++			 * written for is not, and telling the two apart is more trouble
++			 * than it is worth. */
++			ULONG len = ReadVar(&t->p, t->end);
++			if (len > (ULONG)(t->end - t->p)) len = (ULONG)(t->end - t->p);
++			t->p += len;
++		} else {
++			UBYTE d1 = 0, d2 = 0;
++			UBYTE hi = (UBYTE)(status & 0xF0);
++			int   ch = status & 0x0F;
++			int   two = (hi != 0xC0 && hi != 0xD0);
++
++			if (t->p < t->end) d1 = *t->p++;
++			if (two && t->p < t->end) d2 = *t->p++;
++
++			if (hi == 0xB0 && d1 == 7) {
++				/* The song setting a channel's volume. Remember it and send our
++				 * scaled version instead, so the slider keeps working. */
++				s->chan_vol[ch] = d2;
++				SendChannelVolume(ch);
++			} else {
++				Put3(status, d1, d2);
++			}
++		}
++
++		if (t->p >= t->end) {
++			t->done = 1;
++		} else {
++			t->next_tick = s->now_tick + ReadVar(&t->p, t->end);
++		}
++	}
++}
++
++/* ------------------------------------------------------ the player process */
++
++#define SIG_CMD  SIGBREAKF_CTRL_F
++
++static void PlayerProc(void)
++{
++	struct MsgPort     *tport = NULL;
++	struct timerequest *treq  = NULL;
++	int   have_device = 0;
++	int   timer_running = 0;
++	LONG  vol_seen = 0;
++	ULONG timer_sig = 0;
++
++	tport = CreateMsgPort();
++	if (tport != NULL) {
++		treq = (struct timerequest *)CreateIORequest(tport, sizeof(struct timerequest));
++	}
++	if (treq != NULL && OpenDevice((STRPTR)TIMERNAME, UNIT_MICROHZ,
++			(struct IORequest *)treq, 0) == 0) {
++		have_device = 1;
++		timer_sig = 1UL << tport->mp_SigBit;
++	}
++
++	if (!have_device) {
++		g_started = -1;
++		Signal(g_starter, SIGF_SINGLE);
++		if (treq  != NULL) DeleteIORequest((struct IORequest *)treq);
++		if (tport != NULL) DeleteMsgPort(tport);
++		return;
++	}
++
++	g_started = 1;
++	Signal(g_starter, SIGF_SINGLE);
++
++	for (;;) {
++		ULONG sigs;
++
++		if (timer_running) {
++			sigs = Wait(SIG_CMD | SIGBREAKF_CTRL_C | timer_sig);
++			if ((sigs & timer_sig) == 0) AbortIO((struct IORequest *)treq);
++			WaitIO((struct IORequest *)treq);
++			SetSignal(0, timer_sig);
++			timer_running = 0;
++		} else {
++			sigs = Wait(SIG_CMD | SIGBREAKF_CTRL_C);
++		}
++
++		if (g_quit || (sigs & SIGBREAKF_CTRL_C) != 0) break;
++
++		/* A new request? Copy it out under Forbid so it cannot change while we
++		 * are reading it. */
++		if (g_done_seq != g_req_seq) {
++			char path[MIDI_PATH_MAX];
++			LONG kind;
++
++			Forbid();
++			kind = g_req_kind;
++			strcpy(path, g_req_path);
++			g_done_seq = g_req_seq;
++			Permit();
++
++			AllNotesOff();
++			SongFree(&g_song);
++			g_playing = 0;
++
++			if (kind == 1) {
++				if (SongLoad(&g_song, path)) {
++					ResetForNewSong();
++					g_playing = 1;
++				} else {
++					MidiLog(g_error);
++				}
++			}
++		}
++
++		if (vol_seen != g_vol_seq) {
++			vol_seen = g_vol_seq;
++			if (g_playing) {
++				int ch;
++				for (ch = 0; ch < 16; ch++) SendChannelVolume(ch);
++			}
++		}
++
++		if (g_playing) {
++			LONG wait = StepSong(&g_song);
++			if (wait < 0) {
++				AllNotesOff();
++				g_playing = 0;          /* OpenTTD polls this and moves on */
++			} else {
++				treq->tr_node.io_Command = TR_ADDREQUEST;
++				treq->tr_time.tv_secs    = (ULONG)wait / 1000000UL;
++				treq->tr_time.tv_micro   = (ULONG)wait % 1000000UL;
++				SendIO((struct IORequest *)treq);
++				timer_running = 1;
++			}
++		}
++	}
++
++	if (timer_running) {
++		AbortIO((struct IORequest *)treq);
++		WaitIO((struct IORequest *)treq);
++	}
++	AllNotesOff();
++	SongFree(&g_song);
++	CloseDevice((struct IORequest *)treq);
++	DeleteIORequest((struct IORequest *)treq);
++	DeleteMsgPort(tport);
++
++	g_player = NULL;
++	Signal(g_starter, SIGF_SINGLE);   /* Shutdown() is waiting for this */
++}
++
++/* -------------------------------------------------------------- public API */
++
++const char *AmigaMidi_LastError(void)
++{
++	return g_error;
++}
++
++int AmigaMidi_Start(void)
++{
++	struct Process *proc;
++
++	if (g_player != NULL) return 1;
++
++	g_error = "";
++	CamdBase = OpenLibrary((STRPTR)"camd.library", 0);
++	if (CamdBase == NULL) {
++		g_error = "camd.library is not installed";
++		MidiLog("camd.library not found - MIDI unavailable");
++		return 0;
++	}
++
++	g_midi_node = CreateMidi(MIDI_Name, (Tag)"OpenTTD",
++			MIDI_ClientType, CCType_Sequencer,
++			TAG_END);
++	if (g_midi_node == NULL) {
++		g_error = "CreateMidi failed";
++		MidiLog("CreateMidi failed");
++		CloseLibrary(CamdBase);
++		CamdBase = NULL;
++		return 0;
++	}
++
++	/* "out.0" is the first MIDI output port as the MidiPorts preferences
++	 * program names it. If the user has routed nothing there the link still
++	 * succeeds and the notes go nowhere - a setup problem, not ours. */
++	g_midi_link = AddMidiLink(g_midi_node, MLTYPE_Sender,
++			MLINK_Name,     (Tag)"OpenTTD.out",
++			MLINK_Location, (Tag)"out.0",
++			TAG_END);
++	if (g_midi_link == NULL) {
++		g_error = "no MIDI output cluster (out.0)";
++		MidiLog("AddMidiLink to out.0 failed");
++		DeleteMidi(g_midi_node);
++		g_midi_node = NULL;
++		CloseLibrary(CamdBase);
++		CamdBase = NULL;
++		return 0;
++	}
++
++	g_starter = FindTask(NULL);
++	g_started = 0;
++	g_quit    = 0;
++	SetSignal(0, SIGF_SINGLE);
++
++	proc = CreateNewProcTags(
++			NP_Entry,     (Tag)PlayerProc,
++			NP_Name,      (Tag)"OpenTTD MIDI",
++			NP_StackSize, 16384,
++			NP_Priority,  5,          /* above the game: it only ever runs briefly */
++			TAG_END);
++	if (proc == NULL) {
++		g_error = "cannot start the MIDI player process";
++		MidiLog("CreateNewProc failed");
++		RemoveMidiLink(g_midi_link); g_midi_link = NULL;
++		DeleteMidi(g_midi_node);     g_midi_node = NULL;
++		CloseLibrary(CamdBase);      CamdBase = NULL;
++		return 0;
++	}
++
++	g_player = &proc->pr_Task;
++	Wait(SIGF_SINGLE);
++
++	if (g_started != 1) {
++		g_error = "the MIDI player could not open timer.device";
++		MidiLog("player process failed to open timer.device");
++		g_player = NULL;
++		RemoveMidiLink(g_midi_link); g_midi_link = NULL;
++		DeleteMidi(g_midi_node);     g_midi_node = NULL;
++		CloseLibrary(CamdBase);      CamdBase = NULL;
++		return 0;
++	}
++
++	MidiLog("camd.library opened, sending to cluster out.0");
++	return 1;
++}
++
++void AmigaMidi_Shutdown(void)
++{
++	if (g_player != NULL) {
++		g_starter = FindTask(NULL);
++		SetSignal(0, SIGF_SINGLE);
++		g_quit = 1;
++		Signal(g_player, SIGBREAKF_CTRL_C);
++		Wait(SIGF_SINGLE);
++	}
++	if (g_midi_link != NULL) { RemoveMidiLink(g_midi_link); g_midi_link = NULL; }
++	if (g_midi_node != NULL) { DeleteMidi(g_midi_node);     g_midi_node = NULL; }
++	if (CamdBase    != NULL) { CloseLibrary(CamdBase);      CamdBase    = NULL; }
++}
++
++int AmigaMidi_Play(const char *path)
++{
++	if (g_player == NULL || path == NULL || path[0] == '\0') return 0;
++	if (strlen(path) >= MIDI_PATH_MAX) return 0;
++
++	Forbid();
++	strcpy(g_req_path, path);
++	g_req_kind = 1;
++	g_req_seq++;
++	Permit();
++
++	Signal(g_player, SIG_CMD);
++	return 1;
++}
++
++void AmigaMidi_Stop(void)
++{
++	if (g_player == NULL) return;
++
++	Forbid();
++	g_req_kind = 0;
++	g_req_seq++;
++	Permit();
++
++	Signal(g_player, SIG_CMD);
++}
++
++int AmigaMidi_IsPlaying(void)
++{
++	/* A request the player has not picked up yet counts as playing, otherwise
++	 * OpenTTD sees "finished" in the gap between Play() and the process waking
++	 * up, and skips straight on to the next track. */
++	if (g_player == NULL) return 0;
++	if (g_done_seq != g_req_seq) return g_req_kind == 1;
++	return g_playing != 0;
++}
++
++void AmigaMidi_SetVolume(int vol)
++{
++	if (vol < 0)   vol = 0;
++	if (vol > 127) vol = 127;
++	g_volume = vol;
++	g_vol_seq++;
++	if (g_player != NULL) Signal(g_player, SIG_CMD);
++}
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/music/amiga_camd.h b/music/amiga_camd.h
+--- a/music/amiga_camd.h	1970-01-01 01:00:00.000000000 +0100
++++ b/music/amiga_camd.h	2026-08-14 12:38:35.481246000 +0200
+@@ -0,0 +1,50 @@
++/* MIDI playback for the native AmigaOS port of OpenTTD 1.0.5.
++ *
++ * The events go out through camd.library, which is the AmigaOS standard MIDI
++ * router: it owns the hardware (serial MIDI interface, mt32-pi, a soundcard
++ * driver, ...) and every application just hands it note/controller messages.
++ * We therefore do NOT synthesize anything - we read a Standard MIDI File and
++ * play it into CAMD's "out.0" cluster, which is where the MidiPorts prefs
++ * program routes the user's interface by default.
++ *
++ * Keep this header free of both AmigaOS and OpenTTD types: it is included from
++ * amiga_m.cpp, which must never see the proto headers (the OTTD_Point collision
++ * amiga_m.cpp documents).
++ */
++#ifndef AMIGA_CAMD_H
++#define AMIGA_CAMD_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* Open camd.library and start the player process. Returns 1 on success, 0 if
++ * MIDI is not available on this machine (no camd.library, no free signals,
++ * nothing listening on "out.0"). The caller falls back to sampled music. */
++int AmigaMidi_Start(void);
++
++/* Stop everything and give camd.library back. Safe if Start() failed. */
++void AmigaMidi_Shutdown(void);
++
++/* Play one Standard MIDI File (a .mid or an original .gm - same format).
++ * Returns 1 if the file was accepted, 0 if it could not be read or parsed. */
++int AmigaMidi_Play(const char *path);
++
++/* Silence the output and forget the current song. */
++void AmigaMidi_Stop(void);
++
++/* 1 while a song is still running, 0 once it has played to its end. */
++int AmigaMidi_IsPlaying(void);
++
++/* OpenTTD's 0..127 music volume. Applied as MIDI channel volume (CC 7), so
++ * it scales whatever the file itself asked for instead of replacing it. */
++void AmigaMidi_SetVolume(int vol);
++
++/* Last failure, as a short English sentence for the log. Never NULL. */
++const char *AmigaMidi_LastError(void);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* AMIGA_CAMD_H */
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/music/camd-include/clib/camd_protos.h b/music/camd-include/clib/camd_protos.h
+--- a/music/camd-include/clib/camd_protos.h	1970-01-01 01:00:00.000000000 +0100
++++ b/music/camd-include/clib/camd_protos.h	2026-08-14 12:38:35.592853000 +0200
+@@ -0,0 +1,65 @@
++#ifndef CLIB_CAMD_PROTOS_H
++#define CLIB_CAMD_PROTOS_H
++
++#ifndef EXEC_TYPES_H
++#include <exec/types.h>
++#endif
++
++#ifndef MIDI_CAMD_H
++#include <midi/camd.h>
++#endif
++
++APTR LockCAMD(ULONG locknum);
++void UnlockCAMD(APTR lock);
++
++struct MidiNode *CreateMidiA(CONST struct TagItem *tags);
++void DeleteMidi(struct MidiNode *mn);
++BOOL SetMidiAttrsA(struct MidiNode *mn, CONST struct TagItem *tags);
++ULONG GetMidiAttrsA(struct MidiNode *mn, CONST struct TagItem *tags);
++struct MidiNode *NextMidi(struct MidiNode *mn);
++struct MidiNode *FindMidi(CONST_STRPTR name);
++void FlushMidi(struct MidiNode *mn);
++
++struct MidiLink *AddMidiLinkA(struct MidiNode *mn, LONG, CONST struct TagItem *tags);
++void RemoveMidiLink(struct MidiLink *ml);
++BOOL SetMidiLinkAttrsA(struct MidiLink *ml, CONST struct TagItem *tags);
++ULONG GetMidiLinkAttrsA(struct MidiLink *ml, CONST struct TagItem *tags);
++struct MidiLink *NextClusterLink(struct MidiCluster *mc, struct MidiLink *ml, LONG type);
++struct MidiLink *NextMidiLink(struct MidiNode *mn, struct MidiLink *ml, LONG type);
++BOOL MidiLinkConnected(struct MidiLink *ml);
++
++struct MidiCluster *NextCluster(struct MidiCluster *mc);
++struct MidiCluster *FindCluster(CONST_STRPTR name);
++
++void PutMidi(struct MidiLink *ml, LONG msgdata);
++BOOL GetMidi(struct MidiNode *mn, MidiMsg *msg);
++BOOL WaitMidi(struct MidiNode *mn, MidiMsg *msg);
++
++void PutSysEx(struct MidiLink *mn, UBYTE *buffer);
++ULONG GetSysEx(struct MidiNode *mn, UBYTE *buffer, ULONG length);
++ULONG QuerySysEx(struct MidiNode *mn);
++void SkipSysEx(struct MidiNode *mn);
++
++UBYTE GetMidiErr(struct MidiNode *mn);
++WORD MidiMsgType(MidiMsg *msg);
++WORD MidiMsgLen(ULONG status);
++
++void ParseMidi(struct MidiLink *ml, UBYTE *buffer, ULONG length);
++
++struct MidiDeviceData *OpenMidiDevice(UBYTE *name);
++void CloseMidiDevice(struct MidiDeviceData *mdd);
++
++int RethinkCAMD(void);
++void StartClusterNotify(struct ClusterNotifyNode *node);
++void EndClusterNotify(struct ClusterNotifyNode *node);
++
++#if !defined(USE_INLINE_STDARG)
++struct MidiNode *CreateMidi(Tag, ...);
++BOOL SetMidiAttrs(struct MidiNode *mn, Tag tag, ...);
++ULONG GetMidiAttrs(struct MidiNode *mn, Tag tag, ...);
++struct MidiLink *AddMidiLink(struct MidiNode *mn, LONG, Tag, ...);
++BOOL SetMidiLinkAttrs(struct MidiLink *ml, Tag tag, ...);
++ULONG GetMidiLinkAttrs(struct MidiLink *ml, Tag tag, ...);
++#endif
++
++#endif /* CLIB_CAMD_PROTOS_H */
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/music/camd-include/inline/camd.h b/music/camd-include/inline/camd.h
+--- a/music/camd-include/inline/camd.h	1970-01-01 01:00:00.000000000 +0100
++++ b/music/camd-include/inline/camd.h	2026-08-14 12:38:35.622200000 +0200
+@@ -0,0 +1,189 @@
++/* Automatically generated header (sfdc 1.11f)! Do not edit! */
++
++#ifndef _INLINE_CAMD_H
++#define _INLINE_CAMD_H
++
++#ifndef _SFDC_VARARG_DEFINED
++#define _SFDC_VARARG_DEFINED
++#ifdef __HAVE_IPTR_ATTR__
++typedef APTR _sfdc_vararg __attribute__((iptr));
++#else
++typedef ULONG _sfdc_vararg;
++#endif /* __HAVE_IPTR_ATTR__ */
++#endif /* _SFDC_VARARG_DEFINED */
++
++#ifndef __INLINE_MACROS_H
++#include <inline/macros.h>
++#endif /* !__INLINE_MACROS_H */
++
++#ifndef CAMD_BASE_NAME
++#define CAMD_BASE_NAME CamdBase
++#endif /* !CAMD_BASE_NAME */
++
++#define LockCAMD(___locktype) \
++      LP1(0x1e, APTR, LockCAMD , ULONG, ___locktype, d0,\
++      , CAMD_BASE_NAME)
++
++#define UnlockCAMD(___lock) \
++      LP1NR(0x24, UnlockCAMD , APTR, ___lock, a0,\
++      , CAMD_BASE_NAME)
++
++#define CreateMidiA(___tags) \
++      LP1(0x2a, struct MidiNode *, CreateMidiA , CONST struct TagItem *, ___tags, a0,\
++      , CAMD_BASE_NAME)
++
++#ifndef NO_INLINE_STDARG
++#define CreateMidi(___tags, ...) \
++    ({_sfdc_vararg _tags[] = { ___tags, __VA_ARGS__ }; CreateMidiA((CONST struct TagItem *) _tags); })
++#endif /* !NO_INLINE_STDARG */
++
++#define DeleteMidi(___mi) \
++      LP1NR(0x30, DeleteMidi , struct MidiNode *, ___mi, a0,\
++      , CAMD_BASE_NAME)
++
++#define SetMidiAttrsA(___mi, ___tags) \
++      LP2(0x36, BOOL, SetMidiAttrsA , struct MidiNode *, ___mi, a0, CONST struct TagItem *, ___tags, a1,\
++      , CAMD_BASE_NAME)
++
++#ifndef NO_INLINE_STDARG
++#define SetMidiAttrs(___mi, ___tags, ...) \
++    ({_sfdc_vararg _tags[] = { ___tags, __VA_ARGS__ }; SetMidiAttrsA((___mi), (CONST struct TagItem *) _tags); })
++#endif /* !NO_INLINE_STDARG */
++
++#define GetMidiAttrsA(___mi, ___tags) \
++      LP2(0x3c, ULONG, GetMidiAttrsA , struct MidiNode *, ___mi, a0, CONST struct TagItem *, ___tags, a1,\
++      , CAMD_BASE_NAME)
++
++#ifndef NO_INLINE_STDARG
++#define GetMidiAttrs(___mi, ___tags, ...) \
++    ({_sfdc_vararg _tags[] = { ___tags, __VA_ARGS__ }; GetMidiAttrsA((___mi), (CONST struct TagItem *) _tags); })
++#endif /* !NO_INLINE_STDARG */
++
++#define NextMidi(___mi) \
++      LP1(0x42, struct MidiNode *, NextMidi , struct MidiNode *, ___mi, a0,\
++      , CAMD_BASE_NAME)
++
++#define FindMidi(___name) \
++      LP1(0x48, struct MidiNode *, FindMidi , CONST_STRPTR, ___name, a1,\
++      , CAMD_BASE_NAME)
++
++#define FlushMidi(___mi) \
++      LP1NR(0x4e, FlushMidi , struct MidiNode *, ___mi, a0,\
++      , CAMD_BASE_NAME)
++
++#define AddMidiLinkA(___mi, ___type, ___tags) \
++      LP3(0x54, struct MidiLink *, AddMidiLinkA , struct MidiNode *, ___mi, a0, LONG, ___type, d0, CONST struct TagItem *, ___tags, a1,\
++      , CAMD_BASE_NAME)
++
++#ifndef NO_INLINE_STDARG
++#define AddMidiLink(___mi, ___type, ___tags, ...) \
++    ({_sfdc_vararg _tags[] = { ___tags, __VA_ARGS__ }; AddMidiLinkA((___mi), (___type), (CONST struct TagItem *) _tags); })
++#endif /* !NO_INLINE_STDARG */
++
++#define RemoveMidiLink(___ml) \
++      LP1NR(0x5a, RemoveMidiLink , struct MidiLink *, ___ml, a0,\
++      , CAMD_BASE_NAME)
++
++#define SetMidiLinkAttrsA(___ml, ___tags) \
++      LP2(0x60, BOOL, SetMidiLinkAttrsA , struct MidiLink *, ___ml, a0, CONST struct TagItem *, ___tags, a1,\
++      , CAMD_BASE_NAME)
++
++#ifndef NO_INLINE_STDARG
++#define SetMidiLinkAttrs(___ml, ___tags, ...) \
++    ({_sfdc_vararg _tags[] = { ___tags, __VA_ARGS__ }; SetMidiLinkAttrsA((___ml), (CONST struct TagItem *) _tags); })
++#endif /* !NO_INLINE_STDARG */
++
++#define GetMidiLinkAttrsA(___ml, ___tags) \
++      LP2(0x66, ULONG, GetMidiLinkAttrsA , struct MidiLink *, ___ml, a0, CONST struct TagItem *, ___tags, a1,\
++      , CAMD_BASE_NAME)
++
++#ifndef NO_INLINE_STDARG
++#define GetMidiLinkAttrs(___ml, ___tags, ...) \
++    ({_sfdc_vararg _tags[] = { ___tags, __VA_ARGS__ }; GetMidiLinkAttrsA((___ml), (CONST struct TagItem *) _tags); })
++#endif /* !NO_INLINE_STDARG */
++
++#define NextClusterLink(___mc, ___ml, ___type) \
++      LP3(0x6c, struct MidiLink *, NextClusterLink , struct MidiCluster *, ___mc, a0, struct MidiLink *, ___ml, a1, LONG, ___type, d0,\
++      , CAMD_BASE_NAME)
++
++#define NextMidiLink(___mi, ___ml, ___type) \
++      LP3(0x72, struct MidiLink *, NextMidiLink , struct MidiNode *, ___mi, a0, struct MidiLink *, ___ml, a1, LONG, ___type, d0,\
++      , CAMD_BASE_NAME)
++
++#define MidiLinkConnected(___ml) \
++      LP1(0x78, BOOL, MidiLinkConnected , struct MidiLink *, ___ml, a0,\
++      , CAMD_BASE_NAME)
++
++#define NextCluster(___mc) \
++      LP1(0x7e, struct MidiCluster *, NextCluster , struct MidiCluster *, ___mc, a0,\
++      , CAMD_BASE_NAME)
++
++#define FindCluster(___name) \
++      LP1(0x84, struct MidiCluster *, FindCluster , CONST_STRPTR, ___name, a0,\
++      , CAMD_BASE_NAME)
++
++#define PutMidi(___ml, ___msgdata) \
++      LP2NR(0x8a, PutMidi , struct MidiLink *, ___ml, a0, LONG, ___msgdata, d0,\
++      , CAMD_BASE_NAME)
++
++#define GetMidi(___mi, ___msg) \
++      LP2(0x90, BOOL, GetMidi , struct MidiNode *, ___mi, a0, MidiMsg *, ___msg, a1,\
++      , CAMD_BASE_NAME)
++
++#define WaitMidi(___mi, ___msg) \
++      LP2(0x96, BOOL, WaitMidi , struct MidiNode *, ___mi, a0, MidiMsg *, ___msg, a1,\
++      , CAMD_BASE_NAME)
++
++#define PutSysEx(___ml, ___buffer) \
++      LP2NR(0x9c, PutSysEx , struct MidiLink *, ___ml, a0, UBYTE *, ___buffer, a1,\
++      , CAMD_BASE_NAME)
++
++#define GetSysEx(___mi, ___buffer, ___len) \
++      LP3(0xa2, ULONG, GetSysEx , struct MidiNode *, ___mi, a0, UBYTE *, ___buffer, a1, ULONG, ___len, d0,\
++      , CAMD_BASE_NAME)
++
++#define QuerySysEx(___mi) \
++      LP1(0xa8, ULONG, QuerySysEx , struct MidiNode *, ___mi, a0,\
++      , CAMD_BASE_NAME)
++
++#define SkipSysEx(___mi) \
++      LP1NR(0xae, SkipSysEx , struct MidiNode *, ___mi, a0,\
++      , CAMD_BASE_NAME)
++
++#define GetMidiErr(___mi) \
++      LP1(0xb4, UBYTE, GetMidiErr , struct MidiNode *, ___mi, a0,\
++      , CAMD_BASE_NAME)
++
++#define MidiMsgType(___msg) \
++      LP1(0xba, WORD, MidiMsgType , MidiMsg *, ___msg, a0,\
++      , CAMD_BASE_NAME)
++
++#define MidiMsgLen(___status) \
++      LP1(0xc0, WORD, MidiMsgLen , ULONG, ___status, d0,\
++      , CAMD_BASE_NAME)
++
++#define ParseMidi(___ml, ___buffer, ___length) \
++      LP3NR(0xc6, ParseMidi , struct MidiLink *, ___ml, a0, UBYTE *, ___buffer, a1, ULONG, ___length, d0,\
++      , CAMD_BASE_NAME)
++
++#define OpenMidiDevice(___name) \
++      LP1(0xcc, struct MidiDeviceData *, OpenMidiDevice , UBYTE *, ___name, a0,\
++      , CAMD_BASE_NAME)
++
++#define CloseMidiDevice(___mdd) \
++      LP1NR(0xd2, CloseMidiDevice , struct MidiDeviceData *, ___mdd, a0,\
++      , CAMD_BASE_NAME)
++
++#define RethinkCAMD() \
++      LP0(0xd8, int, RethinkCAMD ,\
++      , CAMD_BASE_NAME)
++
++#define StartClusterNotify(___node) \
++      LP1NR(0xde, StartClusterNotify , struct ClusterNotifyNode *, ___node, a0,\
++      , CAMD_BASE_NAME)
++
++#define EndClusterNotify(___node) \
++      LP1NR(0xe4, EndClusterNotify , struct ClusterNotifyNode *, ___node, a0,\
++      , CAMD_BASE_NAME)
++
++#endif /* !_INLINE_CAMD_H */
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/music/camd-include/midi/camd.h b/music/camd-include/midi/camd.h
+--- a/music/camd-include/midi/camd.h	1970-01-01 01:00:00.000000000 +0100
++++ b/music/camd-include/midi/camd.h	2026-08-14 12:38:35.535800900 +0200
+@@ -0,0 +1,261 @@
++#ifndef MIDI_CAMD_H
++#define MIDI_CAMD_H
++
++#ifndef EXEC_LISTS_H
++#include <exec/lists.h>
++#endif
++
++#ifndef EXEC_TYPES_H
++#include <exec/types.h>
++#endif
++
++#ifndef UTILITY_TAGITEM_H
++#include <utility/tagitem.h>
++#endif
++
++enum
++{
++	CD_Linkages,
++	CD_NLocks
++};
++
++typedef union
++{
++	ULONG l[2];
++	UBYTE b[4];
++} MidiMsg;
++
++#define mm_Msg    l[0]
++#define mm_Time   l[1]
++#define mm_Status b[0]
++#define mm_Data1  b[1]
++#define mm_Data2  b[2]
++#define mm_Port   b[3]
++#define mm_Data   b
++
++#define voicemsg(m,a) (((m)->mm_Status & MS_StatBits) == (a))
++#define sysmsg(m)     ((m)->mm_Status >= MS_System)
++#define noteon(m)     (voicemsg(m,MS_NoteOn) && (m)->mm_Data2)
++#define realtime(m)   ((m)->mm_Status >= MS_RealTime)
++#define modemsg(m)    (voicemsg(m,MS_Ctrl) && (m)->mm_Data1 >= MM_Min)
++
++struct MidiCluster
++{
++	struct Node mcl_Node;
++	WORD        mcl_Participants;
++	struct List mcl_Receivers;
++	struct List mcl_Senders;
++	WORD        mcl_PublicParticipants;
++	UWORD       mcl_Flags;
++};
++
++struct MidiLink
++{
++	struct Node         ml_Node;
++	WORD                ml_Pad;
++	struct MinNode      ml_OwnerNode;
++	struct MidiNode    *ml_MidiNode;
++	struct MidiCluster *ml_Location;
++	char               *ml_ClusterComment;
++	UBYTE               ml_Flags;
++	UBYTE               ml_PortID;
++	UWORD               ml_ChannelMask;
++	ULONG               ml_EventTypeMask;
++
++	union SysExFilter
++	{
++		UBYTE            b[4];
++		ULONG            sxf_Packed;
++	} ml_SysExFilter;
++
++	APTR                ml_ParserData;
++	APTR                ml_UserData;
++};
++
++#define sxf_Mode b[0]
++#define sxf_ID1  b[1]
++#define sxf_ID2  b[2]
++#define sxf_ID3  b[3]
++
++enum
++{
++	MLTYPE_Receiver,
++	MLTYPE_Sender,
++	MLTYPE_NTypes
++};
++
++#define MLF_Sender      (1 << 0)
++#define MLF_PartChange  (1 << 1)
++#define MLF_PrivateLink (1 << 2)
++#define MLF_DeviceLink  (1 << 3)
++
++#define MLINK_Base         (TAG_USER + 65)
++
++#define MLINK_Location     (MLINK_Base + 0)
++#define MLINK_ChannelMask  (MLINK_Base + 1)
++#define MLINK_EventMask    (MLINK_Base + 2)
++#define MLINK_UserData     (MLINK_Base + 3)
++#define MLINK_Comment      (MLINK_Base + 4)
++#define MLINK_PortID       (MLINK_Base + 5)
++#define MLINK_Private      (MLINK_Base + 6)
++#define MLINK_Priority     (MLINK_Base + 7)
++#define MLINK_SysExFilter  (MLINK_Base + 8)
++#define MLINK_SysExFilterX (MLINK_Base + 9)
++#define MLINK_Parse        (MLINK_Base + 10)
++#define MLINK_Reserved     (MLINK_Base + 11)
++#define MLINK_ErrorCode    (MLINK_Base + 12)
++#define MLINK_Name         (MLINK_Base + 13)
++
++#define SXF_ModeBits  0x04
++#define SXF_CountBits 0x03
++
++#define SXFM_Off      0x00
++#define SXFM_1Byte    0x00
++#define SXFM_3Byte    0x04
++
++
++struct MidiNode
++{
++	struct Node     mi_Node;
++	UWORD           mi_ClientType;
++	struct Image   *mi_Image;
++	struct MinList  mi_OutLinks;
++	struct MinList  mi_InLinks;
++	struct Task    *mi_SigTask;
++	struct Hook    *mi_ReceiveHook;
++	struct Hook    *mi_ParticipantHook;
++	BYTE            mi_ReceiveSigBit;
++	BYTE            mi_ParticipantSigBit;
++	UBYTE           mi_ErrFilter;
++	UBYTE           mi_Alignment[1];
++	ULONG          *mi_TimeStamp;
++	ULONG           mi_MsgQueueSize;
++	ULONG           mi_SysExQueueSize;
++};
++
++#define CCType_Sequencer        (1 << 0)
++#define CCType_SampleEditor     (1 << 1)
++#define CCType_PatchEditor      (1 << 2)
++#define CCType_Notator          (1 << 3)
++#define CCType_EventProcessor   (1 << 4)
++#define CCType_EventFilter      (1 << 5)
++#define CCType_EventRouter      (1 << 6)
++#define CCType_ToneGenerator    (1 << 7)
++#define CCType_EventGenerator   (1 << 8)
++#define CCType_GraphicAnimator  (1 << 9)
++
++#define MIDI_Base         (TAG_USER + 65)
++#define MIDI_Name         (MIDI_Base + 0)
++#define MIDI_SignalTask   (MIDI_Base + 1)
++#define MIDI_RecvHook     (MIDI_Base + 2)
++#define MIDI_PartHook     (MIDI_Base + 3)
++#define MIDI_RecvSignal   (MIDI_Base + 4)
++#define MIDI_PartSignal   (MIDI_Base + 5)
++#define MIDI_MsgQueue     (MIDI_Base + 6)
++#define MIDI_SysExSize    (MIDI_Base + 7)
++#define MIDI_TimeStamp    (MIDI_Base + 8)
++#define MIDI_ErrFilter    (MIDI_Base + 9)
++#define MIDI_ClientType   (MIDI_Base + 10)
++#define MIDI_Image        (MIDI_Base + 11)
++#define MIDI_ErrorCode    (MIDI_Base + 12)
++
++#define CME_NoMem         801
++#define CME_NoSignals     802
++#define CME_NoTimer       803
++#define CME_BadPrefs      804
++#define CME_NoUnit(unit) (820 + (unit))
++
++#define CMB_Note          0
++#define CMB_Prog          1
++#define CMB_PitchBend     2
++
++#define CMB_CtrlMSB       3
++#define CMB_CtrlLSB       4
++#define CMB_CtrlSwitch    5
++#define CMB_CtrlByte      6
++#define CMB_CtrlParam     7
++#define CMB_CtrlUndef     8
++
++#define CMB_Mode          9
++#define CMB_ChanPress     10
++#define CMB_PolyPress     11
++
++#define CMB_RealTime      12
++#define CMB_SysCom        13
++#define CMB_SysEx         14
++
++#define CMF_Note          (1L << CMB_Note)
++#define CMF_Prog          (1L << CMB_Prog)
++#define CMF_PitchBend     (1L << CMB_PitchBend)
++
++#define CMF_CtrlMSB       (1L << CMB_CtrlMSB)
++#define CMF_CtrlLSB       (1L << CMB_CtrlLSB)
++#define CMF_CtrlSwitch    (1L << CMB_CtrlSwitch)
++#define CMF_CtrlByte      (1L << CMB_CtrlByte)
++#define CMF_CtrlParam     (1L << CMB_CtrlParam)
++#define CMF_CtrlUndef     (1L << CMB_CtrlUndef)
++
++#define CMF_Mode          (1L << CMB_Mode)
++#define CMF_ChanPress     (1L << CMB_ChanPress)
++#define CMF_PolyPress     (1L << CMB_PolyPress)
++
++#define CMF_RealTime      (1L << CMB_RealTime)
++#define CMF_SysCom        (1L << CMB_SysCom)
++#define CMF_SysEx         (1L << CMB_SysEx)
++
++#define CMF_Ctrl          (CMF_CtrlMSB | CMF_CtrlLSB | CMF_CtrlSwitch | CMF_CtrlByte | CMF_CtrlParam | CMF_CtrlUndef)
++#define CMF_Channel       (CMF_Note | CMF_Prog | CMF_PitchBend | CMF_Ctrl | CMF_Mode | CMF_ChanPress | CMF_PolyPress)
++#define CMF_All           (CMF_Channel | CMF_RealTime | CMF_SysCom | CMF_SysEx)
++
++
++#define CMEB_MsgErr       0
++#define CMEB_BufferFull   1
++#define CMEB_SysExFull    2
++#define CMEB_ParseMem     3
++#define CMEB_RecvErr      4
++#define CMEB_RecvOverflow 5
++#define CMEB_SysExTooBig  6
++
++#define CMEF_MsgErr       (1L << CMEB_MsgErr)
++#define CMEF_BufferFull   (1L << CMEB_BufferFull)
++#define CMEF_SysExFull    (1L << CMEB_SysExFull)
++#define CMEF_ParseMem     (1L << CMEB_ParseMem)
++#define CMEF_RecvErr      (1L << CMEB_RecvErr)
++#define CMEF_RecvOverflow (1L << CMEB_RecvOverflow)
++#define CMEF_SysExTooBig  (1L << CMEB_SysExTooBig)
++
++#define CMEF_All          (CMEF_MsgErr | CMEF_BufferFull | CMEF_SysExFull | CMEF_SysExTooBig | CMEF_ParseMem | CMEF_RecvErr | CMEF_RecvOverflow)
++
++enum
++{
++	CMSG_Recv,
++	CMSG_Link
++};
++
++struct cmLink
++{
++	ULONG cml_MethodID;
++	ULONG cml_Action;
++};
++
++enum
++{
++	CACT_Link,
++	CACT_Unlink
++};
++
++struct ClusterNotifyNode
++{
++	struct MinNode  cnn_Node;
++	struct Task	   *cnn_Task;
++	BYTE	          cnn_SigBit;
++	UBYTE	          pad[3];
++};
++
++#define PackSysExFilter0()            ((ULONG)(SXFM_Off << 24))
++#define PackSysExFilter1(id1)         ((ULONG)(SXFM_1Byte | 1) << 24 | (ULONG)(id1) << 16)
++#define PackSysExFilter2(id1,id2)     ((ULONG)(SXFM_1Byte | 2) << 24 | (ULONG)(id1) << 16 | (id2) << 8)
++#define PackSysExFilter3(id1,id2,id3) ((ULONG)(SXFM_1Byte | 3) << 24 | (ULONG)(id1) << 16 | (id2) << 8 | (id3))
++#define PutMidiMsg(ml,msg)            PutMidi((ml),(msg)->l[0])
++
++#endif /* MIDI_CAMD_H */
+diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/music/camd-include/proto/camd.h b/music/camd-include/proto/camd.h
+--- a/music/camd-include/proto/camd.h	1970-01-01 01:00:00.000000000 +0100
++++ b/music/camd-include/proto/camd.h	2026-08-14 12:38:35.563800800 +0200
+@@ -0,0 +1,34 @@
++/* Automatically generated header (sfdc 1.11f)! Do not edit! */
++
++#ifndef PROTO_CAMD_H
++#define PROTO_CAMD_H
++
++#include <clib/camd_protos.h>
++
++#ifndef _NO_INLINE
++# if defined(__GNUC__)
++#  ifdef __AROS__
++#   include <defines/camd.h>
++#  else
++#   include <inline/camd.h>
++#  endif
++# else
++#  include <pragmas/camd_pragmas.h>
++# endif
++#endif /* _NO_INLINE */
++
++#ifdef __amigaos4__
++# include <interfaces/camd.h>
++# ifndef __NOGLOBALIFACE__
++   extern struct CamdIFace *ICamd;
++# endif /* __NOGLOBALIFACE__*/
++#endif /* !__amigaos4__ */
++#ifndef __NOLIBBASE__
++  extern struct Library *
++# ifdef __CONSTLIBBASEDECL__
++   __CONSTLIBBASEDECL__
++# endif /* __CONSTLIBBASEDECL__ */
++  CamdBase;
++#endif /* !__NOLIBBASE__ */
++
++#endif /* !PROTO_CAMD_H */
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/music.cpp b/music.cpp
 --- a/music.cpp	2010-04-30 23:01:21.000000000 +0200
 +++ b/music.cpp	2026-07-24 15:16:52.131689200 +0200
@@ -4868,7 +6153,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/settings_gui.cpp b/settings_gui.cpp
 --- a/settings_gui.cpp	2010-10-27 22:17:45.000000000 +0200
-+++ b/settings_gui.cpp	2026-08-14 01:32:48.830810600 +0200
++++ b/settings_gui.cpp	2026-08-14 12:24:43.682999300 +0200
 @@ -88,10 +88,27 @@
  	return STR_UNDEFINED;
  }
@@ -4921,7 +6206,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  				break;
  
  			case GOW_SCREENSHOT_DROPDOWN: // Change screenshot format
-@@ -1468,7 +1499,26 @@
+@@ -1468,7 +1499,27 @@
  /** Vehicles sub-page */
  static SettingsPage _settings_vehicles_page = {_settings_vehicles, lengthof(_settings_vehicles)};
  
@@ -4929,6 +6214,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +static SettingEntry _settings_amiga[] = {
 +	SettingEntry("amiga.fullscreen"),
 +	SettingEntry("amiga.fast_load"),
++	SettingEntry("amiga.music_source"),
 +	SettingEntry("amiga.newgrf"),
 +	SettingEntry("amiga.wb_bar"),
 +	SettingEntry("amiga.hide_game_pointer"),
@@ -4950,8 +6236,8 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	SettingEntry(&_settings_vehicles_page,     STR_CONFIG_SETTING_VEHICLES),
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/settings_type.h b/settings_type.h
 --- a/settings_type.h	2010-04-03 22:19:26.000000000 +0200
-+++ b/settings_type.h	2026-08-14 01:32:48.829807900 +0200
-@@ -392,11 +392,74 @@
++++ b/settings_type.h	2026-08-14 12:24:43.681999000 +0200
+@@ -392,11 +392,83 @@
  	LocaleSettings       locale;             ///< settings related to used currency/unit system in the current game
  };
  
@@ -4986,6 +6272,15 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +	                                         ///< load anything from the [newgrf] section, which is the only way to get that
 +	                                         ///< memory back on a 24 MB machine - once a GRF is in the sprite cache it stays.
 +	                                         ///< Read at startup, so a change needs a restart; the setting proc says so.
++	byte   music_source;                     ///< where the music comes from: 0 = the sampled WAV set in music/ played
++	                                         ///< through Paula (the default, and what every release so far has done),
++	                                         ///< 1 = the OpenMSX MIDI set we ship in gm/, 2 = the player's own original
++	                                         ///< Transport Tycoon Deluxe .gm files, also in gm/. We may not distribute
++	                                         ///< those, so 2 does nothing until the player copies them in themselves.
++	                                         ///< Both MIDI modes need camd.library and a MIDI device routed to "out.0";
++	                                         ///< without one the driver says so in the log and plays the sampled set.
++	                                         ///< Read while the base sets are scanned, i.e. before the music driver even
++	                                         ///< starts, so a change needs a restart - the setting text says as much.
 +	bool   fast_load;                        ///< hold whole data files in RAM instead of reading them off the disk in
 +	                                         ///< pieces. Startup on a real Amiga is dominated by the NUMBER of disk
 +	                                         ///< requests, not the bytes: a reporter measured 3:50 from PFS and 2:20
@@ -5742,7 +7037,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/table/settings.h b/table/settings.h
 --- a/table/settings.h	2010-11-14 10:27:20.000000000 +0100
-+++ b/table/settings.h	2026-08-14 01:34:44.579791600 +0200
++++ b/table/settings.h	2026-08-14 12:24:43.682999300 +0200
 @@ -36,6 +36,12 @@
  static bool ChangeDynamicEngines(int32 p1);
  static bool StationCatchmentChanged(int32 p1);
@@ -5781,7 +7076,19 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	  SDTG_VAR("player_face",    SLE_UINT32, S, 0, _company_manager_face,0,0,0xFFFFFFFF,0, STR_NULL, NULL),
  	  SDTG_VAR("transparency_options", SLE_UINT, S, 0, _transparency_opt,  0,0,0x1FF,0, STR_NULL, NULL),
  	  SDTG_VAR("transparency_locks", SLE_UINT, S, 0, _transparency_lock,   0,0,0x1FF,0, STR_NULL, NULL),
-@@ -317,7 +323,7 @@
+@@ -292,6 +298,11 @@
+ static const char *_autosave_interval = "off|monthly|quarterly|half year|yearly";
+ static const char *_roadsides = "left|right";
+ static const char *_savegame_date = "long|short|iso";
++#ifdef __AMIGA__
++/* Written into openttd.cfg instead of a bare number, so the file stays
++ * readable. Order must match STR_CONFIG_SETTING_AMIGA_MUSIC_SOURCE_* below. */
++static const char *_amiga_music_source = "sampled|openmsx|original";
++#endif
+ #ifdef ENABLE_NETWORK
+ static const char *_server_langs = "ANY|ENGLISH|GERMAN|FRENCH|BRAZILIAN|BULGARIAN|CHINESE|CZECH|DANISH|DUTCH|ESPERANTO|FINNISH|HUNGARIAN|ICELANDIC|ITALIAN|JAPANESE|KOREAN|LITHUANIAN|NORWEGIAN|POLISH|PORTUGUESE|ROMANIAN|RUSSIAN|SLOVAK|SLOVENIAN|SPANISH|SWEDISH|TURKISH|UKRAINIAN|AFRIKAANS|CROATIAN|CATALAN|ESTONIAN|GALICIAN|GREEK|LATVIAN";
+ #endif /* ENABLE_NETWORK */
+@@ -317,7 +328,7 @@
  	    SDT_OMANY(GameSettings, game_creation.landscape,  SLE_UINT8,                     0, 0, 0, 3, _climates, STR_NULL, NULL, ConvertLandscape),
  	      SDT_VAR(GameSettings, game_creation.snow_line,  SLE_UINT8,                     0, 0, DEF_SNOWLINE_HEIGHT * TILE_HEIGHT, MIN_SNOWLINE_HEIGHT * TILE_HEIGHT, MAX_SNOWLINE_HEIGHT * TILE_HEIGHT, 0, STR_NULL, NULL),
  	 SDT_CONDNULL(                                                1,  0, 22),
@@ -5790,7 +7097,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	    SDT_OMANY(GameSettings, vehicle.road_side,        SLE_UINT8,                     0, 0, 1, 1, _roadsides, STR_NULL, NULL, NULL),
  	    SDT_END()
  };
-@@ -344,7 +350,7 @@
+@@ -344,7 +355,7 @@
  	 SDT_CONDVAR(GameSettings, difficulty.vehicle_costs,             SLE_UINT8, 97, SL_MAX_VERSION, 0,NS,     0,     0,      2,  1, STR_SEA_LEVEL_LOW,                         DifficultyChange),
  	 SDT_CONDVAR(GameSettings, difficulty.competitor_speed,          SLE_UINT8, 97, SL_MAX_VERSION, 0, 0,     2,     0,      4,  1, STR_AI_SPEED_VERY_SLOW,                    DifficultyChange),
  	SDT_CONDNULL(                                                            1, 97, 109),
@@ -5799,7 +7106,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	 SDT_CONDVAR(GameSettings, difficulty.subsidy_multiplier,        SLE_UINT8, 97, SL_MAX_VERSION, 0, 0,     2,     0,      3,  1, STR_SUBSIDY_X1_5,                          DifficultyChange),
  	 SDT_CONDVAR(GameSettings, difficulty.construction_cost,         SLE_UINT8, 97, SL_MAX_VERSION, 0,NS,     0,     0,      2,  1, STR_SEA_LEVEL_LOW,                         DifficultyChange),
  	 SDT_CONDVAR(GameSettings, difficulty.terrain_type,              SLE_UINT8, 97, SL_MAX_VERSION, 0,NG,     1,     0,      3,  1, STR_TERRAIN_TYPE_VERY_FLAT,                DifficultyChange),
-@@ -442,7 +448,7 @@
+@@ -442,7 +453,7 @@
  	SDT_CONDBOOL(GameSettings, economy.mod_road_rebuild,                        77, SL_MAX_VERSION, 0, 0,  true,                    STR_CONFIG_SETTING_MODIFIED_ROAD_REBUILD,  NULL),
  
  	SDT_CONDNULL(1, 0, 106), // previously ai-new setting.
@@ -5808,7 +7115,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	    SDT_BOOL(GameSettings, ai.ai_disable_veh_train,                                             0, 0, false,                    STR_CONFIG_SETTING_AI_BUILDS_TRAINS,       NULL),
  	    SDT_BOOL(GameSettings, ai.ai_disable_veh_roadveh,                                           0, 0, false,                    STR_CONFIG_SETTING_AI_BUILDS_ROAD_VEHICLES,NULL),
  	    SDT_BOOL(GameSettings, ai.ai_disable_veh_aircraft,                                          0, 0, false,                    STR_CONFIG_SETTING_AI_BUILDS_AIRCRAFT,     NULL),
-@@ -540,7 +546,7 @@
+@@ -540,7 +551,7 @@
  
  	/***************************************************************************/
  	/* Unsaved setting variables. */
@@ -5817,7 +7124,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	 SDTC_BOOL(gui.threaded_saves,                       S,  0,  true,                        STR_NULL,                                       NULL),
  	SDTC_OMANY(gui.date_format_in_default_names,SLE_UINT8,S,MS, 0, 2, _savegame_date,         STR_CONFIG_SETTING_DATE_FORMAT_IN_SAVE_NAMES,   NULL),
  	 SDTC_BOOL(gui.vehicle_speed,                        S,  0,  true,                        STR_CONFIG_SETTING_VEHICLESPEED,                NULL),
-@@ -556,7 +562,7 @@
+@@ -556,7 +567,7 @@
  	  SDTC_VAR(gui.window_snap_radius,        SLE_UINT8, S, D0,    10,        1,       32, 0, STR_CONFIG_SETTING_SNAP_RADIUS,                 NULL),
  	  SDTC_VAR(gui.window_soft_limit,         SLE_UINT8, S, D0,    20,        5,      255, 1, STR_CONFIG_SETTING_SOFT_LIMIT,                  NULL),
  	 SDTC_BOOL(gui.population_in_label,                  S,  0,  true,                        STR_CONFIG_SETTING_POPULATION_IN_LABEL,         PopulationInLabelActive),
@@ -5826,7 +7133,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	  SDTC_VAR(gui.smallmap_land_colour,      SLE_UINT8, S, MS,     0,        0,        2, 0, STR_CONFIG_SETTING_SMALLMAP_LAND_COLOUR,        RedrawSmallmap),
  	  SDTC_VAR(gui.liveries,                  SLE_UINT8, S, MS,     2,        0,        2, 0, STR_CONFIG_SETTING_LIVERIES,                    RedrawScreen),
  	 SDTC_BOOL(gui.prefer_teamchat,                      S,  0, false,                        STR_CONFIG_SETTING_PREFER_TEAMCHAT,             NULL),
-@@ -614,7 +620,7 @@
+@@ -614,7 +625,7 @@
  	 SDTC_BOOL(network.pause_on_join,                    S, NO,  true,                        STR_NULL,                                       NULL),
  	  SDTC_VAR(network.server_port,          SLE_UINT16, S, NO,NETWORK_DEFAULT_PORT,0,65535,0,STR_NULL,                                       NULL),
  	 SDTC_BOOL(network.server_advertise,                 S, NO, false,                        STR_NULL,                                       NULL),
@@ -5835,7 +7142,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	  SDTC_STR(network.client_name,            SLE_STRB, S,  0,  NULL,                        STR_NULL,                                       UpdateClientName),
  	  SDTC_STR(network.server_password,        SLE_STRB, S, NO,  NULL,                        STR_NULL,                                       UpdateServerPassword),
  	  SDTC_STR(network.rcon_password,          SLE_STRB, S, NO,  NULL,                        STR_NULL,                                       UpdateRconPassword),
-@@ -650,6 +656,41 @@
+@@ -650,6 +661,42 @@
  	 SDTC_VAR(gui.right_mouse_btn_emulation, SLE_UINT8, S, MS, 0, 0, 2, 0, STR_CONFIG_SETTING_RIGHT_MOUSE_BTN_EMU, NULL),
  #endif
  
@@ -5851,6 +7158,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +	 SDTC_VAR(amiga.win_w,             SLE_UINT16, S,  0,     0,        0,     4096, 0, STR_NULL,                                       NULL),
 +	 SDTC_VAR(amiga.win_h,             SLE_UINT16, S,  0,     0,        0,     4096, 0, STR_NULL,                                       NULL),
 +	 SDTC_BOOL(amiga.fast_load,                          S,  0,  true,                        STR_CONFIG_SETTING_AMIGA_FAST_LOAD,             NULL),
++	 SDTC_OMANY(amiga.music_source,     SLE_UINT8, S, MS,     0,                  2, _amiga_music_source, STR_CONFIG_SETTING_AMIGA_MUSIC_SOURCE, NULL),
 +	 SDTC_BOOL(amiga.newgrf,                             S,  0,  true,                        STR_CONFIG_SETTING_AMIGA_NEWGRF,                AmigaNewGrfToggled),
 +	 SDTC_BOOL(amiga.wb_bar,                             S,  0,  true,                        STR_CONFIG_SETTING_AMIGA_WB_BAR,                AmigaWbBarToggled),
 +	 SDTC_BOOL(amiga.hide_system_pointer,                S,  0,  false,                       STR_CONFIG_SETTING_AMIGA_HIDE_SYSTEM_POINTER,   AmigaHideSystemPointerChanged),

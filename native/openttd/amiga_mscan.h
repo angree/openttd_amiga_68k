@@ -25,6 +25,13 @@ int AmigaMusic_ScanDir(const char *dir,
 		char paths[][AMIGA_MUSIC_PATH_MAX],
 		char names[][AMIGA_MUSIC_NAME_MAX], int max);
 
+/* The same scan with the suffix spelled out, for the MIDI sources: ".mid" for
+ * the OpenMSX set we ship and ".gm" for the player's own original music. The
+ * comparison is ASCII case-insensitive and names[] drops the suffix. */
+int AmigaMusic_ScanDirExt(const char *dir, const char *ext,
+		char paths[][AMIGA_MUSIC_PATH_MAX],
+		char names[][AMIGA_MUSIC_NAME_MAX], int max);
+
 
 /* Resolve PROGDIR: to a real AmigaDOS path ("Work:Games/OpenTTD"), or NULL.
  * Used by the file layer so the game finds its own lang/ and data/ whatever

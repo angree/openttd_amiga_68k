@@ -21,16 +21,34 @@ static int AsciiLower(int c)
 	return c;
 }
 
-static int IsWaveFile(const char *name, size_t len)
+/* Does name end with ext (".wav", ".mid", ".gm"), ignoring ASCII case?
+ *
+ * The extension is a parameter because the same scanner now serves three music
+ * sources: sampled WAV out of music/, OpenMSX .mid out of gm/, and the player's
+ * own original .gm out of gm/. Only the suffix differs. */
+static int HasExtension(const char *name, size_t len, const char *ext)
 {
-	if (len < 5) return 0; /* at least one basename character plus ".wav" */
-	return name[len - 4] == '.' &&
-			AsciiLower((unsigned char)name[len - 3]) == 'w' &&
-			AsciiLower((unsigned char)name[len - 2]) == 'a' &&
-			AsciiLower((unsigned char)name[len - 1]) == 'v';
+	size_t ext_len = strlen(ext);
+	size_t i;
+
+	if (len <= ext_len) return 0;   /* need at least one basename character */
+	for (i = 0; i < ext_len; i++) {
+		if (AsciiLower((unsigned char)name[len - ext_len + i]) !=
+				AsciiLower((unsigned char)ext[i])) {
+			return 0;
+		}
+	}
+	return 1;
 }
 
 int AmigaMusic_ScanDir(const char *dir,
+		char paths[][AMIGA_MUSIC_PATH_MAX],
+		char names[][AMIGA_MUSIC_NAME_MAX], int max)
+{
+	return AmigaMusic_ScanDirExt(dir, ".wav", paths, names, max);
+}
+
+int AmigaMusic_ScanDirExt(const char *dir, const char *ext,
 		char paths[][AMIGA_MUSIC_PATH_MAX],
 		char names[][AMIGA_MUSIC_NAME_MAX], int max)
 {
@@ -40,7 +58,11 @@ int AmigaMusic_ScanDir(const char *dir,
 	int add_slash;
 	int count;
 
-	if (dir == NULL || paths == NULL || names == NULL || max <= 0) return 0;
+	size_t ext_len;
+
+	if (dir == NULL || ext == NULL || paths == NULL || names == NULL || max <= 0) return 0;
+	ext_len = strlen(ext);
+	if (ext_len == 0 || ext_len >= AMIGA_MUSIC_NAME_MAX) return 0;
 
 	dir_len = strlen(dir);
 	if (dir_len == 0 || dir_len >= AMIGA_MUSIC_PATH_MAX) return 0;
@@ -68,10 +90,10 @@ int AmigaMusic_ScanDir(const char *dir,
 			file_len = strlen(filename);
 
 			/* AmigaDOS reports directories with a non-negative entry type.
-			 * Dotfiles and non-WAV entries are not part of the music set. */
+			 * Dotfiles and entries with the wrong suffix are not part of the set. */
 			if (fib->fib_DirEntryType >= 0) continue;
 			if (filename[0] == '.') continue;
-			if (!IsWaveFile(filename, file_len)) continue;
+			if (!HasExtension(filename, file_len, ext)) continue;
 
 			if (dir_len + (add_slash ? 1 : 0) + file_len + 1 >
 					AMIGA_MUSIC_PATH_MAX) {
@@ -83,7 +105,7 @@ int AmigaMusic_ScanDir(const char *dir,
 			if (add_slash) paths[count][pos++] = '/';
 			memcpy(paths[count] + pos, filename, file_len + 1);
 
-			base_len = file_len - 4;
+			base_len = file_len - ext_len;
 			name_copy = base_len;
 			if (name_copy >= AMIGA_MUSIC_NAME_MAX) {
 				name_copy = AMIGA_MUSIC_NAME_MAX - 1;

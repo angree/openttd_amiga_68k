@@ -11,8 +11,8 @@
 #ifndef AMIGA_TTD_VERSION_H
 #define AMIGA_TTD_VERSION_H
 
-#define AMIGA_TTD_VERSION "1.2.5"
-#define AMIGA_TTD_DATE    "20260813"
+#define AMIGA_TTD_VERSION "1.2.6"
+#define AMIGA_TTD_DATE    "20260814"
 
 /* How many leading characters of _openttd_revision decide MULTIPLAYER
  * compatibility. The string starts "AmiTTD X.Y.Z / OpenTTD 1.0.5 ...", and 10

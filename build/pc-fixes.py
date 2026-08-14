@@ -20,10 +20,16 @@ def patch(relpath, old, new, why):
         print("  skip (missing): %s" % relpath)
         return
     s = open(p).read()
-    if new in s:
-        print("  already patched: %s" % relpath)
-        return
+    # "Is it already patched?" is NOT "does the new text appear" - the new text
+    # can be a SUBSTRING of the old one. Fix 1 replaces a guarded #include with
+    # a bare one, so the bare form is present either way and every run reported
+    # "already patched" while leaving the guard in place. The PC build then died
+    # with getcwd/chdir undeclared, hours after the last real change. Test for
+    # the OLD text first: if it is still there, the fix has not been applied.
     if old not in s:
+        if new in s:
+            print("  already patched: %s" % relpath)
+            return
         print("  !! PATTERN NOT FOUND in %s (%s) - check upstream change" % (relpath, why))
         sys.exit(1)
     open(p, "w").write(s.replace(old, new, 1))

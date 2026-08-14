@@ -83,6 +83,12 @@ static bool _scan_done    = false;
  * 0 = sampled WAV through Paula, 1 = MIDI out through camd.library. */
 static int _midi_mode = 0;
 
+/* Why MIDI was not used, when the player asked for it. Shown ONCE in a normal
+ * error window (see MusicLoop) - a log file nobody knows about is not an answer
+ * to "I picked MIDI and it played the samples". */
+static char _midi_failure[128];
+static bool _midi_failure_pending = false;
+
 static AdpcmStream *_cur_stream = NULL;
 static bool  _cur_is_menu = false;   /* game mode the loaded track was chosen for */
 static int   _cur_song    = 0;       /* song number of the loaded track */
@@ -359,9 +365,15 @@ static void ScanMusicDirectories()
 				return;
 			}
 			MusLog("nothing playable in PROGDIR:gm - using sampled music");
+			snprintf(_midi_failure, sizeof(_midi_failure), (source == 2)
+					? "no GM_TT*.GM files in the gm drawer"
+					: "no .mid files in the gm drawer");
+			_midi_failure_pending = true;
 			AmigaMidi_Shutdown();
 		} else {
 			MusLog("MIDI unavailable: %s - using sampled music", AmigaMidi_LastError());
+			snprintf(_midi_failure, sizeof(_midi_failure), "%s", AmigaMidi_LastError());
+			_midi_failure_pending = true;
 		}
 		/* Whatever a half-finished MIDI scan added must not be kept. */
 		_song_count = 0;
@@ -431,6 +443,14 @@ extern "C" const char *AmigaMusic_SongName(int idx)
  * can lay the playlists out over the right song numbers. */
 extern "C" int AmigaMusic_NormalCount(void) { EnsureScanned(); return _normal_count; }
 extern "C" int AmigaMusic_OldCount(void)    { EnsureScanned(); return _old_count; }
+
+/* Consumed by music_gui.cpp's MusicLoop, which shows it once and clears it.
+ * Returns NULL when there is nothing to report. */
+extern "C" const char *AmigaMusic_MidiFailure(void)
+{
+	return _midi_failure_pending ? _midi_failure : NULL;
+}
+extern "C" void AmigaMusic_MidiFailureShown(void) { _midi_failure_pending = false; }
 
 /* Pull callback for amiga_audio.c. */
 extern "C" int AmigaMusicRefill(void *ud, signed char *dst, int max)

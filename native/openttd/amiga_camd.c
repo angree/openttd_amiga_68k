@@ -518,6 +518,26 @@ const char *AmigaMidi_LastError(void)
 	return g_error;
 }
 
+/* LIBS: first, the way every other program finds a library - then libs/ next to
+ * the game. The second try exists because CAMD is not part of Workbench: it has
+ * to be fetched from Aminet, and telling a player to drop one file beside the
+ * game is a great deal easier than talking them through installing into LIBS:.
+ * OpenLibrary takes a full path happily; only the SEARCH is LIBS:-only. */
+static struct Library *OpenCamd(void)
+{
+	struct Library *lib = OpenLibrary((STRPTR)"camd.library", 0);
+	if (lib == NULL) lib = OpenLibrary((STRPTR)"PROGDIR:libs/camd.library", 0);
+	return lib;
+}
+
+int AmigaMidi_Probe(void)
+{
+	struct Library *lib = OpenCamd();
+	if (lib == NULL) return 0;
+	CloseLibrary(lib);
+	return 1;
+}
+
 int AmigaMidi_Start(void)
 {
 	struct Process *proc;
@@ -525,9 +545,9 @@ int AmigaMidi_Start(void)
 	if (g_player != NULL) return 1;
 
 	g_error = "";
-	CamdBase = OpenLibrary((STRPTR)"camd.library", 0);
+	CamdBase = OpenCamd();
 	if (CamdBase == NULL) {
-		g_error = "camd.library is not installed";
+		g_error = "camd.library not found (LIBS: or libs/ beside the game)";
 		MidiLog("camd.library not found - MIDI unavailable");
 		return 0;
 	}
@@ -544,8 +564,8 @@ int AmigaMidi_Start(void)
 	}
 
 	/* "out.0" is the first MIDI output port as the MidiPorts preferences
-	 * program names it. If the user has routed nothing there the link still
-	 * succeeds and the notes go nowhere - a setup problem, not ours. */
+	 * program names it. AddMidiLink creates the cluster if nobody has, so this
+	 * succeeds even on a machine with no MIDI hardware set up at all. */
 	g_midi_link = AddMidiLink(g_midi_node, MLTYPE_Sender,
 			MLINK_Name,     (Tag)"OpenTTD.out",
 			MLINK_Location, (Tag)"out.0",
@@ -559,6 +579,23 @@ int AmigaMidi_Start(void)
 		CamdBase = NULL;
 		return 0;
 	}
+
+	/* With the library installed but no driver behind it, everything above
+	 * still succeeds and every note falls into an empty cluster - silence with
+	 * no explanation. MidiLinkConnected is meant to answer exactly that (a
+	 * sender counts as connected only while some receiver shares its cluster),
+	 * so refusing here was the obvious guard.
+	 *
+	 * It is NOT used as one, deliberately. Tested against the 1997
+	 * camd.library on a machine with no driver in DEVS:midi at all, it still
+	 * answered TRUE. Something is registered on out.0 that this port cannot
+	 * account for, and a guard whose behaviour cannot be explained will one day
+	 * refuse on a machine where the music works. So it goes in the log as a
+	 * diagnostic and decides nothing; what the player actually needs to set up
+	 * is spelled out where they change the setting. */
+	MidiLog(MidiLinkConnected(g_midi_link)
+			? "out.0 reports a receiver"
+			: "out.0 reports NO receiver - expect silence until a MIDI driver is set up");
 
 	g_starter = FindTask(NULL);
 	g_started = 0;

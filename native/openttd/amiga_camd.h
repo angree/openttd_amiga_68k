@@ -18,6 +18,11 @@
 extern "C" {
 #endif
 
+/* Is camd.library there at all? Opens and closes it, nothing more, so it is
+ * cheap enough to call from a settings callback. Returns 1 if MIDI has any
+ * chance of working on this machine. */
+int AmigaMidi_Probe(void);
+
 /* Open camd.library and start the player process. Returns 1 on success, 0 if
  * MIDI is not available on this machine (no camd.library, no free signals,
  * nothing listening on "out.0"). The caller falls back to sampled music. */

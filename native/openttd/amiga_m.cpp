@@ -88,6 +88,9 @@ static int _midi_mode = 0;
  * to "I picked MIDI and it played the samples". */
 static char _midi_failure[128];
 static bool _midi_failure_pending = false;
+/* Stays set after the window has been shown, purely so the log does not go on
+ * claiming "sampled music through Paula" for a run in which nothing plays. */
+static bool _midi_failed = false;
 
 static AdpcmStream *_cur_stream = NULL;
 static bool  _cur_is_menu = false;   /* game mode the loaded track was chosen for */
@@ -420,11 +423,16 @@ static void ScanMusicDirectories()
 	_normal_count = 0;
 	_old_count = 0;
 	_midi_mode = 0;
+	_midi_failed = false;
 
-	/* Sources 1 and 2 play MIDI through camd.library instead of sampled WAV.
-	 * Both can fail on a machine that has no MIDI set up at all, and a player
-	 * left with silence would have no idea why, so every failure falls back to
-	 * the sampled music and says what happened in the log. */
+	/* Sources 1 and 2 play MIDI instead of the sampled WAV set. When that
+	 * cannot be done, the game plays NOTHING and says why in an error window.
+	 *
+	 * Quietly substituting the sampled soundtrack was the obvious kindness and
+	 * it is the wrong one: the player asked for one soundtrack, heard another,
+	 * and had no reason to connect the music they were listening to with a
+	 * message about MIDI - the failure reads as "it works, just not the way I
+	 * set it". Silence plus a red window cannot be mistaken for success. */
 	{
 		static const char *const src_names[] = { "sampled", "openmsx", "original" };
 		static const char *const out_names[] = { "auto", "camd", "serial" };
@@ -442,21 +450,29 @@ static void ScanMusicDirectories()
 						_song_count, _normal_count, _old_count);
 				return;
 			}
-			MusLog("nothing playable in PROGDIR:gm - using sampled music");
+			MusLog("nothing playable in PROGDIR:gm - no music");
 			snprintf(_midi_failure, sizeof(_midi_failure), (source == 2)
 					? "no GM_TT*.GM files in the gm drawer"
 					: "no .mid files in the gm drawer");
 			_midi_failure_pending = true;
+			_midi_failed = true;
 			AmigaMidi_Shutdown();
 		} else {
-			MusLog("MIDI unavailable: %s - using sampled music", AmigaMidi_LastError());
+			MusLog("MIDI unavailable: %s - no music", AmigaMidi_LastError());
 			snprintf(_midi_failure, sizeof(_midi_failure), "%s", AmigaMidi_LastError());
 			_midi_failure_pending = true;
+			_midi_failed = true;
 		}
-		/* Whatever a half-finished MIDI scan added must not be kept. */
+
+		/* Empty catalogue: PlaySong finds nothing to play and IsSongPlaying
+		 * reports "playing" so OpenTTD stops asking every tick. That is the
+		 * same state a no-music install is in, and it is already supported. */
 		_song_count = 0;
 		_normal_count = 0;
 		_old_count = 0;
+		_midi_mode = 0;
+		_scan_done = true;
+		return;
 	}
 
 	/* Track 1: the menu theme. Prefer music/Title; fall back to the first
@@ -549,9 +565,11 @@ const char *MusicDriver_Amiga::Start(const char * const *param)
 	/* Which MIDI route was taken is logged by the player itself, in
 	 * amiga_midi.log - naming camd.library here was simply wrong once the
 	 * serial route existed. */
-	MusLog(_midi_mode
-			? "AMIGA-MUSIC-v4 started: MIDI (see amiga_midi.log for the route)"
-			: "AMIGA-MUSIC-v4 started: sampled music through Paula");
+	MusLog(_midi_failed
+			? "AMIGA-MUSIC-v4 started: NO music - the chosen MIDI source is unavailable"
+			: (_midi_mode
+				? "AMIGA-MUSIC-v4 started: MIDI (see amiga_midi.log for the route)"
+				: "AMIGA-MUSIC-v4 started: sampled music through Paula"));
 	return NULL;   /* never fail: an explicit driver failure is fatal upstream */
 }
 

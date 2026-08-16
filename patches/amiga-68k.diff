@@ -1400,7 +1400,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
  	/* XXX: these are not done */
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/music/amiga_camd.c b/music/amiga_camd.c
 --- a/music/amiga_camd.c	1970-01-01 01:00:00.000000000 +0100
-+++ b/music/amiga_camd.c	2026-08-14 14:03:37.951958200 +0200
++++ b/music/amiga_camd.c	2026-08-16 13:37:34.700699700 +0200
 @@ -0,0 +1,908 @@
 +/* MIDI playback through camd.library for the AmigaOS port of OpenTTD 1.0.5.
 + *
@@ -2312,7 +2312,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +}
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/music/amiga_camd.h b/music/amiga_camd.h
 --- a/music/amiga_camd.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/music/amiga_camd.h	2026-08-14 14:03:37.974762400 +0200
++++ b/music/amiga_camd.h	2026-08-16 13:37:34.720159600 +0200
 @@ -0,0 +1,60 @@
 +/* MIDI playback for the native AmigaOS port of OpenTTD 1.0.5.
 + *
@@ -2376,7 +2376,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +#endif /* AMIGA_CAMD_H */
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/music/camd-include/clib/camd_protos.h b/music/camd-include/clib/camd_protos.h
 --- a/music/camd-include/clib/camd_protos.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/music/camd-include/clib/camd_protos.h	2026-08-14 14:03:38.093241300 +0200
++++ b/music/camd-include/clib/camd_protos.h	2026-08-16 13:37:34.954745400 +0200
 @@ -0,0 +1,65 @@
 +#ifndef CLIB_CAMD_PROTOS_H
 +#define CLIB_CAMD_PROTOS_H
@@ -2445,7 +2445,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +#endif /* CLIB_CAMD_PROTOS_H */
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/music/camd-include/inline/camd.h b/music/camd-include/inline/camd.h
 --- a/music/camd-include/inline/camd.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/music/camd-include/inline/camd.h	2026-08-14 14:03:38.127953400 +0200
++++ b/music/camd-include/inline/camd.h	2026-08-16 13:37:34.991466700 +0200
 @@ -0,0 +1,189 @@
 +/* Automatically generated header (sfdc 1.11f)! Do not edit! */
 +
@@ -2638,7 +2638,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +#endif /* !_INLINE_CAMD_H */
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/music/camd-include/midi/camd.h b/music/camd-include/midi/camd.h
 --- a/music/camd-include/midi/camd.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/music/camd-include/midi/camd.h	2026-08-14 14:03:38.032930000 +0200
++++ b/music/camd-include/midi/camd.h	2026-08-16 13:37:34.895605000 +0200
 @@ -0,0 +1,261 @@
 +#ifndef MIDI_CAMD_H
 +#define MIDI_CAMD_H
@@ -2903,7 +2903,7 @@ diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude
 +#endif /* MIDI_CAMD_H */
 diff -ruN -I '\$Id.*\$' '--exclude=amiga_v.cpp' '--exclude=amiga_v.h' '--exclude=amiga_gfx.c' '--exclude=amiga_gfx.h' '--exclude=amiga_s.cpp' '--exclude=amiga_s.h' '--exclude=amiga_audio.c' '--exclude=amiga_audio.h' '--exclude=amiga_adpcm.c' '--exclude=amiga_adpcm.h' '--exclude=amiga_m.cpp' '--exclude=amiga_m.h' '--exclude=amiga_mscan.c' '--exclude=amiga_mscan.h' '--exclude=amiga_ehb_data.h' '--exclude=amiga_ttd_version.h' '--exclude=fp_conv.c' '--exclude=cgx-include' '--exclude=ai_old' '--exclude=c2p1x1_6_c5_bm_040.s' '--exclude=c2p_rect.s' '--exclude=c2p_glue.s' '--exclude=*.o' '--exclude=*.d' '--exclude=*.orig' '--exclude=*_orig' '--exclude=*.rej' '--exclude=*.bak*' a/music/camd-include/proto/camd.h b/music/camd-include/proto/camd.h
 --- a/music/camd-include/proto/camd.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/music/camd-include/proto/camd.h	2026-08-14 14:03:38.062218500 +0200
++++ b/music/camd-include/proto/camd.h	2026-08-16 13:37:34.925592900 +0200
 @@ -0,0 +1,34 @@
 +/* Automatically generated header (sfdc 1.11f)! Do not edit! */
 +

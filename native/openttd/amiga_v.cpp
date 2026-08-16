@@ -742,6 +742,37 @@ static void PollEvents()
 					default: break;
 				}
 
+				/* THE MOUSE WHEEL. AmigaOS has no wheel event: the machine has
+				 * had wheel mice for decades, but Intuition never grew a message
+				 * for one, so every driver since has followed the "NewMouse"
+				 * convention instead - the wheel is delivered to the active
+				 * window as ordinary RAW KEY codes, 0x7A up and 0x7B down. That
+				 * is what WinUAE sends and what FreeWheel and the various mouse
+				 * drivers send on real hardware.
+				 *
+				 * OpenTTD wants it as _cursor.wheel, in the same sign the other
+				 * drivers use: NEGATIVE for wheel-up, which is zoom in. Handled
+				 * before HandleAmigaKey so these never reach the key dispatcher,
+				 * where they would be unknown keys. Only the press counts; the
+				 * release is the same code with bit 7 set and must be ignored,
+				 * or every notch would zoom twice. */
+				if (raw == 0x7A || raw == 0x7B) {
+					if (down) {
+						_cursor.wheel += (raw == 0x7A) ? -1 : 1;
+						/* BOUNDED, and that is not paranoia. A wheel driver is
+						 * supposed to send one code per notch, but these are
+						 * ordinary key codes and anything can emit them: an
+						 * emulator input mapping that binds the host wheel AXIS
+						 * to these keys sends a stream of them, and the game
+						 * then reached MouseLoop with a wheel count in the
+						 * thousands and died on an out-of-range string. One
+						 * frame's worth of notches is all OpenTTD can use. */
+						if (_cursor.wheel >  8) _cursor.wheel =  8;
+						if (_cursor.wheel < -8) _cursor.wheel = -8;
+					}
+					break;
+				}
+
 				/* Shift and Ctrl arrive as ordinary raw codes with bit 7 set on
 				 * release; track them so combinations work. Arrows still go
 				 * through HandleAmigaKey too - menus and lists use them as

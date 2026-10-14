@@ -893,10 +893,20 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 	uint max_res = lengthof(_resolutions);
 	if (max_res > AMIGA_MAX_RESOLUTIONS) max_res = AMIGA_MAX_RESOLUTIONS;
 
-	for (uint i = 0; i < lengthof(_amiga_aga_resolutions) && _num_resolutions < max_res; i++) {
+	/* AGA modes only on an AGA machine. OCS/ECS cannot open eight bitplanes, and
+	 * Intuition's own fallback asks for eight planes too, so on an A600 or A500
+	 * with a PiStorm and an RTG card the shipped default (AGA 352x272) failed
+	 * outright and OpenTTD stopped with "Couldn't find any suitable video
+	 * driver" - the card was never even tried, because the fallback only ever
+	 * ran from RTG towards AGA. */
+	bool have_aga = amigagfx_has_aga() != 0;
+	uint aga_offered = 0;
+	for (uint i = 0; have_aga && i < lengthof(_amiga_aga_resolutions) && _num_resolutions < max_res; i++) {
 		_amiga_res_backend[_num_resolutions] = AMIGAGFX_BACKEND_AGA;
 		_resolutions[_num_resolutions++] = _amiga_aga_resolutions[i];
+		aga_offered++;
 	}
+	if (!have_aga) amigagfx_log("no AGA chipset - AGA modes not offered");
 
 	/* EHB is offered unconditionally: it is a chipset mode, not a card, so there
 	 * is nothing to probe. If Intuition refuses it anyway the driver opens eight
@@ -922,8 +932,8 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 	}
 	{
 		char b[96];
-		snprintf(b, sizeof(b), "resolution list: %d AGA + %d OCS + %u RTG mode(s)",
-		         (int)lengthof(_amiga_aga_resolutions),
+		snprintf(b, sizeof(b), "resolution list: %u AGA + %d OCS + %u RTG mode(s)",
+		         aga_offered,
 		         (int)lengthof(_amiga_ehb_resolutions), rtg_offered);
 		amigagfx_log(b);
 	}
@@ -954,6 +964,33 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 	                                                 AMIGAGFX_BACKEND_AGA;
 	_amiga_cur_res = -1;
 	_amiga_pending_res = -1;
+
+	/* An AGA choice on a machine without AGA - the shipped default, or a config
+	 * carried over from an A1200. A graphics card beats EHB by a mile, so take
+	 * RTG when there is one: the same size if the card offers it, else 640x480,
+	 * else its smallest mode. Without a card, EHB at the same size is what the
+	 * chipset can do, and the passes below find it on their own. */
+	if (!have_aga && saved_backend == AMIGAGFX_BACKEND_AGA) {
+		saved_backend = AMIGAGFX_BACKEND_EHB;
+		if (rtg_offered > 0) {
+			int same = -1, vga = -1, first = -1;
+			for (uint i = 0; i < _num_resolutions; i++) {
+				if (_amiga_res_backend[i] != AMIGAGFX_BACKEND_RTG) continue;
+				if (first < 0) first = (int)i;
+				if (_resolutions[i].width == 640 && _resolutions[i].height == 480) vga = (int)i;
+				if (_resolutions[i].width  == _cur_resolution.width &&
+				    _resolutions[i].height == _cur_resolution.height) same = (int)i;
+			}
+			_amiga_cur_res = same >= 0 ? same : (vga >= 0 ? vga : first);
+			char b[112];
+			snprintf(b, sizeof(b), "saved AGA %ux%u needs AGA - using RTG %ux%u",
+			         _cur_resolution.width, _cur_resolution.height,
+			         _resolutions[_amiga_cur_res].width, _resolutions[_amiga_cur_res].height);
+			amigagfx_log(b);
+			/* The snap below adopts the entry's size quietly; say why first. */
+			_cur_resolution = _resolutions[_amiga_cur_res];
+		}
+	}
 	for (uint i = 0; i < _num_resolutions; i++) {
 		if (_resolutions[i].width  != _cur_resolution.width)  continue;
 		if (_resolutions[i].height != _cur_resolution.height) continue;

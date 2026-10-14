@@ -41,6 +41,7 @@
 #include <intuition/screens.h>
 #include <graphics/gfx.h>
 #include <graphics/displayinfo.h>
+#include <graphics/gfxbase.h>
 #include <exec/memory.h>
 #include <exec/io.h>
 #include <devices/input.h>
@@ -479,6 +480,11 @@ int amigagfx_rtg_has_mode(int w, int h)
 	if (g_screen == NULL) cgx_close();
 
 	return id != (ULONG)INVALID_ID;
+}
+
+int amigagfx_has_aga(void)
+{
+	return (GfxBase->ChipRevBits0 & GFXF_AA_ALICE) ? 1 : 0;
 }
 
 /* Take the lock once, look at what we actually got, release it, and decide

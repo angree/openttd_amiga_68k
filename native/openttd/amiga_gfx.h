@@ -83,6 +83,13 @@ typedef struct {
  * exactly the list it saw before RTG support existed. */
 int amigagfx_rtg_has_mode(int w, int h);
 
+/* Does this machine have the AGA chipset (Alice)? Non-zero only when it does.
+ * An OCS/ECS Amiga - an A600 or A500 with a PiStorm and an RTG card, say -
+ * cannot open an 8-bitplane screen at all, so the AGA modes must not be offered
+ * there and must never be the default. Asked of graphics.library, which probed
+ * the chips at boot. */
+int amigagfx_has_aga(void);
+
 /* AMIGAGFX_BACKEND_* of the screen currently open (AGA when none is). */
 int amigagfx_backend(void);
 

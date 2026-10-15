@@ -242,6 +242,7 @@ static int   g_used_fallback;
 static int   g_backend;        /* AMIGAGFX_BACKEND_* of the open screen */
 static int   g_rtg_method;
 static int   g_rtg_demoted;    /* log the LOCK->WLUT demotion once */
+static int   g_rtg_bits;       /* bits per pixel of the open RTG screen: 8/16/24/32 */
 static ULONG g_ctable[256];    /* CTABFMT_XRGB8 mirror of the palette */
 
 /* ---- WINDOW mode (a window on the Workbench screen) ---------------------
@@ -441,37 +442,62 @@ static void cgx_close(void)
 	if (CyberGfxBase != NULL) { CloseLibrary(CyberGfxBase); CyberGfxBase = NULL; }
 }
 
-/* Ask CGX for the best 8-bit mode of at least w x h, then verify it really is
- * one. BestCModeIDTagList never fails outright: when nothing matches it returns
- * a NATIVE chipset mode id, which would silently put an "RTG" screen back on
- * the planar path with no c2p behind it - garbage on screen. So the result is
- * checked three ways (is it a Cybergraphics id, is it 8 bits deep, is it one
- * byte per pixel) before it is believed. Returns INVALID_ID if not usable. */
-static ULONG rtg_best_mode(int w, int h)
+/* Ask CGX for the best mode of at least w x h at ONE pixel size (8, 16, 24 or
+ * 32 bits), then verify it really is one. BestCModeIDTagList never fails
+ * outright: when nothing matches it returns a NATIVE chipset mode id - which
+ * would put an "RTG" screen back on the planar path with no c2p behind it - or
+ * a Cybergraphics mode of some OTHER depth. So the result is believed only if
+ * it is a Cybergraphics id with exactly the bytes per pixel asked for.
+ *
+ * Bytes per pixel, not CYBRIDATTR_DEPTH, is what tells the sizes apart: a
+ * 32-bit mode reports depth 24 (measured on uaegfx: 640x480 asked at 32 gives
+ * id $50031303, depth 24, 4 bytes per pixel), and 15- and 16-bit modes are both
+ * two bytes. Returns INVALID_ID if not usable. */
+static ULONG rtg_mode_at(int w, int h, int bits)
 {
 	ULONG id;
 	struct TagItem tags[4];
 
-	if (!cgx_open()) return (ULONG)INVALID_ID;
-
 	tags[0].ti_Tag = CYBRBIDTG_NominalWidth;  tags[0].ti_Data = (ULONG)w;
 	tags[1].ti_Tag = CYBRBIDTG_NominalHeight; tags[1].ti_Data = (ULONG)h;
-	tags[2].ti_Tag = CYBRBIDTG_Depth;         tags[2].ti_Data = 8UL;
+	tags[2].ti_Tag = CYBRBIDTG_Depth;         tags[2].ti_Data = (ULONG)bits;
 	tags[3].ti_Tag = TAG_END;                 tags[3].ti_Data = 0UL;
 
 	id = BestCModeIDTagList(tags);
 
 	if (id == (ULONG)INVALID_ID) return (ULONG)INVALID_ID;
 	if (!IsCyberModeID(id))      return (ULONG)INVALID_ID;
-	if (GetCyberIDAttr(CYBRIDATTR_DEPTH, id) != 8UL) return (ULONG)INVALID_ID;
-	if (GetCyberIDAttr(CYBRIDATTR_BPPIX, id) != 1UL) return (ULONG)INVALID_ID;
+	if (GetCyberIDAttr(CYBRIDATTR_BPPIX, id) * 8UL != (ULONG)bits) return (ULONG)INVALID_ID;
+	if (bits == 8 && GetCyberIDAttr(CYBRIDATTR_DEPTH, id) != 8UL) return (ULONG)INVALID_ID;
 
 	return id;
 }
 
-int amigagfx_rtg_has_mode(int w, int h)
+/* The SHALLOWEST RTG mode of this size: 8 bits if the card has one, else 16,
+ * else 24, else 32. 8 is the one that costs nothing - the chunky buffer IS the
+ * screen format and palette changes are free. Every deeper size goes through
+ * WriteLUTPixelArray, converting each pixel on every blit, so fewer bytes per
+ * pixel is always the better pick. Many cards (a PiStorm's, for one) are set up
+ * with only 32-bit modes, and before 1.2.9 such a machine got no RTG modes at
+ * all. Writes the size found to *bits_out (0 if none). */
+static ULONG rtg_best_mode(int w, int h, int *bits_out)
 {
-	ULONG id = rtg_best_mode(w, h);
+	static const int sizes[4] = { 8, 16, 24, 32 };
+	int i;
+
+	*bits_out = 0;
+	if (!cgx_open()) return (ULONG)INVALID_ID;
+	for (i = 0; i < 4; i++) {
+		ULONG id = rtg_mode_at(w, h, sizes[i]);
+		if (id != (ULONG)INVALID_ID) { *bits_out = sizes[i]; return id; }
+	}
+	return (ULONG)INVALID_ID;
+}
+
+int amigagfx_rtg_mode_bits(int w, int h)
+{
+	int bits;
+	rtg_best_mode(w, h, &bits);
 
 	/* The probe runs while building the resolution list, long before any
 	 * screen exists. Leave the library open only if it is already carrying an
@@ -479,7 +505,7 @@ int amigagfx_rtg_has_mode(int w, int h)
 	 * never keeps cybergraphics.library referenced for nothing. */
 	if (g_screen == NULL) cgx_close();
 
-	return id != (ULONG)INVALID_ID;
+	return bits;
 }
 
 int amigagfx_has_aga(void)
@@ -816,19 +842,24 @@ static int open_screen_aga(int w, int h, ULONG quiet, ULONG title, int depth)
  * caller should open an AGA screen instead. */
 static int open_screen_rtg(int w, int h, ULONG quiet, ULONG title)
 {
-	ULONG modeid = rtg_best_mode(w, h);
+	int   bits;
+	ULONG modeid = rtg_best_mode(w, h, &bits);
+	ULONG depth;
 
 	if (modeid == (ULONG)INVALID_ID) {
-		fprintf(stdout, "amiga: RTG: no 8-bit mode for %dx%d - falling back to AGA\n", w, h);
+		fprintf(stdout, "amiga: RTG: no 8/16/24/32-bit mode for %dx%d - falling back to AGA\n", w, h);
 		fflush(stdout);
 		return 5;
 	}
 	g_want_modeid = modeid;
+	/* SA_Depth must be the mode's own: 8, 15/16, or 24 for both the 24- and
+	 * the 32-bit modes (CGX reports a 32-bit mode as depth 24). */
+	depth = GetCyberIDAttr(CYBRIDATTR_DEPTH, modeid);
 
 	g_screen = OpenScreenTags(NULL,
 	                          SA_Width,     (ULONG)w,
 	                          SA_Height,    (ULONG)h,
-	                          SA_Depth,     (ULONG)DEPTH_AGA,
+	                          SA_Depth,     depth,
 	                          SA_Type,      (ULONG)CUSTOMSCREEN,
 	                          SA_Quiet,     quiet,
 	                          SA_ShowTitle, title,
@@ -850,7 +881,20 @@ static int open_screen_rtg(int w, int h, ULONG quiet, ULONG title)
 	 * reading 6 from a previous EHB screen. */
 	g_depth   = DEPTH_AGA;
 	g_backend = AMIGAGFX_BACKEND_RTG;
-	probe_rtg_lock();
+	g_rtg_bits = bits;
+	if (bits == 8) {
+		probe_rtg_lock();
+	} else {
+		/* A deeper screen has no palette for our 8-bit chunky to index, so
+		 * every blit converts through the colour table. The flip side is that
+		 * a palette change no longer reaches pixels already on screen: water
+		 * and lights do not animate here, by decision (1.2.9). */
+		g_rtg_method = RTG_METHOD_WLUT;
+		g_rtg_demoted = 0;
+		fprintf(stdout, "amiga: RTG: %d-bit screen - WriteLUTPixelArray per blit,"
+		                " no palette animation\n", bits);
+		fflush(stdout);
+	}
 	return 0;
 }
 
@@ -1315,6 +1359,7 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 	g_yoff   = 0;
 	g_used_fallback = 0;
 	g_backend = AMIGAGFX_BACKEND_AGA;
+	g_rtg_bits = 0;
 	g_depth   = DEPTH_AGA;
 	g_bpr = 0;
 	g_planesize = 0;
@@ -1379,7 +1424,8 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 		 * prints the pixel dimensions. */
 		ULONG got = GetVPModeID(&g_screen->ViewPort);
 		if (g_backend == AMIGAGFX_BACKEND_RTG) {
-			fprintf(stdout, "amiga: RTG screen open %dx%d depth 8 (no Chip RAM, no c2p)\n", w, h);
+			fprintf(stdout, "amiga: RTG screen open %dx%d, %d-bit (no Chip RAM, no c2p)\n",
+			        w, h, g_rtg_bits);
 			fprintf(stdout, "amiga: modeid wanted $%08lx got $%08lx  blit=%s\n",
 			        (unsigned long)g_want_modeid, (unsigned long)got,
 			        g_rtg_method == RTG_METHOD_LOCK ? "LockBitMap+memcpy"
@@ -1469,6 +1515,7 @@ void amigagfx_close(void)
 	 * OpenLibrary on an already-resident library - not worth keeping state for. */
 	cgx_close();
 	g_backend = AMIGAGFX_BACKEND_AGA;
+	g_rtg_bits = 0;
 	g_yoff = 0;
 }
 
@@ -1533,7 +1580,18 @@ void amigagfx_set_palette(const unsigned char *rgb, int first, int count)
 		return;
 	}
 
+	/* On a 16/24/32-bit RTG screen this changes no pixel - there is no
+	 * hardware palette, the game's colours come from the table above at blit
+	 * time - but it still sets Intuition's pens, which is what draws the
+	 * screen's title bar. The bar was drawn when the screen opened, in the
+	 * pens of the default colour map, and new pens reach only what is drawn
+	 * AFTER them - so on a full update the bar is re-rendered, by setting our
+	 * window's screen title again. Without that it stayed red. */
 	LoadRGB32(&g_screen->ViewPort, table);
+	if (g_backend == AMIGAGFX_BACKEND_RTG && g_rtg_bits > 8 &&
+	    first == 0 && count == 256 && g_window != NULL && g_yoff > 0) {
+		SetWindowTitles(g_window, (CONST_STRPTR)~0, (CONST_STRPTR)g_screen_title);
+	}
 }
 
 void amigagfx_set_ehb_palette(const unsigned char *rgb64)
@@ -1594,6 +1652,14 @@ static void splash_palette_step(const UBYTE *pal, int ncol, long factor)
 		rgb[i] = (UBYTE)(((long)pal[i] * factor) >> 8);
 	}
 	amigagfx_set_palette(rgb, 0, ncol);
+
+	/* On a screen without a hardware palette - 16/24/32-bit RTG, or a window
+	 * on such a Workbench - the colours are fixed at blit time, so a palette-
+	 * only fade would leave the splash black from start to finish. Re-blit
+	 * each step there; the fade is timed, so a slower blit only costs steps. */
+	if (g_win_direct || (g_backend == AMIGAGFX_BACKEND_RTG && g_rtg_bits > 8)) {
+		amigagfx_blit(0, 0, g_width, g_height);
+	}
 }
 
 /* Ramp the palette factor from 'from' to 'to' over dur_ms, paced by the

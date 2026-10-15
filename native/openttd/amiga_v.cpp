@@ -155,6 +155,11 @@ static const Dimension _amiga_rtg_resolutions[] = {
  * display the driver can open.
  */
 static byte _amiga_res_backend[AMIGA_MAX_RESOLUTIONS];
+
+/** Bits per pixel of each RTG entry (8/16/24/32), parallel to _amiga_res_backend;
+ * 0 for the chipset modes. Shown in the dropdown, so a player whose card only
+ * has 32-bit modes can see why RTG is slower there than an 8-bit card. */
+static byte _amiga_res_rtg_bits[AMIGA_MAX_RESOLUTIONS];
 static int  _amiga_cur_res;       ///< index of the mode currently on screen
 static int  _amiga_pending_res;   ///< index the player just picked, -1 if none
 
@@ -924,8 +929,10 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 	 * silently falls back to AGA. */
 	uint rtg_offered = 0;
 	for (uint i = 0; i < lengthof(_amiga_rtg_resolutions) && _num_resolutions < max_res; i++) {
-		if (!amigagfx_rtg_has_mode((int)_amiga_rtg_resolutions[i].width,
-		                           (int)_amiga_rtg_resolutions[i].height)) continue;
+		int bits = amigagfx_rtg_mode_bits((int)_amiga_rtg_resolutions[i].width,
+		                                  (int)_amiga_rtg_resolutions[i].height);
+		if (bits == 0) continue;
+		_amiga_res_rtg_bits[_num_resolutions] = (byte)bits;
 		_amiga_res_backend[_num_resolutions] = AMIGAGFX_BACKEND_RTG;
 		_resolutions[_num_resolutions++] = _amiga_rtg_resolutions[i];
 		rtg_offered++;
@@ -1731,7 +1738,13 @@ const char *AmigaResolutionSuffix(int index)
 {
 	if (index < 0 || index >= (int)_num_resolutions) return "";
 	switch (_amiga_res_backend[index]) {
-		case AMIGAGFX_BACKEND_RTG: return " RTG";
+		case AMIGAGFX_BACKEND_RTG:
+			switch (_amiga_res_rtg_bits[index]) {
+				case 16: return " RTG 16-bit";
+				case 24: return " RTG 24-bit";
+				case 32: return " RTG 32-bit";
+				default: return " RTG 8-bit";
+			}
 		case AMIGAGFX_BACKEND_EHB: return " OCS";
 		case AMIGAGFX_BACKEND_WB:  return " WINDOW";
 		default:                   return " AGA";

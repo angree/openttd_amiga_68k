@@ -73,15 +73,16 @@ typedef struct {
 #define AMIGAGFX_BACKEND_EHB 2
 #define AMIGAGFX_BACKEND_WB  3
 
-/* Is an 8-bit RTG mode of at least w x h available on this machine? Returns 0
- * when cybergraphics.library is missing (a plain AGA Amiga), when the library
- * offers no matching 8-bit mode, or when the "best" mode it returns turns out
- * not to be a Cybergraphics mode at all - BestCModeIDTagList happily falls back
- * to a native chipset mode, which would put us back on the c2p path wearing an
- * RTG label. Safe to call before amigagfx_open(); used to decide which RTG
- * entries to offer in the resolution list at all, so an AGA-only machine sees
- * exactly the list it saw before RTG support existed. */
-int amigagfx_rtg_has_mode(int w, int h);
+/* Bits per pixel of the SHALLOWEST RTG mode of at least w x h on this machine:
+ * 8, else 16, else 24, else 32 - or 0 when there is none, which includes a
+ * plain AGA Amiga without cybergraphics.library and a "best" mode that turns
+ * out not to be a Cybergraphics mode at all (BestCModeIDTagList happily falls
+ * back to a native chipset mode). Safe to call before amigagfx_open(); the
+ * resolution list offers each RTG size once, at the depth this returns, so an
+ * AGA-only machine sees exactly the list it saw before RTG support existed.
+ * Before 1.2.9 only 8-bit modes counted, and a card set up with nothing but
+ * 32-bit modes - a PiStorm's, for one - got no RTG entries at all. */
+int amigagfx_rtg_mode_bits(int w, int h);
 
 /* Does this machine have the AGA chipset (Alice)? Non-zero only when it does.
  * An OCS/ECS Amiga - an A600 or A500 with a PiStorm and an RTG card, say -

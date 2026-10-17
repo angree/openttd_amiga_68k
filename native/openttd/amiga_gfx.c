@@ -442,70 +442,186 @@ static void cgx_close(void)
 	if (CyberGfxBase != NULL) { CloseLibrary(CyberGfxBase); CyberGfxBase = NULL; }
 }
 
-/* Ask CGX for the best mode of at least w x h at ONE pixel size (8, 16, 24 or
- * 32 bits), then verify it really is one. BestCModeIDTagList never fails
- * outright: when nothing matches it returns a NATIVE chipset mode id - which
- * would put an "RTG" screen back on the planar path with no c2p behind it - or
- * a Cybergraphics mode of some OTHER depth. So the result is believed only if
- * it is a Cybergraphics id with exactly the bytes per pixel asked for.
+/* ---- RTG mode discovery --------------------------------------------------
  *
- * Bytes per pixel, not CYBRIDATTR_DEPTH, is what tells the sizes apart: a
- * 32-bit mode reports depth 24 (measured on uaegfx: 640x480 asked at 32 gives
- * id $50031303, depth 24, 4 bytes per pixel), and 15- and 16-bit modes are both
- * two bytes. Returns INVALID_ID if not usable. */
-static ULONG rtg_mode_at(int w, int h, int bits)
+ * The RTG modes are read straight out of the display database, not asked for.
+ *
+ * Up to 1.2.9 every RTG size was a question to BestCModeIDTagList: "the best
+ * mode of at least W x H at N bits". On a PiStorm (VideoCore board, Picasso96
+ * 2.300, OS 3.2) that call answered INVALID_ID to all forty questions - even
+ * "1280x720 at 8 bits", with exactly that mode sitting in the database and
+ * available. Its log is the reason this file walks the database instead: the
+ * database is what the ScreenMode requester shows, so a mode the user can pick
+ * there is a mode the game now offers. On uaegfx the same call always answered
+ * something, which is why no emulated setup ever showed the problem.
+ *
+ * A mode counts when it is a Cybergraphics id, available right now
+ * (ModeNotAvailable == 0), at least 400x300, and has a real pixel format - the
+ * same log shows a "32bit ABGR" entry reporting depth 0 and pixfmt ~0. Each
+ * size is kept once, at the fewest bytes per pixel: 8 bits is the fast path
+ * (the chunky buffer IS the screen format and palette changes are free);
+ * everything deeper goes through WriteLUTPixelArray. Bytes per pixel, not
+ * CYBRIDATTR_DEPTH, tells them apart: a 32-bit mode reports depth 24. */
+static int rtg_scan(AmigaRtgMode *out, int max)
 {
-	ULONG id;
-	struct TagItem tags[4];
+	ULONG id = (ULONG)INVALID_ID;
+	int n = 0, i, j, guard = 0;
 
-	tags[0].ti_Tag = CYBRBIDTG_NominalWidth;  tags[0].ti_Data = (ULONG)w;
-	tags[1].ti_Tag = CYBRBIDTG_NominalHeight; tags[1].ti_Data = (ULONG)h;
-	tags[2].ti_Tag = CYBRBIDTG_Depth;         tags[2].ti_Data = (ULONG)bits;
-	tags[3].ti_Tag = TAG_END;                 tags[3].ti_Data = 0UL;
+	if (!cgx_open()) return 0;
 
-	id = BestCModeIDTagList(tags);
+	while ((id = NextDisplayInfo(id)) != (ULONG)INVALID_ID && guard++ < 1000) {
+		ULONG w, h, bpp, depth, fmt;
+		int bits;
 
-	if (id == (ULONG)INVALID_ID) return (ULONG)INVALID_ID;
-	if (!IsCyberModeID(id))      return (ULONG)INVALID_ID;
-	if (GetCyberIDAttr(CYBRIDATTR_BPPIX, id) * 8UL != (ULONG)bits) return (ULONG)INVALID_ID;
-	if (bits == 8 && GetCyberIDAttr(CYBRIDATTR_DEPTH, id) != 8UL) return (ULONG)INVALID_ID;
+		if (!IsCyberModeID(id))         continue;
+		if (ModeNotAvailable(id) != 0)  continue;
+		w     = GetCyberIDAttr(CYBRIDATTR_WIDTH,  id);
+		h     = GetCyberIDAttr(CYBRIDATTR_HEIGHT, id);
+		bpp   = GetCyberIDAttr(CYBRIDATTR_BPPIX,  id);
+		depth = GetCyberIDAttr(CYBRIDATTR_DEPTH,  id);
+		fmt   = GetCyberIDAttr(CYBRIDATTR_PIXFMT, id);
+		if (w < 400 || h < 300 || w > 4096 || h > 4096) continue;
+		if (bpp < 1 || bpp > 4 || depth == 0 || fmt == (ULONG)~0UL) continue;
+		if (bpp == 1 && (depth != 8 || fmt != PIXFMT_LUT8)) continue;
+		bits = (int)bpp * 8;
 
-	return id;
-}
-
-/* The SHALLOWEST RTG mode of this size: 8 bits if the card has one, else 16,
- * else 24, else 32. 8 is the one that costs nothing - the chunky buffer IS the
- * screen format and palette changes are free. Every deeper size goes through
- * WriteLUTPixelArray, converting each pixel on every blit, so fewer bytes per
- * pixel is always the better pick. Many cards (a PiStorm's, for one) are set up
- * with only 32-bit modes, and before 1.2.9 such a machine got no RTG modes at
- * all. Writes the size found to *bits_out (0 if none). */
-static ULONG rtg_best_mode(int w, int h, int *bits_out)
-{
-	static const int sizes[4] = { 8, 16, 24, 32 };
-	int i;
-
-	*bits_out = 0;
-	if (!cgx_open()) return (ULONG)INVALID_ID;
-	for (i = 0; i < 4; i++) {
-		ULONG id = rtg_mode_at(w, h, sizes[i]);
-		if (id != (ULONG)INVALID_ID) { *bits_out = sizes[i]; return id; }
+		for (i = 0; i < n; i++) {
+			if (out[i].w == (int)w && out[i].h == (int)h) break;
+		}
+		if (i < n) {
+			if (bits < out[i].bits) { out[i].bits = bits; out[i].id = id; }
+			continue;
+		}
+		if (n >= max) continue;
+		out[n].w = (int)w; out[n].h = (int)h; out[n].bits = bits; out[n].id = id;
+		n++;
 	}
-	return (ULONG)INVALID_ID;
+
+	/* Smallest first, the order the dropdown has always used. */
+	for (i = 1; i < n; i++) {
+		AmigaRtgMode t = out[i];
+		for (j = i - 1; j >= 0 &&
+		     (out[j].w > t.w || (out[j].w == t.w && out[j].h > t.h)); j--) {
+			out[j + 1] = out[j];
+		}
+		out[j + 1] = t;
+	}
+	return n;
 }
 
-int amigagfx_rtg_mode_bits(int w, int h)
+int amigagfx_rtg_modes(AmigaRtgMode *out, int max)
 {
-	int bits;
-	rtg_best_mode(w, h, &bits);
+	int n = rtg_scan(out, max);
 
-	/* The probe runs while building the resolution list, long before any
+	/* The scan runs while building the resolution list, long before any
 	 * screen exists. Leave the library open only if it is already carrying an
 	 * open screen; otherwise hand it straight back, so an AGA-only session
 	 * never keeps cybergraphics.library referenced for nothing. */
 	if (g_screen == NULL) cgx_close();
+	return n;
+}
 
-	return bits;
+/* The mode to open for an RTG entry of exactly w x h, or INVALID_ID. */
+static ULONG rtg_mode_for(int w, int h, int *bits_out)
+{
+	AmigaRtgMode m[64];
+	int n = rtg_scan(m, 64), i;
+
+	for (i = 0; i < n; i++) {
+		if (m[i].w == w && m[i].h == h) { *bits_out = m[i].bits; return (ULONG)m[i].id; }
+	}
+	*bits_out = 0;
+	return (ULONG)INVALID_ID;
+}
+
+/* One-shot RTG diagnostics into PROGDIR:amiga_rtg.log, written at every start:
+ * library versions, the Workbench screen, every mode in the display database
+ * with what CGX says about it, and the RTG list that came out of it. Its own
+ * file on purpose - stdout is NIL: when the game is started from its icon, and
+ * this is the file a user with a missing mode is asked to send. */
+void amigagfx_rtg_diagnose(const char *revision)
+{
+	static const char *const libs[] = {
+		"cybergraphics.library", "Picasso96API.library", "rtg.library"
+	};
+	FILE *f = fopen("PROGDIR:amiga_rtg.log", "w");
+	struct Screen *wb;
+	AmigaRtgMode m[64];
+	ULONG id;
+	int i, n, count = 0;
+
+	if (f == NULL) return;
+	fprintf(f, "AmiTTD RTG diagnostics - %s\n\n", revision);
+	fprintf(f, "graphics.library v%d.%d, ChipRevBits0 $%02x (AGA %s)\n",
+	        (int)GfxBase->LibNode.lib_Version, (int)GfxBase->LibNode.lib_Revision,
+	        (unsigned)GfxBase->ChipRevBits0,
+	        (GfxBase->ChipRevBits0 & GFXF_AA_ALICE) ? "yes" : "no");
+	for (i = 0; i < 3; i++) {
+		struct Library *l = OpenLibrary((CONST_STRPTR)libs[i], 0);
+		if (l == NULL) {
+			fprintf(f, "%-24s not found\n", libs[i]);
+		} else {
+			fprintf(f, "%-24s v%d.%d\n", libs[i], (int)l->lib_Version, (int)l->lib_Revision);
+			CloseLibrary(l);
+		}
+	}
+	fprintf(f, "cgx_open (needs v41): %s\n", cgx_open() ? "OK" : "FAILED");
+
+	wb = LockPubScreen(NULL);
+	if (wb != NULL) {
+		ULONG wid = GetVPModeID(&wb->ViewPort);
+		fprintf(f, "Workbench screen: %dx%d, mode $%08lx, BMA_DEPTH %lu",
+		        (int)wb->Width, (int)wb->Height, (unsigned long)wid,
+		        (unsigned long)GetBitMapAttr(wb->RastPort.BitMap, BMA_DEPTH));
+		if (CyberGfxBase != NULL) {
+			fprintf(f, ", IsCyberModeID %d", (int)IsCyberModeID(wid));
+		}
+		fprintf(f, "\n");
+		UnlockPubScreen(NULL, wb);
+	}
+
+	fprintf(f, "\nDisplay database (id, name, nominal size, max depth, not-available"
+	           " flags, then CGX: depth bppix pixfmt width height):\n");
+	id = (ULONG)INVALID_ID;
+	while ((id = NextDisplayInfo(id)) != (ULONG)INVALID_ID && count < 400) {
+		DisplayInfoHandle h = FindDisplayInfo(id);
+		struct NameInfo ni;
+		struct DimensionInfo di;
+		count++;
+		ni.Name[0] = 0;
+		if (h == NULL || GetDisplayInfoData(h, (UBYTE *)&ni, sizeof(ni), DTAG_NAME, 0) == 0) {
+			strcpy((char *)ni.Name, "?");
+		}
+		fprintf(f, "  $%08lx %-34.34s", (unsigned long)id, (char *)ni.Name);
+		if (h != NULL && GetDisplayInfoData(h, (UBYTE *)&di, sizeof(di), DTAG_DIMS, 0) != 0) {
+			fprintf(f, " %4dx%-4d d%-2d",
+			        (int)(di.Nominal.MaxX - di.Nominal.MinX + 1),
+			        (int)(di.Nominal.MaxY - di.Nominal.MinY + 1), (int)di.MaxDepth);
+		} else {
+			fprintf(f, " (no DIMS)       ");
+		}
+		fprintf(f, " na=$%08lx", (unsigned long)ModeNotAvailable(id));
+		if (CyberGfxBase != NULL && IsCyberModeID(id)) {
+			fprintf(f, "  CGX d%lu bpp%lu fmt%lu %lux%lu",
+			        (unsigned long)GetCyberIDAttr(CYBRIDATTR_DEPTH, id),
+			        (unsigned long)GetCyberIDAttr(CYBRIDATTR_BPPIX, id),
+			        (unsigned long)GetCyberIDAttr(CYBRIDATTR_PIXFMT, id),
+			        (unsigned long)GetCyberIDAttr(CYBRIDATTR_WIDTH, id),
+			        (unsigned long)GetCyberIDAttr(CYBRIDATTR_HEIGHT, id));
+		}
+		fprintf(f, "\n");
+	}
+	fprintf(f, "(%d modes)\n", count);
+
+	n = (CyberGfxBase != NULL) ? rtg_scan(m, 64) : 0;
+	fprintf(f, "\nRTG modes offered (one per size, fewest bits): %d\n", n);
+	for (i = 0; i < n; i++) {
+		fprintf(f, "  %4dx%-4d %2d-bit  $%08lx\n", m[i].w, m[i].h, m[i].bits,
+		        (unsigned long)m[i].id);
+	}
+
+	if (g_screen == NULL) cgx_close();
+	fclose(f);
 }
 
 int amigagfx_has_aga(void)
@@ -843,7 +959,7 @@ static int open_screen_aga(int w, int h, ULONG quiet, ULONG title, int depth)
 static int open_screen_rtg(int w, int h, ULONG quiet, ULONG title)
 {
 	int   bits;
-	ULONG modeid = rtg_best_mode(w, h, &bits);
+	ULONG modeid = rtg_mode_for(w, h, &bits);
 	ULONG depth;
 
 	if (modeid == (ULONG)INVALID_ID) {

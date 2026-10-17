@@ -107,31 +107,13 @@ static const Dimension _amiga_ehb_resolutions[] = {
 	{ 352, 272 },
 };
 
-/**
- * RTG (CyberGraphX / Picasso96) candidates, offered BELOW the AGA modes and
- * only when the machine actually has an 8-bit RTG mode of that size - so an
- * AGA-only Amiga sees exactly the list it saw before RTG support existed.
- *
- * 8bpp only, deliberately: OpenTTD's blitter produces 8-bit chunky, which on an
- * 8-bit RTG screen is already the display format. Any deeper mode would put a
- * per-pixel conversion back in, which is the very thing RTG is here to remove.
- *
- * Nothing below 400x300: the small sizes exist for AGA, where they buy a real
- * reduction in chunky-to-planar work. On RTG there is no conversion to reduce,
- * so a tiny mode buys nothing and only costs visible map.
+/*
+ * RTG modes are no longer a fixed list here. They come from the machine's own
+ * display database (amigagfx_rtg_modes): every size the card offers, once, at
+ * its fewest bits per pixel. The fixed list (400x300 ... 1920x1080, each one
+ * asked of BestCModeIDTagList) found nothing at all on a PiStorm whose only
+ * size is 1280x720, while the ScreenMode requester listed it in five depths.
  */
-static const Dimension _amiga_rtg_resolutions[] = {
-	{  400, 300 },
-	{  512, 384 },
-	{  640, 480 },
-	{  800, 600 },
-	{ 1024, 768 },
-	{  960, 720 },   /* 720p, 4:3 */
-	{ 1280, 720 },   /* 720p, 16:9 widescreen */
-	{ 1600, 900 },   /* 900p, 16:9 widescreen */
-	{ 1440, 1080 },  /* 1080p, 4:3 */
-	{ 1920, 1080 },  /* 1080p, 16:9 widescreen */
-};
 
 /** SPECSTR_RESOLUTION_END - SPECSTR_RESOLUTION_START + 1: the hard ceiling on
  * how many entries the resolution dropdown can address. */
@@ -862,6 +844,22 @@ static void PollEvents()
 	}
 }
 
+/** The RTG entry to fall back on when the saved mode cannot be opened: the
+ * saved size if the card has it, else 640x480, else the card's smallest mode.
+ * -1 when the list holds no RTG entry at all. */
+static int PickRtgEntry()
+{
+	int same = -1, vga = -1, first = -1;
+	for (uint i = 0; i < _num_resolutions; i++) {
+		if (_amiga_res_backend[i] != AMIGAGFX_BACKEND_RTG) continue;
+		if (first < 0) first = (int)i;
+		if (_resolutions[i].width == 640 && _resolutions[i].height == 480) vga = (int)i;
+		if (_resolutions[i].width  == _cur_resolution.width &&
+		    _resolutions[i].height == _cur_resolution.height) same = (int)i;
+	}
+	return same >= 0 ? same : (vga >= 0 ? vga : first);
+}
+
 const char *VideoDriver_Amiga::Start(const char * const *parm)
 {
 	_force_bbox = (GetDriverParam(parm, "bbox") != NULL);
@@ -922,20 +920,23 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 		_resolutions[_num_resolutions++] = _amiga_ehb_resolutions[i];
 	}
 
-	/* Probed one size at a time rather than "is there a card": a board with
-	 * little display memory, or a Picasso96 setup with only a few modes
-	 * configured, genuinely may have 640x480 and not 1024x768. Offering a mode
-	 * that cannot open would put the player one click away from a screen that
-	 * silently falls back to AGA. */
+	/* What the card really has, not what a fixed list hopes for - see
+	 * amigagfx_rtg_modes(). The diagnostic log is written first so a player whose
+	 * modes are missing has one file to send. */
+	amigagfx_rtg_diagnose(_openttd_revision);
 	uint rtg_offered = 0;
-	for (uint i = 0; i < lengthof(_amiga_rtg_resolutions) && _num_resolutions < max_res; i++) {
-		int bits = amigagfx_rtg_mode_bits((int)_amiga_rtg_resolutions[i].width,
-		                                  (int)_amiga_rtg_resolutions[i].height);
-		if (bits == 0) continue;
-		_amiga_res_rtg_bits[_num_resolutions] = (byte)bits;
-		_amiga_res_backend[_num_resolutions] = AMIGAGFX_BACKEND_RTG;
-		_resolutions[_num_resolutions++] = _amiga_rtg_resolutions[i];
-		rtg_offered++;
+	{
+		AmigaRtgMode rtg[AMIGA_MAX_RESOLUTIONS];
+		int room = (int)max_res - (int)_num_resolutions;
+		int n = (room > 0) ? amigagfx_rtg_modes(rtg, room) : 0;
+		for (int i = 0; i < n; i++) {
+			_amiga_res_rtg_bits[_num_resolutions] = (byte)rtg[i].bits;
+			_amiga_res_backend[_num_resolutions] = AMIGAGFX_BACKEND_RTG;
+			_resolutions[_num_resolutions].width  = (uint)rtg[i].w;
+			_resolutions[_num_resolutions].height = (uint)rtg[i].h;
+			_num_resolutions++;
+			rtg_offered++;
+		}
 	}
 	{
 		char b[96];
@@ -980,15 +981,7 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 	if (!have_aga && saved_backend == AMIGAGFX_BACKEND_AGA) {
 		saved_backend = AMIGAGFX_BACKEND_EHB;
 		if (rtg_offered > 0) {
-			int same = -1, vga = -1, first = -1;
-			for (uint i = 0; i < _num_resolutions; i++) {
-				if (_amiga_res_backend[i] != AMIGAGFX_BACKEND_RTG) continue;
-				if (first < 0) first = (int)i;
-				if (_resolutions[i].width == 640 && _resolutions[i].height == 480) vga = (int)i;
-				if (_resolutions[i].width  == _cur_resolution.width &&
-				    _resolutions[i].height == _cur_resolution.height) same = (int)i;
-			}
-			_amiga_cur_res = same >= 0 ? same : (vga >= 0 ? vga : first);
+			_amiga_cur_res = PickRtgEntry();
 			char b[112];
 			snprintf(b, sizeof(b), "saved AGA %ux%u needs AGA - using RTG %ux%u",
 			         _cur_resolution.width, _cur_resolution.height,
@@ -1021,6 +1014,20 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 			break;
 		}
 	}
+	/* A saved RTG size this card does not have - 400x300 and 512x384 were
+	 * offered by every build up to 1.2.9 and are no real card's mode, or the
+	 * card has simply changed. Stay on RTG: the player chose a graphics card
+	 * over the chipset, and entry 0 would hand them a 320x256 AGA screen. */
+	if (_amiga_cur_res < 0 && saved_backend == AMIGAGFX_BACKEND_RTG && rtg_offered > 0) {
+		_amiga_cur_res = PickRtgEntry();
+		char b[112];
+		snprintf(b, sizeof(b), "saved RTG %ux%u is not a mode of this card - using RTG %ux%u",
+		         _cur_resolution.width, _cur_resolution.height,
+		         _resolutions[_amiga_cur_res].width, _resolutions[_amiga_cur_res].height);
+		amigagfx_log(b);
+		_cur_resolution = _resolutions[_amiga_cur_res];
+	}
+
 	/* Still nothing: the saved size is not offered on any backend. Entry 0 is
 	 * the honest last resort, and the snap below tells the player about it. */
 	if (_amiga_cur_res < 0) _amiga_cur_res = 0;

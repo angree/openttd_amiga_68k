@@ -15,8 +15,9 @@ pick the one named after your system:
 | `openttd-morphos-ppc-<version>-*.lha` | MorphOS (native PowerPC) | `openttd-mos` |
 | `openttd-amittd-pc-<version>-server-no-music.zip` | Windows PC (plays with the Amiga builds online) | `openttd.exe` |
 
-Each Amiga/MorphOS download comes in three sizes: `no-music`, `standard-soundtrack`
-(menu theme + in-game music) and `extended-soundtrack` (everything).
+Both come as `no-music` or `standard-soundtrack` (menu theme + in-game music).
+The full soundtrack is a single archive, `openttd-amiga-<version>-extended-soundtrack.lha`;
+on MorphOS, copy its `music` drawer into the MorphOS one.
 
 ![OpenTTD running on an emulated A4000/040 with AGA](screenshots/newgame.png)
 

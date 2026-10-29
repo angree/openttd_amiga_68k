@@ -5,8 +5,8 @@
 #   openttd-amiga-68k-X.Y.Z.zip                       Amiga, every music tier
 #   openttd-amiga-68k-X.Y.Z-no-music.lha              Amiga, no music at all
 #   openttd-amiga-68k-X.Y.Z-standard-soundtrack.lha   Amiga, Title + Nowe
-#   openttd-amiga-68k-X.Y.Z-extended-soundtrack.lha   Amiga, Title + Nowe + Extra
-#   openttd-morphos-ppc-X.Y.Z-<tier>.lha              MorphOS PowerPC, the same 3 tiers
+#   openttd-amiga-X.Y.Z-extended-soundtrack.lha       the ONE full-soundtrack archive (68k drawer)
+#   openttd-morphos-ppc-X.Y.Z-{no-music,standard-soundtrack}.lha   MorphOS PowerPC
 #   openttd-amittd-pc-X.Y.Z-server-no-music.zip       PC/Windows, no music
 #
 # The 68k drawer (release/openttd-amiga-68k: AmigaOS 3.x and AROS 68k) and the
@@ -153,7 +153,11 @@ echo "--- tier 3/4: extended soundtrack (everything, same as the zip) ---"
 # a little worse. This matches how 0.9.8 shipped.
 set_music Title Nowe Extra Stare
 mk_lha "-extended-soundtrack"
-mk_mos_lha "-extended-soundtrack"
+# ONE extended-soundtrack archive per release, not one per system: it is 130 MB
+# of which the binary is 3 MB, and a second copy for MorphOS was the user's
+# "dwa razy ten sam extended soundtrack". Named without "68k" because it is the
+# soundtrack people come for. MorphOS gets no-music and standard only.
+mv "$REPO/openttd-amiga-68k-$VER-extended-soundtrack.lha" "$REPO/openttd-amiga-$VER-extended-soundtrack.lha"
 
 echo "--- tier 4/4: everything, as a zip ---"
 set_music Title Nowe Extra Stare

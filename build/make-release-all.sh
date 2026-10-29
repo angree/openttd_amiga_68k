@@ -6,7 +6,14 @@
 #   openttd-amiga-68k-X.Y.Z-no-music.lha              Amiga, no music at all
 #   openttd-amiga-68k-X.Y.Z-standard-soundtrack.lha   Amiga, Title + Nowe
 #   openttd-amiga-68k-X.Y.Z-extended-soundtrack.lha   Amiga, Title + Nowe + Extra
+#   openttd-morphos-ppc-X.Y.Z-<tier>.lha              MorphOS PowerPC, the same 3 tiers
 #   openttd-amittd-pc-X.Y.Z-server-no-music.zip       PC/Windows, no music
+#
+# The 68k drawer (release/openttd-amiga-68k: AmigaOS 3.x and AROS 68k) and the
+# MorphOS one are packed SEPARATELY since 1.2.11 - one archive per system, named
+# after it, so nobody has to guess that a "68k" archive also carries MorphOS.
+# The MorphOS drawer is the 68k one with the binary and icon swapped for
+# release/morphos-bin/openttd-mos{,.info}; data, music and README are shared.
 #
 # WHY LHA FOR THE TIERS: lha is the native Amiga archive format and always
 # stores forward-slash paths. A Windows-made zip can store BACKSLASHES, which
@@ -87,6 +94,31 @@ print(d[i:d.find(bytes([0]), i)].decode('latin-1') if i >= 0 else '')
 echo "amiga binary reports: ${BINVER:-<none>}"
 echo "$BINVER" | grep -q "$VER" || { echo "FATAL: release binary is not $VER - rebuild and redeploy first"; exit 1; }
 
+MOSBIN="$REPO/release/morphos-bin"
+[ -f "$MOSBIN/openttd-mos" ] || { echo "FATAL: $MOSBIN/openttd-mos missing"; exit 1; }
+[ -f "$SRC/openttd-mos" ] && { echo "FATAL: openttd-mos is in the 68k drawer - it belongs in $MOSBIN"; exit 1; }
+MOSVER=$(python -c "
+import sys
+d = open(sys.argv[1], 'rb').read()
+i = d.find(b'AmiTTD ' + sys.argv[2].encode() + b' /')
+print(d[i:d.find(bytes([0]), i)].decode('latin-1') if i >= 0 else '')
+" "$MOSBIN/openttd-mos" "$VER")
+echo "morphos binary reports: ${MOSVER:-<none>}"
+echo "$MOSVER" | grep -q "$VER" || { echo "FATAL: openttd-mos is not $VER - rebuild it first"; exit 1; }
+
+mk_mos_lha() {   # $1 = suffix; packs the 68k drawer's current content as MorphOS
+  local out="$REPO/openttd-morphos-ppc-$VER$1.lha"
+  local mos="$REPO/release/openttd-morphos-ppc"
+  rm -f "$out"; rm -rf "$mos"
+  cp -r "$SRC" "$mos"
+  rm -f "$mos/openttd" "$mos/openttd.info"
+  cp "$MOSBIN/openttd-mos" "$MOSBIN/openttd-mos.info" "$mos/"
+  MSYS_NO_PATHCONV=1 wsl bash -c "sudo -n mount -t drvfs I: /mnt/i 2>/dev/null; cd /mnt/i/GITHUB/Amiga_OpenTTD/release && jlha a /mnt/i/GITHUB/Amiga_OpenTTD/$(basename "$out") openttd-morphos-ppc" >/dev/null 2>&1
+  rm -rf "$mos"
+  [ -f "$out" ] && printf "  %-56s %s
+" "$(basename "$out")" "$(du -h "$out" | cut -f1)" || echo "  FAILED: $(basename "$out")"
+}
+
 mk_lha() {   # $1 = suffix
   local out="$REPO/openttd-amiga-68k-$VER$1.lha"
   rm -f "$out"
@@ -107,10 +139,12 @@ echo
 echo "--- tier 1/4: no music ---"
 set_music
 mk_lha "-no-music"
+mk_mos_lha "-no-music"
 
 echo "--- tier 2/4: standard soundtrack (Title + Nowe) ---"
 set_music Title Nowe
 mk_lha "-standard-soundtrack"
+mk_mos_lha "-standard-soundtrack"
 
 echo "--- tier 3/4: extended soundtrack (everything, same as the zip) ---"
 # Deliberately the SAME content as the .zip below: Amiga users who prefer lha
@@ -119,6 +153,7 @@ echo "--- tier 3/4: extended soundtrack (everything, same as the zip) ---"
 # a little worse. This matches how 0.9.8 shipped.
 set_music Title Nowe Extra Stare
 mk_lha "-extended-soundtrack"
+mk_mos_lha "-extended-soundtrack"
 
 echo "--- tier 4/4: everything, as a zip ---"
 set_music Title Nowe Extra Stare
@@ -155,6 +190,6 @@ printf "  %-56s %s\n" "$(basename "$PCZIP")" "$(du -h "$PCZIP" | cut -f1)"
 
 echo
 echo "=== done - artefacts in $REPO ==="
-ls -la "$REPO"/openttd-amiga-68k-$VER*.lha "$REPO"/openttd-amiga-68k-$VER.zip "$REPO"/openttd-amittd-pc-$VER-server-no-music.zip 2>/dev/null
+ls -la "$REPO"/openttd-amiga-68k-$VER*.lha "$REPO"/openttd-morphos-ppc-$VER*.lha "$REPO"/openttd-amiga-68k-$VER.zip "$REPO"/openttd-amittd-pc-$VER-server-no-music.zip 2>/dev/null
 echo
 echo "NOTE: release/openttd-amiga-68k/music now holds the FULL set again."

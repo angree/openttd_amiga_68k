@@ -1,10 +1,22 @@
-# OpenTTD for AmigaOS 68k (AGA / OCS-ECS / RTG)
+# OpenTTD for AmigaOS 68k, AROS 68k and MorphOS PPC
 
 A native port of OpenTTD 1.0.5 to classic AmigaOS 3.x on 68k, with its own video
 driver written against Intuition and graphics.library. No SDL, and no RTG card
-required — it runs on plain AGA, and on OCS/ECS too.
+required — it runs on plain AGA, and on OCS/ECS too. Since 1.2.11 the same
+68k program runs on **AROS 68k**, and **MorphOS** has a **native PowerPC
+build** made from the same sources.
 
-Playable. See the [releases](../../releases) for the ready-to-run archive.
+Playable. See the [releases](../../releases) for the ready-to-run archives —
+pick the one named after your system:
+
+| Download | For | Program |
+|---|---|---|
+| `openttd-amiga-68k-<version>-*.lha` / `.zip` | AmigaOS 3.x and AROS 68k | `openttd` |
+| `openttd-morphos-ppc-<version>-*.lha` | MorphOS (native PowerPC) | `openttd-mos` |
+| `openttd-amittd-pc-<version>-server-no-music.zip` | Windows PC (plays with the Amiga builds online) | `openttd.exe` |
+
+Each Amiga/MorphOS download comes in three sizes: `no-music`, `standard-soundtrack`
+(menu theme + in-game music) and `extended-soundtrack` (everything).
 
 ![OpenTTD running on an emulated A4000/040 with AGA](screenshots/newgame.png)
 
@@ -70,6 +82,21 @@ disk in small pieces, which is what made startup take minutes on a real hard
 drive. Advanced Settings → Amiga → *Fast load*, on by default; below 50 MB free
 it switches itself off and loads the old way, so a 24 MB machine is unaffected.
 
+## AROS and MorphOS
+
+- **AROS 68k** runs the ordinary 68k `openttd`, no separate build. Tested on
+  the current AROS m68k nightly and on the AROS ROM built into WinUAE (which
+  ignores the bitmap a program hands it — the game notices and draws into the
+  screen's own bitplanes instead).
+- **MorphOS** gets `openttd-mos`, a native PowerPC executable built with
+  morphos-cross (GCC 15). It offers RTG screens at the deepest depth the card
+  has, and the Workbench window; there is no Amiga chipset to offer AGA/OCS on.
+  Water and lights animate there too — the screen is redrawn when the palette
+  moves. Sound goes through `audio.device`, exactly as on the Amiga.
+- Tested in emulators only (WinUAE for AROS, QEMU Pegasos II with MorphOS
+  3.20). Reports from real MorphOS and AROS machines are very welcome, and
+  multiplayer between the PowerPC and the 68k build has not been tried yet.
+
 ## What does not
 
 - Memory use is high: ~24 MB total required. The OCS modes cut colours, not
@@ -90,7 +117,9 @@ it switches itself off and loads the old way, so a 24 MB machine is unaffected.
 
   ![OpenTTD on a Picasso96 RTG screen](screenshots/openttd_68k_p96.png)
 - **24 MB Fast RAM** (won't start on 4 MB Fast + 16 MB Z3; does on 8 + 16).
-  AmigaOS 3.0/3.1, ~30 MB free disk.
+  AmigaOS 3.0 or newer (or AROS 68k), ~30 MB free disk.
+- On **MorphOS**: any machine MorphOS 3.x runs on; the 68k requirements above
+  do not apply to `openttd-mos`.
 
 Nothing from the original Transport Tycoon Deluxe is needed — the archive bundles
 OpenGFX and OpenSFX and runs as unpacked.
@@ -120,6 +149,11 @@ See [BUILDING.md](BUILDING.md) and read it first. The toolchain has traps that
 produce silently wrong code rather than errors: several files miscompile at `-O1`
 and must be built at `-O0`, `-O2` breaks C++ exception unwinding, and zlib
 corrupts data above `-O0`.
+
+The MorphOS PowerPC build compiles the same patched tree with
+[morphos-cross](https://github.com/metaneutrons/morphos-cross):
+`build/morphos-snapshot.sh` (in the WSL distribution that holds the 68k tree)
+packs it, `build/build-morphos.sh` (in one with glibc 2.36+) builds `openttd-mos`.
 
 ## Credits
 

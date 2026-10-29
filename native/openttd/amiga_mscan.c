@@ -5,8 +5,10 @@
  * here and no AmigaOS header may leak through amiga_mscan.h.
  */
 
+#include <proto/exec.h>
 #include <proto/dos.h>
 #include <proto/intuition.h>
+#include <exec/memory.h>
 #include <dos/dos.h>
 #include <dos/dosextens.h>
 #include <intuition/intuition.h>
@@ -121,6 +123,74 @@ int AmigaMusic_ScanDirExt(const char *dir, const char *ext,
 	FreeDosObject(DOS_FIB, fib);
 	UnLock(lock);
 	return count;
+}
+
+/* opendir/readdir/closedir for the whole game, on Lock/Examine/ExNext.
+ *
+ * libnix's own readdir returned NOTHING under MorphOS: the directory opened,
+ * and not one entry came back - so the game found no language pack, no
+ * graphics set and no savegame, and stopped with "No available language
+ * packs" while lang/ sat right there with 48 files in it. ExNext is the
+ * oldest directory call AmigaDOS has; every Kickstart, AROS and MorphOS
+ * handler implements it, which is the entire reason it is used here. */
+struct AmigaDirHandle {
+	BPTR lock;
+	struct FileInfoBlock *fib;
+	struct AmigaDirEnt ent;
+};
+
+void *AmigaDirOpen(const char *path)
+{
+	struct AmigaDirHandle *d;
+	char buf[AMIGA_MUSIC_PATH_MAX];
+	size_t len;
+
+	if (path == NULL) return NULL;
+	len = strlen(path);
+	if (len == 0 || len >= sizeof(buf)) return NULL;
+	memcpy(buf, path, len + 1);
+	/* OpenTTD hands directories over as "Work:lang/". A trailing slash after a
+	 * name means "the parent" to some handlers, so it goes - but not after a
+	 * colon, and not when it is the only thing there. */
+	if (len > 1 && buf[len - 1] == '/' && buf[len - 2] != ':' && buf[len - 2] != '/') {
+		buf[len - 1] = '\0';
+	}
+
+	d = (struct AmigaDirHandle *)AllocVec(sizeof(*d), MEMF_ANY | MEMF_CLEAR);
+	if (d == NULL) return NULL;
+	d->lock = Lock((CONST_STRPTR)buf, ACCESS_READ);
+	d->fib = (struct FileInfoBlock *)AllocDosObject(DOS_FIB, NULL);
+	if (d->lock == (BPTR)0 || d->fib == NULL || !Examine(d->lock, d->fib) ||
+	    d->fib->fib_DirEntryType < 0) {
+		AmigaDirClose(d);
+		return NULL;
+	}
+	return d;
+}
+
+struct AmigaDirEnt *AmigaDirNext(void *handle)
+{
+	struct AmigaDirHandle *d = (struct AmigaDirHandle *)handle;
+	size_t n;
+
+	if (d == NULL || !ExNext(d->lock, d->fib)) return NULL;
+	n = strlen((const char *)d->fib->fib_FileName);
+	if (n >= sizeof(d->ent.name)) n = sizeof(d->ent.name) - 1;
+	memcpy(d->ent.name, d->fib->fib_FileName, n);
+	d->ent.name[n] = '\0';
+	d->ent.d_name = d->ent.name;
+	d->ent.is_dir = d->fib->fib_DirEntryType >= 0;
+	return &d->ent;
+}
+
+int AmigaDirClose(void *handle)
+{
+	struct AmigaDirHandle *d = (struct AmigaDirHandle *)handle;
+	if (d == NULL) return -1;
+	if (d->fib != NULL) FreeDosObject(DOS_FIB, d->fib);
+	if (d->lock != (BPTR)0) UnLock(d->lock);
+	FreeVec(d);
+	return 0;
 }
 
 /* Resolve PROGDIR: to a real AmigaDOS path, e.g. "Work:Games/OpenTTD".

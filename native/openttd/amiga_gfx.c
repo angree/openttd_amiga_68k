@@ -48,6 +48,7 @@
 #include <devices/inputevent.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdarg.h>
 
 /* cybergraphics.library is not part of the bebbo NDK, so the official CGX
  * developer headers are vendored under cgx-include/ and reached with an -I on
@@ -56,6 +57,10 @@
  * and in the clobber list and declares "register _res" with no type at all,
  * which GCC 6.5 either rejects or miscompiles. */
 #include <proto/cybergraphics.h>
+#ifdef __MORPHOS__
+/* The MorphOS SDK keeps the CGX tags and pixel formats out of the proto. */
+#include <cybergraphx/cybergraphics.h>
+#endif
 
 #include "amiga_gfx.h"
 
@@ -66,10 +71,58 @@ struct Library *CyberGfxBase;
  * AmigaDOS 3.1 shell can only redirect stdout, so a crash or a hang leaves no
  * trace at all. Point stderr at a file ourselves and make it UNBUFFERED, so the
  * last line written before a hang is actually on disk. */
+/*
+ * Since 1.2.11 every driver line ALSO goes to PROGDIR:amiga_gfx.log. stdout is
+ * NIL: for a game started from its icon or from our own run script, so until
+ * then the driver's account of which screen it opened and how it blits was
+ * simply thrown away - and on AROS and MorphOS that account is the whole
+ * diagnosis. Unbuffered and flushed per line, so the last line before a hang
+ * is on disk; capped so a chatty session cannot fill a disk. */
+#define AMIGA_GFX_LOG      "PROGDIR:amiga_gfx.log"
+#define AMIGA_GFX_MAXLINES 5000
+
+static int g_gfxlog_state;   /* 0 = not started, 1 = in use, -1 = cannot be written */
+static int g_gfxlog_lines;
+
+/* Opened, appended to and closed again for every line. Holding it open would
+ * lock it for the whole session, and on MorphOS and AROS the way to read a log
+ * from a running game is to copy it - which an exclusive lock refuses. A few
+ * dozen lines per session make the reopen cost nothing. */
+static FILE *gfx_logfile(void)
+{
+	FILE *f;
+	if (g_gfxlog_state == 0) {
+		/* Delete first: not every filesystem truncates on a "w" reopen. */
+		DeleteFile((CONST_STRPTR)AMIGA_GFX_LOG);
+		g_gfxlog_state = 1;
+	}
+	if (g_gfxlog_state != 1 || g_gfxlog_lines >= AMIGA_GFX_MAXLINES) return NULL;
+	f = fopen(AMIGA_GFX_LOG, "a");
+	if (f == NULL) g_gfxlog_state = -1;
+	return f;
+}
+
+static void gfx_printf(const char *fmt, ...)
+{
+	va_list ap;
+	FILE *f = gfx_logfile();
+
+	va_start(ap, fmt);
+	vfprintf(stdout, fmt, ap);
+	va_end(ap);
+	fflush(stdout);
+	if (f != NULL) {
+		va_start(ap, fmt);
+		vfprintf(f, fmt, ap);
+		va_end(ap);
+		fclose(f);
+		g_gfxlog_lines++;
+	}
+}
+
 void amigagfx_log(const char *msg)
 {
-	fprintf(stdout, "amiga: %s\n", msg);
-	fflush(stdout);
+	gfx_printf("amiga: %s\n", msg);
 }
 
 /* Chatty per-play diagnostics (currently only the periodic "blit #N" line) are
@@ -79,6 +132,21 @@ static int g_verbose;
 void amigagfx_set_verbose(int verbose)
 {
 	g_verbose = verbose;
+}
+
+/* MorphOS runs this 68k program under its Trance JIT. It has no Amiga chipset
+ * at all, so nothing planar may be offered there, and its RTG wants deep modes
+ * (see rtg_bits_better). Its exec carries a "MorphOS" resident module, which a
+ * 68k program can find like any other - that is the whole test, and it is the
+ * one AmiSC has used on MorphOS 3.20 since 2026-10-25. */
+int amigagfx_is_morphos(void)
+{
+	static int known = -1;
+	if (known < 0) {
+		known = (FindResident((CONST_STRPTR)"MorphOS") != NULL) ? 1 : 0;
+		if (known) amigagfx_log("MorphOS detected - no planar modes, RTG prefers deep screens");
+	}
+	return known;
 }
 
 /* ---- startup memory probe -----------------------------------------------
@@ -196,6 +264,18 @@ static ULONG  g_epoch;
 static unsigned long g_blits;
 static ULONG g_want_modeid;
 static int   g_used_fallback;
+
+/* Where the planar blit writes. Normally our own Chip RAM block (g_chip), the
+ * one handed to OpenScreen with SA_BitMap - but the AROS ROM built into WinUAE
+ * IGNORES SA_BitMap and gives the screen planes of its own, so a c2p into
+ * g_chip is never seen: a black screen with the game running behind it.
+ * adopt_screen_planes() notices and points these at the screen's planes, or
+ * failing that sets g_planes_wcp and the blit goes through WriteChunkyPixels.
+ * Kickstart and a current AROS keep our bitmap, and then nothing changes. */
+static UBYTE         *g_planes;
+static ULONG          g_planes_step;
+static struct BitMap *g_planes_bm;
+static int            g_planes_wcp;
 
 /* ---- RTG (CyberGraphX / Picasso96) state --------------------------------
  *
@@ -392,7 +472,11 @@ static UBYTE *g_wb_scratch;          /* remap band, pen path only */
 static struct RastPort g_temprp;     /* WritePixelArray8 scratch, no-CGX only */
 static struct BitMap  *g_tempbm;
 
+#ifdef __MORPHOS__
+static UBYTE g_screen_title[] = "OpenTTD MorphOS PPC";
+#else
 static UBYTE g_screen_title[] = "OpenTTD 68K";
+#endif
 
 /* Intuition's default screen pens (DetailPen 0, BlockPen 1) index whatever
  * palette the GAME loads - and in the TTD *Windows* palette (OpenGFX's
@@ -461,7 +545,26 @@ static void cgx_close(void)
  * size is kept once, at the fewest bytes per pixel: 8 bits is the fast path
  * (the chunky buffer IS the screen format and palette changes are free);
  * everything deeper goes through WriteLUTPixelArray. Bytes per pixel, not
- * CYBRIDATTR_DEPTH, tells them apart: a 32-bit mode reports depth 24. */
+ * CYBRIDATTR_DEPTH, tells them apart: a 32-bit mode reports depth 24.
+ *
+ * MorphOS is the exception, and it turns the order around: 32, then 24, then
+ * 16, and 8 only when a size has nothing deeper. Its 8-bit CLUT modes are the
+ * unreliable ones there - QEMU's ati-vga never shows the palette at all, and
+ * the newer Radeons in an X5000 or a G5 often have no 8-bit modes - while a
+ * deep screen works on every card. The game still draws 8-bit chunky; only the
+ * copy to the screen converts (WriteLUTPixelArray), and the palette animation
+ * a deep screen cannot do by itself is done by redrawing the screen instead
+ * (amigagfx_palette_needs_redraw). Measured in AmiSC on the same machines. */
+static int rtg_bits_better(int bits, int than)
+{
+	if (amigagfx_is_morphos()) {
+		if (bits == 8)  return 0;
+		if (than == 8)  return 1;
+		return bits > than;
+	}
+	return bits < than;
+}
+
 static int rtg_scan(AmigaRtgMode *out, int max)
 {
 	ULONG id = (ULONG)INVALID_ID;
@@ -489,7 +592,7 @@ static int rtg_scan(AmigaRtgMode *out, int max)
 			if (out[i].w == (int)w && out[i].h == (int)h) break;
 		}
 		if (i < n) {
-			if (bits < out[i].bits) { out[i].bits = bits; out[i].id = id; }
+			if (rtg_bits_better(bits, out[i].bits)) { out[i].bits = bits; out[i].id = id; }
 			continue;
 		}
 		if (n >= max) continue;
@@ -552,6 +655,8 @@ void amigagfx_rtg_diagnose(const char *revision)
 
 	if (f == NULL) return;
 	fprintf(f, "AmiTTD RTG diagnostics - %s\n\n", revision);
+	fprintf(f, "system: %s\n", amigagfx_is_morphos() ? "MorphOS (68k under Trance)"
+	                                                 : "AmigaOS-compatible");
 	fprintf(f, "graphics.library v%d.%d, ChipRevBits0 $%02x (AGA %s)\n",
 	        (int)GfxBase->LibNode.lib_Version, (int)GfxBase->LibNode.lib_Revision,
 	        (unsigned)GfxBase->ChipRevBits0,
@@ -614,7 +719,8 @@ void amigagfx_rtg_diagnose(const char *revision)
 	fprintf(f, "(%d modes)\n", count);
 
 	n = (CyberGfxBase != NULL) ? rtg_scan(m, 64) : 0;
-	fprintf(f, "\nRTG modes offered (one per size, fewest bits): %d\n", n);
+	fprintf(f, "\nRTG modes offered (one per size, %s): %d\n",
+	        amigagfx_is_morphos() ? "deepest bits" : "fewest bits", n);
 	for (i = 0; i < n; i++) {
 		fprintf(f, "  %4dx%-4d %2d-bit  $%08lx\n", m[i].w, m[i].h, m[i].bits,
 		        (unsigned long)m[i].id);
@@ -626,7 +732,23 @@ void amigagfx_rtg_diagnose(const char *revision)
 
 int amigagfx_has_aga(void)
 {
+	/* MorphOS's graphics.library may report chip bits, but there is no
+	 * chipset behind them to display a bitplane. */
+	if (amigagfx_is_morphos()) return 0;
 	return (GfxBase->ChipRevBits0 & GFXF_AA_ALICE) ? 1 : 0;
+}
+
+/* Does a palette change need the whole screen redrawn to become visible?
+ * Only on a screen with no hardware palette (16/24/32-bit RTG, or a window on a
+ * deep Workbench), and only on MorphOS, where a full-screen WriteLUTPixelArray
+ * costs next to nothing. On a classic Amiga a 16/32-bit screen keeps still
+ * water, by the user's decision in 1.2.9: the redraw would be a full-screen
+ * conversion every few frames on a 68040. */
+int amigagfx_palette_needs_redraw(void)
+{
+	if (!amigagfx_is_morphos()) return 0;
+	if (g_win_mode) return g_win_direct;
+	return g_screen != NULL && g_backend == AMIGAGFX_BACKEND_RTG && g_rtg_bits > 8;
 }
 
 /* Take the lock once, look at what we actually got, release it, and decide
@@ -660,7 +782,7 @@ static void probe_rtg_lock(void)
 	}
 	if (base == NULL || depth != 8UL || pixfmt != PIXFMT_LUT8 ||
 	    bpr < (ULONG)g_width) {
-		fprintf(stdout, "amiga: RTG: lock gave depth=%lu pixfmt=%lu bpr=%lu base=%p"
+		gfx_printf("amiga: RTG: lock gave depth=%lu pixfmt=%lu bpr=%lu base=%p"
 		                " - not a usable LUT8 surface, using WriteLUTPixelArray\n",
 		        (unsigned long)depth, (unsigned long)pixfmt,
 		        (unsigned long)bpr, base);
@@ -669,7 +791,7 @@ static void probe_rtg_lock(void)
 	}
 
 	g_rtg_method = RTG_METHOD_LOCK;
-	fprintf(stdout, "amiga: RTG: direct LUT8 bitmap access, bpr %lu (chunky pitch %d)"
+	gfx_printf("amiga: RTG: direct LUT8 bitmap access, bpr %lu (chunky pitch %d)"
 	                " - no chunky-to-planar at all\n",
 	        (unsigned long)bpr, g_width);
 	fflush(stdout);
@@ -797,6 +919,55 @@ unsigned long amigagfx_millis(void)
 	return (unsigned long)((raw_ticks() - g_epoch) * 20UL);
 }
 
+/* Called once per planar screen, right after OpenScreen. The normal case is
+ * the first test: the screen's bitmap starts at our plane 0. Otherwise the
+ * screen's own planes are borrowed when their layout is the one the c2p
+ * assumes - Chip RAM, our row length, enough rows and depth, planes one
+ * constant step apart - and anything else (an interleaved bitmap, say) is
+ * drawn through WriteChunkyPixels, slower but correct on any layout. Taken
+ * from AmiSC, where it made the WinUAE AROS ROM show a picture. */
+static void adopt_screen_planes(int h, int depth)
+{
+	struct BitMap *sb = g_screen->RastPort.BitMap;
+	ULONG step;
+	int i, same;
+
+	g_planes      = g_chip;
+	g_planes_step = g_planesize;
+	g_planes_bm   = &g_bitmap;
+	g_planes_wcp  = 0;
+
+	if (sb == NULL || sb->Planes[0] == g_bitmap.Planes[0]) return;
+
+	step = (ULONG)sb->BytesPerRow * sb->Rows;
+	same = sb->Planes[0] != NULL && (int)sb->Depth >= depth &&
+	       (int)sb->BytesPerRow == g_bpr && (int)sb->Rows >= h &&
+	       (TypeOfMem((APTR)sb->Planes[0]) & MEMF_CHIP) != 0;
+	for (i = 1; same && i < depth; i++)
+		same = sb->Planes[i] != NULL &&
+		       (ULONG)((UBYTE *)sb->Planes[i] - (UBYTE *)sb->Planes[0]) == (ULONG)i * step;
+
+	gfx_printf("amiga: screen bitmap planes[0] $%08lx, ours $%08lx, bpr %d (ours %d),"
+	           " rows %d, depth %d\n",
+	           (unsigned long)sb->Planes[0], (unsigned long)g_bitmap.Planes[0],
+	           (int)sb->BytesPerRow, g_bpr, (int)sb->Rows, (int)sb->Depth);
+
+	if (same) {
+		g_planes      = (UBYTE *)sb->Planes[0];
+		g_planes_step = step;
+		g_planes_bm   = sb;
+		amigagfx_log("display: the system ignored our bitmap - drawing into the screen's own planes");
+		return;
+	}
+	if (GfxBase->LibNode.lib_Version >= 40) {
+		g_planes_wcp = 1;
+		amigagfx_log("display: the system ignored our bitmap - drawing through WriteChunkyPixels");
+		return;
+	}
+	amigagfx_log("display: the system ignored our bitmap and has no WriteChunkyPixels"
+	             " - the picture will stay black");
+}
+
 /* AGA and EHB: one contiguous Chip RAM block for equally spaced bitplanes,
  * handed to Intuition with SA_BitMap. depth is DEPTH_AGA (8) or DEPTH_EHB (6);
  * six additionally sets the chipset's Extra-Half-Brite bit in the mode id, which
@@ -886,7 +1057,7 @@ static int open_screen_aga(int w, int h, ULONG quiet, ULONG title, int depth)
 		                          (ULONG)OSCAN_MAX,
 		                          TAG_END);
 		if (overscan) {
-			fprintf(stdout, "amiga: %dx%d exceeds the standard clip for mode $%08lx"
+			gfx_printf("amiga: %dx%d exceeds the standard clip for mode $%08lx"
 			                " - opening with OSCAN_MAX\n",
 			        w, h, (unsigned long)modeid);
 			fflush(stdout);
@@ -921,7 +1092,7 @@ static int open_screen_aga(int w, int h, ULONG quiet, ULONG title, int depth)
 	if (g_screen == NULL) {
 		FreeMem(g_chip, g_planesize * depth); g_chip = NULL;
 		if (depth == DEPTH_EHB) {
-			fprintf(stdout, "amiga: EHB: OpenScreen refused mode $%08lx at %dx%d"
+			gfx_printf("amiga: EHB: OpenScreen refused mode $%08lx at %dx%d"
 			                " - falling back to 8 bitplanes\n",
 			        (unsigned long)g_want_modeid, w, h);
 			fflush(stdout);
@@ -932,6 +1103,7 @@ static int open_screen_aga(int w, int h, ULONG quiet, ULONG title, int depth)
 
 	g_depth   = depth;
 	g_backend = (depth == DEPTH_EHB) ? AMIGAGFX_BACKEND_EHB : AMIGAGFX_BACKEND_AGA;
+	adopt_screen_planes(h, depth);
 
 	/* Scratch band for the 6-plane c2p, which takes no chunky rowmod. Allocated
 	 * with the screen so the blit never allocates; if it cannot be had, the EHB
@@ -963,7 +1135,7 @@ static int open_screen_rtg(int w, int h, ULONG quiet, ULONG title)
 	ULONG depth;
 
 	if (modeid == (ULONG)INVALID_ID) {
-		fprintf(stdout, "amiga: RTG: no 8/16/24/32-bit mode for %dx%d - falling back to AGA\n", w, h);
+		gfx_printf("amiga: RTG: no 8/16/24/32-bit mode for %dx%d - falling back to AGA\n", w, h);
 		fflush(stdout);
 		return 5;
 	}
@@ -986,7 +1158,7 @@ static int open_screen_rtg(int w, int h, ULONG quiet, ULONG title)
 	                          SA_DisplayID, modeid,
 	                          TAG_END);
 	if (g_screen == NULL) {
-		fprintf(stdout, "amiga: RTG: OpenScreen refused mode $%08lx at %dx%d"
+		gfx_printf("amiga: RTG: OpenScreen refused mode $%08lx at %dx%d"
 		                " - falling back to AGA\n", (unsigned long)modeid, w, h);
 		fflush(stdout);
 		return 6;
@@ -1007,8 +1179,9 @@ static int open_screen_rtg(int w, int h, ULONG quiet, ULONG title)
 		 * and lights do not animate here, by decision (1.2.9). */
 		g_rtg_method = RTG_METHOD_WLUT;
 		g_rtg_demoted = 0;
-		fprintf(stdout, "amiga: RTG: %d-bit screen - WriteLUTPixelArray per blit,"
-		                " no palette animation\n", bits);
+		gfx_printf("amiga: RTG: %d-bit screen - WriteLUTPixelArray per blit, %s\n", bits,
+		           amigagfx_is_morphos() ? "palette animation by full redraw"
+		                                 : "no palette animation");
 		fflush(stdout);
 	}
 	return 0;
@@ -1447,7 +1620,7 @@ static int finish_window_open(void)
 	}
 
 	ActivateWindow(g_window);
-	fprintf(stdout, "amiga: window open on the Workbench screen,"
+	gfx_printf("amiga: window open on the Workbench screen,"
 	                " chunky %dx%d (pitch %d) - handing control to OpenTTD\n",
 	        g_width, g_height, g_pitch);
 	fflush(stdout);
@@ -1463,7 +1636,7 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 	ULONG title = show_bar ? TRUE  : FALSE;
 	int err;
 
-	fprintf(stdout, "amiga: amigagfx_open(%d,%d) wb_bar=%d backend=%s\n",
+	gfx_printf("amiga: amigagfx_open(%d,%d) wb_bar=%d backend=%s\n",
 	        w, h, show_bar,
 	        backend == AMIGAGFX_BACKEND_WB  ? "WINDOW" :
 	        backend == AMIGAGFX_BACKEND_RTG ? "RTG" :
@@ -1524,10 +1697,10 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 		if (bar > 0 && bar < h / 2) {
 			g_yoff   = bar;
 			g_height = h - bar;
-			fprintf(stdout, "amiga: wb bar visible, BarHeight %d -> game area %dx%d at y=%d\n",
+			gfx_printf("amiga: wb bar visible, BarHeight %d -> game area %dx%d at y=%d\n",
 			        (int)g_screen->BarHeight, g_width, g_height, g_yoff);
 		} else {
-			fprintf(stdout, "amiga: wb bar height %d implausible for %d lines - bar ignored\n",
+			gfx_printf("amiga: wb bar height %d implausible for %d lines - bar ignored\n",
 			        bar, h);
 		}
 		fflush(stdout);
@@ -1540,19 +1713,19 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 		 * prints the pixel dimensions. */
 		ULONG got = GetVPModeID(&g_screen->ViewPort);
 		if (g_backend == AMIGAGFX_BACKEND_RTG) {
-			fprintf(stdout, "amiga: RTG screen open %dx%d, %d-bit (no Chip RAM, no c2p)\n",
+			gfx_printf("amiga: RTG screen open %dx%d, %d-bit (no Chip RAM, no c2p)\n",
 			        w, h, g_rtg_bits);
-			fprintf(stdout, "amiga: modeid wanted $%08lx got $%08lx  blit=%s\n",
+			gfx_printf("amiga: modeid wanted $%08lx got $%08lx  blit=%s\n",
 			        (unsigned long)g_want_modeid, (unsigned long)got,
 			        g_rtg_method == RTG_METHOD_LOCK ? "LockBitMap+memcpy"
 			                                        : "WriteLUTPixelArray");
 		} else {
-			fprintf(stdout, "amiga: %s screen open %dx%d depth %d, bpr %d,"
+			gfx_printf("amiga: %s screen open %dx%d depth %d, bpr %d,"
 			                " chip %lu KB\n",
 			        g_backend == AMIGAGFX_BACKEND_EHB ? "EHB" : "AGA",
 			        w, h, g_depth, g_bpr,
 			        (unsigned long)((g_planesize * g_depth) >> 10));
-			fprintf(stdout, "amiga: modeid wanted $%08lx got $%08lx  %s%s%s  [%s]\n",
+			gfx_printf("amiga: modeid wanted $%08lx got $%08lx  %s%s%s  [%s]\n",
 			        (unsigned long)g_want_modeid, (unsigned long)got,
 			        (got & HIRES_KEY) ? "HIRES " : "LORES ",
 			        (got & 0x0004) ? "INTERLACED" : "non-interlaced",
@@ -1596,7 +1769,7 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 	/* WFLG_ACTIVATE alone did not reliably give a backdrop window key focus -
 	 * keyboard events never arrived. Ask explicitly. */
 	ActivateWindow(g_window);
-	fprintf(stdout, "amiga: window open, IDCMP active - handing control to OpenTTD\n");
+	gfx_printf("amiga: window open, IDCMP active - handing control to OpenTTD\n");
 	return 0;
 }
 
@@ -1622,6 +1795,8 @@ void amigagfx_close(void)
 	 * this is a no-op, which is exactly the point - the card owns the display
 	 * memory and none of the machine's scarce Chip RAM is spent on it. */
 	if (g_chip != NULL)   { FreeMem(g_chip, g_planesize * g_depth); g_chip = NULL; }
+	/* Borrowed screen planes (adopt_screen_planes) went with the screen. */
+	g_planes = NULL; g_planes_bm = &g_bitmap; g_planes_step = 0; g_planes_wcp = 0;
 	if (g_chunky != NULL) { FreeVec(g_chunky); g_chunky = NULL; }
 	if (g_ehb_scratch != NULL) { FreeVec(g_ehb_scratch); g_ehb_scratch = NULL; }
 	g_ehb_scratch_rows = 0;
@@ -2033,7 +2208,7 @@ static void ehb_blit(int x, int y, int w, int h)
 
 	a.chunkyx = (UWORD)w;
 	a.offsx   = (UWORD)x;
-	a.bitmap  = (APTR)&g_bitmap;
+	a.bitmap  = (APTR)g_planes_bm;
 
 	if (x == 0 && w == g_width) {
 		a.chunkyy = (UWORD)h;
@@ -2093,7 +2268,7 @@ void amigagfx_blit(int x, int y, int w, int h)
 
 		g_blits++;
 		if (g_blits == 1 || (g_verbose && (g_blits % 200) == 0)) {
-			fprintf(stdout, "amiga: window blit #%lu  %dx%d at %d,%d  %s\n",
+			gfx_printf("amiga: window blit #%lu  %dx%d at %d,%d  %s\n",
 			        g_blits, x2 - x, y2 - y, x, y,
 			        g_win_direct ? "WriteLUTPixelArray" :
 			        (CyberGfxBase != NULL ? "pens+WritePixelArray(LUT8)"
@@ -2140,9 +2315,26 @@ void amigagfx_blit(int x, int y, int w, int h)
 
 		g_blits++;
 		if (g_blits == 1 || (g_verbose && (g_blits % 200) == 0)) {
-			fprintf(stdout, "amiga: rtg blit #%lu  %dx%d at %d,%d\n",
+			gfx_printf("amiga: rtg blit #%lu  %dx%d at %d,%d\n",
 			        g_blits, x2 - x, y2 - y, x, y);
 			fflush(stdout);
+		}
+		return;
+	}
+
+	if (g_planes_wcp) {
+		/* The system ignored SA_BitMap and its planes are not laid out for the
+		 * c2p (adopt_screen_planes). The chunky bytes are pen numbers on both
+		 * planar backends - EHB's are already reduced to 0..63 - so the system
+		 * can write them as they are. */
+		WriteChunkyPixels(&g_screen->RastPort,
+		                  (ULONG)x, (ULONG)(y + g_yoff),
+		                  (ULONG)(x2 - 1), (ULONG)(y2 - 1 + g_yoff),
+		                  g_chunky + (ULONG)y * g_width + x, (LONG)g_width);
+		g_blits++;
+		if (g_blits == 1) {
+			gfx_printf("amiga: blit #1  %dx%d at %d,%d  WriteChunkyPixels\n",
+			           x2 - x, y2 - y, x, y);
 		}
 		return;
 	}
@@ -2152,7 +2344,7 @@ void amigagfx_blit(int x, int y, int w, int h)
 
 		g_blits++;
 		if (g_blits == 1 || (g_verbose && (g_blits % 200) == 0)) {
-			fprintf(stdout, "amiga: ehb blit #%lu  %dx%d at %d,%d  %s\n",
+			gfx_printf("amiga: ehb blit #%lu  %dx%d at %d,%d  %s\n",
 			        g_blits, x2 - x, y2 - y, x, y,
 			        (x == 0 && x2 == g_width) ? "direct" : "via scratch band");
 			fflush(stdout);
@@ -2166,13 +2358,13 @@ void amigagfx_blit(int x, int y, int w, int h)
 	args.h = (UWORD)(y2 - y);
 	args.cmod = (UWORD)g_width;
 	args.bmod = (UWORD)g_bpr;
-	args.bplsize = g_planesize;
+	args.bplsize = g_planes_step;
 	args.chunky = g_chunky;
 	/* Skip the title bar lines when the bar is visible: plane spacing
 	 * (bplsize) stays the full-screen plane size, only the row origin moves.
 	 * g_bpr is a multiple of 4 for every offered width, so the 32-pixel column
 	 * alignment of the c2p is unaffected. */
-	args.bpl = g_chip + (ULONG)g_yoff * g_bpr;
+	args.bpl = g_planes + (ULONG)g_yoff * g_bpr;
 	c2p_rect_asm(&args);
 
 	/* The FIRST blit is logged always - it is the one-shot proof that the main
@@ -2180,7 +2372,7 @@ void amigagfx_blit(int x, int y, int w, int h)
 	 * whole session, so it now needs "-v amiga:verbose". */
 	g_blits++;
 	if (g_blits == 1 || (g_verbose && (g_blits % 200) == 0)) {
-		fprintf(stdout, "amiga: blit #%lu  %dx%d at %d,%d\n",
+		gfx_printf("amiga: blit #%lu  %dx%d at %d,%d\n",
 		        g_blits, (int)args.w, (int)args.h, (int)args.x, (int)args.y);
 		fflush(stdout);
 	}
@@ -2243,7 +2435,7 @@ int amigagfx_poll(AmigaGfxEvent *ev)
 			/* Logged unconditionally, unlike the per-frame chatter: a resize is
 			 * a rare, user-driven event, and it is the one thing about window
 			 * mode that cannot be checked from a screenshot after the fact. */
-			fprintf(stdout, "amiga: window resized to %dx%d (pitch stays %d)\n",
+			gfx_printf("amiga: window resized to %dx%d (pitch stays %d)\n",
 			        nw, nh, g_pitch);
 			fflush(stdout);
 			break;

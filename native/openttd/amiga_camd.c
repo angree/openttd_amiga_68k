@@ -50,7 +50,11 @@
 #include <dos/dostags.h>
 #include <devices/timer.h>
 #include <devices/serial.h>
+#ifdef __MORPHOS__
+#include <libraries/camd.h>   /* the MorphOS SDK's name for the same header */
+#else
 #include <midi/camd.h>
+#endif
 
 #include <proto/exec.h>
 #include <proto/dos.h>

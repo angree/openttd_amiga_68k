@@ -33,6 +33,18 @@ int AmigaMusic_ScanDirExt(const char *dir, const char *ext,
 		char names[][AMIGA_MUSIC_NAME_MAX], int max);
 
 
+/* Directory listing on Lock/Examine/ExNext, for the game's opendir/readdir/
+ * closedir (fileio_func.h maps them onto these on Amiga). d_name points into
+ * the entry itself; the entry is reused by the next AmigaDirNext call. */
+struct AmigaDirEnt {
+	char *d_name;
+	int   is_dir;
+	char  name[108];
+};
+void *AmigaDirOpen(const char *path);
+struct AmigaDirEnt *AmigaDirNext(void *handle);
+int AmigaDirClose(void *handle);
+
 /* Resolve PROGDIR: to a real AmigaDOS path ("Work:Games/OpenTTD"), or NULL.
  * Used by the file layer so the game finds its own lang/ and data/ whatever
  * the current directory happens to be - see the comment in the .c file.

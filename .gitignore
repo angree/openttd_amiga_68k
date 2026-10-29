@@ -42,6 +42,12 @@
 # with backslash paths, which broke v0.9.1.
 !/build/make-release-all.sh
 !/build/make-release-zip.sh
+# The native MorphOS PowerPC build (openttd-mos, shipped since 1.2.11): the
+# Ubuntu-22.04 half packs the patched tree, the Ubuntu-24 half compiles it with
+# morphos-cross. Plus the PNG icon Ambient shows for it.
+!/build/morphos-snapshot.sh
+!/build/build-morphos.sh
+!/build/make-mos-icon.py
 
 # build-with-ice-retry.sh is THE build entry point - it forces the files that
 # this toolchain miscompiles at -O1 down to -O0 and refuses to degrade the video

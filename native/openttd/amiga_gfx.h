@@ -101,6 +101,16 @@ void amigagfx_rtg_diagnose(const char *revision);
  * the chips at boot. */
 int amigagfx_has_aga(void);
 
+/* Running on MorphOS (this 68k program under Trance)? Non-zero if so. There is
+ * no chipset there, so amigagfx_has_aga() is 0 and no planar mode is offered,
+ * and RTG prefers 32/24/16-bit modes over 8-bit. */
+int amigagfx_is_morphos(void);
+
+/* Non-zero when a palette change only becomes visible by redrawing the whole
+ * screen: a deep screen (no hardware palette) on MorphOS. The caller marks the
+ * screen dirty after the palette update - that is what animates the water. */
+int amigagfx_palette_needs_redraw(void);
+
 /* AMIGAGFX_BACKEND_* of the screen currently open (AGA when none is). */
 int amigagfx_backend(void);
 

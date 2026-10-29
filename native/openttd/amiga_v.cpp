@@ -403,7 +403,26 @@ static void CheckPaletteAnim()
 	Blitter *blitter = BlitterFactoryBase::GetCurrentBlitter();
 	switch (blitter->UsePaletteAnimation()) {
 		case Blitter::PALETTE_ANIMATION_VIDEO_BACKEND:
+			{
+				/* The first few animation steps, logged: on a deep screen this is
+				 * the only evidence that the water is being redrawn at all. */
+				static int logged = 0;
+				if (logged < 3) {
+					char b[96];
+					snprintf(b, sizeof(b), "palette animation: entries %d..%d, full redraw %s",
+					         _pal_first_dirty, _pal_first_dirty + _pal_count_dirty - 1,
+					         amigagfx_palette_needs_redraw() ? "yes" : "no");
+					amigagfx_log(b);
+					logged++;
+				}
+			}
 			UpdatePalette(_pal_first_dirty, _pal_count_dirty);
+			/* A deep screen on MorphOS has no hardware palette: the new colours
+			 * reach the display only when the pixels are converted again, so
+			 * the whole screen goes out once more on this frame's blit. */
+			if (amigagfx_palette_needs_redraw()) {
+				_video_driver->MakeDirty(0, 0, _screen.width, _screen.height);
+			}
 			break;
 
 		case Blitter::PALETTE_ANIMATION_BLITTER:
@@ -911,13 +930,17 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 	}
 	if (!have_aga) amigagfx_log("no AGA chipset - AGA modes not offered");
 
-	/* EHB is offered unconditionally: it is a chipset mode, not a card, so there
-	 * is nothing to probe. If Intuition refuses it anyway the driver opens eight
-	 * bitplanes instead and says so - the picture is still correct, because the
-	 * reduced sprites are 0..63 either way. */
-	for (uint i = 0; i < lengthof(_amiga_ehb_resolutions) && _num_resolutions < max_res; i++) {
+	/* EHB is offered on every Amiga chipset: it is a chipset mode, not a card,
+	 * so there is nothing to probe. If Intuition refuses it anyway the driver
+	 * opens eight bitplanes instead and says so - the picture is still correct,
+	 * because the reduced sprites are 0..63 either way. MorphOS is the one place
+	 * with no chipset at all, and there it is not offered. */
+	bool have_chipset = amigagfx_is_morphos() == 0;
+	uint ehb_offered = 0;
+	for (uint i = 0; have_chipset && i < lengthof(_amiga_ehb_resolutions) && _num_resolutions < max_res; i++) {
 		_amiga_res_backend[_num_resolutions] = AMIGAGFX_BACKEND_EHB;
 		_resolutions[_num_resolutions++] = _amiga_ehb_resolutions[i];
+		ehb_offered++;
 	}
 
 	/* What the card really has, not what a fixed list hopes for - see
@@ -941,8 +964,7 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 	{
 		char b[96];
 		snprintf(b, sizeof(b), "resolution list: %u AGA + %d OCS + %u RTG mode(s)",
-		         aga_offered,
-		         (int)lengthof(_amiga_ehb_resolutions), rtg_offered);
+		         aga_offered, (int)ehb_offered, rtg_offered);
 		amigagfx_log(b);
 	}
 
@@ -978,7 +1000,8 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 	 * RTG when there is one: the same size if the card offers it, else 640x480,
 	 * else its smallest mode. Without a card, EHB at the same size is what the
 	 * chipset can do, and the passes below find it on their own. */
-	if (!have_aga && saved_backend == AMIGAGFX_BACKEND_AGA) {
+	if ((!have_aga && saved_backend == AMIGAGFX_BACKEND_AGA) ||
+	    (!have_chipset && saved_backend == AMIGAGFX_BACKEND_EHB)) {
 		saved_backend = AMIGAGFX_BACKEND_EHB;
 		if (rtg_offered > 0) {
 			_amiga_cur_res = PickRtgEntry();

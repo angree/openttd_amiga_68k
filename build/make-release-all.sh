@@ -194,6 +194,6 @@ printf "  %-56s %s\n" "$(basename "$PCZIP")" "$(du -h "$PCZIP" | cut -f1)"
 
 echo
 echo "=== done - artefacts in $REPO ==="
-ls -la "$REPO"/openttd-amiga-68k-$VER*.lha "$REPO"/openttd-morphos-ppc-$VER*.lha "$REPO"/openttd-amiga-68k-$VER.zip "$REPO"/openttd-amittd-pc-$VER-server-no-music.zip 2>/dev/null
+ls -la "$REPO"/openttd-amiga-68k-$VER*.lha "$REPO"/openttd-amiga-$VER-extended-soundtrack.lha "$REPO"/openttd-morphos-ppc-$VER*.lha "$REPO"/openttd-amiga-68k-$VER.zip "$REPO"/openttd-amittd-pc-$VER-server-no-music.zip 2>/dev/null
 echo
 echo "NOTE: release/openttd-amiga-68k/music now holds the FULL set again."

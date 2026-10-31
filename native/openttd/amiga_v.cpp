@@ -514,6 +514,12 @@ static bool CreateMainSurface(uint w, uint h, int want_backend)
 	}
 
 	amigagfx_close();
+	/* amiga.hide_system_pointer is applied by the driver whenever a window
+	 * opens, so it must know the setting BEFORE the open. Up to 1.2.11 only the
+	 * setting's change callback ever told it, which never runs at startup: the
+	 * option read "on" after a restart while the Amiga pointer was back (GitHub
+	 * issue, two reports). A resolution change lost it the same way. */
+	amigagfx_set_hide_system_pointer(_settings_client.amiga.hide_system_pointer ? 1 : 0);
 	/* amiga.wb_bar: keep the real Intuition screen title bar (depth gadget,
 	 * flip to Workbench) visible. Read at open time; the toggle proc reopens
 	 * the screen through this very function, like a resolution change. */

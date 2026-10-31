@@ -439,6 +439,8 @@ static void wb_pointer_apply(void)
 	/* Applied without knowing where the mouse is - assume inside, the next
 	 * mouse move corrects it. */
 	wb_pointer_blank(g_hide_sys_pointer);
+	gfx_printf("amiga: system pointer %s\n", g_pointer_blanked ? "hidden (amiga.hide_system_pointer)"
+	                                                          : "shown");
 }
 
 void amigagfx_set_hide_system_pointer(int on)
@@ -1620,6 +1622,9 @@ static int finish_window_open(void)
 	}
 
 	ActivateWindow(g_window);
+	/* amiga.hide_system_pointer belongs to the window: a new window starts
+	 * with the system pointer, so the setting is put back on every open. */
+	wb_pointer_apply();
 	gfx_printf("amiga: window open on the Workbench screen,"
 	                " chunky %dx%d (pitch %d) - handing control to OpenTTD\n",
 	        g_width, g_height, g_pitch);
@@ -1769,6 +1774,7 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 	/* WFLG_ACTIVATE alone did not reliably give a backdrop window key focus -
 	 * keyboard events never arrived. Ask explicitly. */
 	ActivateWindow(g_window);
+	wb_pointer_apply();   /* amiga.hide_system_pointer - see finish_window_open */
 	gfx_printf("amiga: window open, IDCMP active - handing control to OpenTTD\n");
 	return 0;
 }

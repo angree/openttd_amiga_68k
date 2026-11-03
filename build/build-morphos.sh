@@ -32,7 +32,14 @@ DEFS='-DENABLE_NETWORK -DUNIX -DNO_THREADS -DWITH_ZLIB -DENABLE_AI -DNDEBUG -DWI
 INC="-I$B/zlib-1.2.13 -I$B/src/3rdparty/squirrel/include -I$B/objs/release -I$B/objs/lang"
 # -fsigned-char is NOT optional: char is unsigned on PPC and signed on 68k and
 # x86, and a multiplayer game between them must compute the same thing.
-OPT="-O2 -fno-strict-aliasing -fwrapv -fsigned-char -noixemul -w"
+# -fno-lifetime-dse is NOT optional either. OpenTTD 1.0.5 allocates windows
+# (and much else) through ZeroedMemoryAllocator, whose operator new clears the
+# memory and the constructors then rely on every field they do not set being
+# zero. GCC 6+ treats those stores as dead - the object's lifetime has not
+# begun - and drops them, so fields start as garbage. On MorphOS that was
+# GitHub issue #12: the first closed window stayed on screen and the next one
+# froze the game. Later OpenTTD adds this flag for GCC >= 6 for the same reason.
+OPT="-O2 -fno-strict-aliasing -fwrapv -fsigned-char -fno-lifetime-dse -noixemul -w"
 CXXF="-std=gnu++98 -fpermissive"
 
 {

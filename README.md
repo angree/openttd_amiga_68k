@@ -42,6 +42,14 @@ Resolution is selectable in Game Options and takes effect immediately: `320x256`
 `352x272` and `640x480` in AGA; `320x256` and `352x272` in **OCS**; then RTG
 modes if a card is present. The interface font follows the resolution.
 
+Since 1.2.14 there is also **`320x256 GRAFFITI`** on AGA machines, for a Graffiti
+adapter or an Indivision AGA MK3 with its Graffiti emulation on: 256 colours from
+4 bitplanes, far less conversion work than AGA 8-bit. Nothing can detect the
+adapter and without one the screen is noise, so it is off until you enable
+*Advanced Settings → Amiga → Offer Graffiti screen modes* and restart. Holding the
+left mouse button while the game starts goes back to AGA. So far it has been
+tested only under WinUAE's Graffiti emulation.
+
 The **OCS/ECS** modes are Extra Half-Brite (6 bitplanes, 64 colours, the upper 32
 forced to half-brightness copies of the lower 32). That means a quarter less
 chunky-to-planar work, half the Chip RAM for the bitmap, and — because EHB exists

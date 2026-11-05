@@ -67,11 +67,18 @@ typedef struct {
  *         palette instead of owning one. The only backend where the game does
  *         not control the display mode, and therefore the only one that has to
  *         negotiate for colours - see amigagfx_wb_colours(). Also the only one
- *         whose size can change while it is open (AMIGAGFX_EV_RESIZE). */
+ *         whose size can change while it is open (AMIGAGFX_EV_RESIZE).
+ *   GRAFFITI - the Graffiti adapter on the RGB port, or an Indivision emulating
+ *         it: 256 colours with no chunky-to-planar at all. The bitplanes carry the
+ *         chunky bytes themselves, and the palette travels as commands in lines
+ *         above the picture. AGA machines only, and only when the player asked
+ *         for it (amiga.graffiti_modes): nothing can detect the adapter, and
+ *         without one the screen is noise. See the block above open_screen_graffiti. */
 #define AMIGAGFX_BACKEND_AGA 0
 #define AMIGAGFX_BACKEND_RTG 1
 #define AMIGAGFX_BACKEND_EHB 2
 #define AMIGAGFX_BACKEND_WB  3
+#define AMIGAGFX_BACKEND_GRAFFITI 4
 
 /* One RTG mode as the resolution list offers it. */
 typedef struct {
@@ -100,6 +107,15 @@ void amigagfx_rtg_diagnose(const char *revision);
  * there and must never be the default. Asked of graphics.library, which probed
  * the chips at boot. */
 int amigagfx_has_aga(void);
+
+/* Is the left mouse button held right now? Only asked at startup, on real
+ * chipset machines: holding it drops a saved Graffiti mode, which is the way back
+ * for a player who picked one without the adapter and cannot read the screen. */
+int amigagfx_escape_held(void);
+
+/* Non-zero when OpenTTD's own cursor must be drawn whatever amiga.hide_game_pointer
+ * says: a Graffiti screen has no system pointer to fall back on. */
+int amigagfx_needs_game_pointer(void);
 
 /* Running on MorphOS (this 68k program under Trance)? Non-zero if so. There is
  * no chipset there, so amigagfx_has_aga() is 0 and no planar mode is offered,

@@ -42,6 +42,12 @@
 #include <graphics/gfx.h>
 #include <graphics/displayinfo.h>
 #include <graphics/gfxbase.h>
+#ifndef __MORPHOS__
+#include <graphics/copper.h>
+#include <graphics/view.h>
+#include <graphics/modeid.h>
+#include <hardware/custom.h>
+#endif
 #include <exec/memory.h>
 #include <exec/io.h>
 #include <devices/input.h>
@@ -237,6 +243,7 @@ extern void c2p6_bm_asm(struct C2P6Args *a);
  * feature every Amiga back to the A1000 has. */
 #define DEPTH_AGA 8
 #define DEPTH_EHB 6
+#define DEPTH_GRAFFITI 4
 
 /* Rows of scratch for the EHB c2p, which needs contiguous chunky input (see
  * amigagfx_blit). A band rather than a full-screen copy: 64 rows of the widest
@@ -427,6 +434,7 @@ static void wb_pointer_blank(int on)
  * that mode should do. */
 static void wb_pointer_track(int inner_x, int inner_y)
 {
+	if (g_backend == AMIGAGFX_BACKEND_GRAFFITI) return;   /* stays hidden */
 	if (!g_hide_sys_pointer || g_window == NULL) return;
 
 	wb_pointer_blank(inner_x >= 0 && inner_y >= 0 &&
@@ -438,7 +446,7 @@ static void wb_pointer_apply(void)
 	if (g_window == NULL) return;
 	/* Applied without knowing where the mouse is - assume inside, the next
 	 * mouse move corrects it. */
-	wb_pointer_blank(g_hide_sys_pointer);
+	wb_pointer_blank(g_hide_sys_pointer || g_backend == AMIGAGFX_BACKEND_GRAFFITI);
 	gfx_printf("amiga: system pointer %s\n", g_pointer_blanked ? "hidden (amiga.hide_system_pointer)"
 	                                                          : "shown");
 }
@@ -732,6 +740,20 @@ void amigagfx_rtg_diagnose(const char *revision)
 	fclose(f);
 }
 
+int amigagfx_escape_held(void)
+{
+	/* CIA-A port A, bit 6: low while the left button is down. Only on an AGA
+	 * machine, the only place a Graffiti mode is ever offered - elsewhere that
+	 * address may not be a CIA at all. */
+	if (!amigagfx_has_aga()) return 0;
+	return (*(volatile UBYTE *)0xbfe001 & 0x40) == 0;
+}
+
+int amigagfx_needs_game_pointer(void)
+{
+	return g_backend == AMIGAGFX_BACKEND_GRAFFITI;
+}
+
 int amigagfx_has_aga(void)
 {
 	/* MorphOS's graphics.library may report chip bits, but there is no
@@ -878,7 +900,7 @@ int amigagfx_warp_pointer(int x, int y)
 		pp.iepp_Position.Y = (WORD)((int)g_window->TopEdge  + g_win_bt + y);
 	} else {
 		pp.iepp_Screen     = g_screen;
-		pp.iepp_Position.X = (WORD)x;
+		pp.iepp_Position.X = (WORD)(g_backend == AMIGAGFX_BACKEND_GRAFFITI ? x * 2 : x);
 		pp.iepp_Position.Y = (WORD)(y + g_yoff);
 	}
 
@@ -1124,6 +1146,246 @@ static int open_screen_aga(int w, int h, ULONG quiet, ULONG title, int depth)
 		}
 	}
 	return 0;
+}
+
+/* ---- Graffiti -----------------------------------------------------------
+ *
+ * The adapter sits on the RGB port and reads the DIGITAL value of each hires
+ * pixel, so four bitplanes become a 4-bit wire: 8 hires pixels carry 4 bytes, and
+ * those bytes are pixels. Plane 0 holds pixel 0, plane 1 pixel 1, plane 2 pixel 2,
+ * plane 3 pixel 3, plane 0 again pixel 4 - byte by byte, no bit shuffling at all.
+ * That is the whole gain over c2p; the same number of bytes still go to Chip RAM.
+ *
+ * Three things have to be exactly right, and all three come from Individual
+ * Computers' own Hires.s and from WinUAE's decoder (specialmonitors.cpp):
+ *
+ * 1. The 16 colour registers are the wire's encoding, not colours: bit 0 = blue
+ *    $1, bit 1 = blue $8, bit 2 = green $8, bit 3 = red $8.
+ *
+ * 2. BPLCON0 needs GAUD (bit 8), and the fetch must sit on the adapter's 8-pixel
+ *    grid. Its manual tells players to move the Overscan prefs until the X
+ *    position divides by 8 or the colours come out wrong - so nothing is left to
+ *    the prefs: a user copper list sets the window, the fetch and FMODE to
+ *    Hires.s's values. GAUD goes there too and not into GfxBase->system_bplcon0,
+ *    because that one is ORed into EVERY viewport and would turn the Workbench
+ *    into noise as well. Line 0 may start with stale pointers while the registers
+ *    change, so the planes are aimed again at line 1 and nothing is sent on line 0.
+ *
+ * 3. The palette is a command stream in the first lines, read again every frame:
+ *    pairs of (command, value), set the mask, then (4,index) (6,R) (6,G) (6,B) per
+ *    colour, then start. A palette change only patches values at fixed places, so
+ *    a frame caught halfway shows one wrong colour instead of a broken stream.
+ *
+ * 2052 bytes at 320 per line end on the eighth line, row 7. After the start
+ * command the hardware shows pixels at once (black, the rest of that row and row
+ * 8 are zero) while WinUAE blanks one more line, so the picture starts at row 9 on
+ * either. SA_Top moves those rows up into the border: the game's first row stays
+ * where a normal PAL screen has it, and nothing hangs off the bottom of a monitor.
+ */
+#define GF_HEADER_ROWS  9
+#define GF_STREAM_ROW   1
+#define GF_CMD_MASK     5
+#define GF_CMD_COLOUR   4
+#define GF_CMD_RGB      6
+#define GF_CMD_START    8
+
+/* One byte of the stream, n counted from its start. */
+static void gf_put(ULONG n, UBYTE v)
+{
+	g_planes[(n & 3) * g_planes_step + (ULONG)GF_STREAM_ROW * g_bpr + (n >> 2)] = v;
+}
+
+static void gf_set_colours(const UBYTE *rgb, int first, int count)
+{
+	int i;
+	for (i = 0; i < count; i++) {
+		int   c = first + i;
+		ULONG n = 2UL + (ULONG)c * 8UL;     /* byte position of (4,index) */
+		/* Colour 0 stays black: it fills the lines around the picture, and some
+		 * monitors take their black level from it (Graffiti's wiki page). */
+		gf_put(n + 3, (UBYTE)(c == 0 ? 0 : rgb[i * 3 + 0] >> 2));
+		gf_put(n + 5, (UBYTE)(c == 0 ? 0 : rgb[i * 3 + 1] >> 2));
+		gf_put(n + 7, (UBYTE)(c == 0 ? 0 : rgb[i * 3 + 2] >> 2));
+	}
+}
+
+#ifndef __MORPHOS__
+static void gf_write_stream(void)
+{
+	ULONG n = 0;
+	int   c;
+
+	gf_put(n++, GF_CMD_MASK);
+	gf_put(n++, 255);
+	for (c = 0; c < 256; c++) {
+		gf_put(n++, GF_CMD_COLOUR);
+		gf_put(n++, (UBYTE)c);
+		gf_put(n++, GF_CMD_RGB); n++;
+		gf_put(n++, GF_CMD_RGB); n++;
+		gf_put(n++, GF_CMD_RGB); n++;
+	}
+	gf_put(n++, GF_CMD_START);
+	gf_put(n++, 0);
+}
+
+static void gf_load_wire_colours(struct ViewPort *vp)
+{
+	ULONG t[1 + 16 * 3 + 1];
+	int   i;
+
+	t[0] = 16UL << 16;
+	for (i = 0; i < 16; i++) {
+		t[1 + i * 3] = (i & 8) ? 0x88888888UL : 0UL;
+		t[2 + i * 3] = (i & 4) ? 0x88888888UL : 0UL;
+		t[3 + i * 3] = (i & 2) ? ((i & 1) ? 0x99999999UL : 0x88888888UL)
+		                       : ((i & 1) ? 0x11111111UL : 0UL);
+	}
+	t[1 + 16 * 3] = 0UL;
+	LoadRGB32(vp, t);
+}
+#endif
+
+/* Returns 0 on success; non-zero and nothing left open on failure, and the caller
+ * then opens an ordinary AGA screen. w must be 320: the fetch values below are
+ * for exactly that width. */
+static int open_screen_graffiti(int w, int h)
+{
+#ifdef __MORPHOS__
+	(void)w; (void)h;
+	return 9;           /* no chipset there, and no copper lists */
+#else
+	struct Custom   *cu = (struct Custom *)0xdff000;
+	struct UCopList *ucl;
+	struct ViewPort *vp;
+	ULONG  rows = (ULONG)h + GF_HEADER_ROWS;
+	int    i, v0;
+
+	if (w != 320 || !amigagfx_has_aga()) {
+		amigagfx_log("Graffiti: only 320 wide, and only on AGA - opening AGA instead");
+		return 9;
+	}
+
+	g_bpr       = (w * 2) / 8;
+	g_planesize = (ULONG)g_bpr * rows;
+	g_chip = (UBYTE *)AllocMem(g_planesize * DEPTH_GRAFFITI, MEMF_CHIP | MEMF_CLEAR);
+	if (g_chip == NULL) return 2;
+
+	InitBitMap(&g_bitmap, DEPTH_GRAFFITI, w * 2, (LONG)rows);
+	for (i = 0; i < DEPTH_GRAFFITI; i++)
+		g_bitmap.Planes[i] = (PLANEPTR)(g_chip + (ULONG)i * g_planesize);
+
+	g_want_modeid = PAL_MONITOR_ID | HIRES_KEY;
+	g_screen = OpenScreenTags(NULL,
+	                          SA_BitMap,    (ULONG)&g_bitmap,
+	                          SA_Width,     (ULONG)(w * 2),
+	                          SA_Height,    rows,
+	                          SA_Depth,     (ULONG)DEPTH_GRAFFITI,
+	                          SA_Top,       (ULONG)(LONG)-GF_HEADER_ROWS,
+	                          SA_Type,      (ULONG)CUSTOMSCREEN,
+	                          SA_Quiet,     TRUE,
+	                          SA_ShowTitle, FALSE,
+	                          SA_DisplayID, g_want_modeid,
+	                          SA_Overscan,  (ULONG)OSCAN_MAX,
+	                          TAG_END);
+	if (g_screen == NULL) {
+		FreeMem(g_chip, g_planesize * DEPTH_GRAFFITI); g_chip = NULL;
+		amigagfx_log("Graffiti: OpenScreen refused - opening AGA instead");
+		return 3;
+	}
+
+	/* The stream writes through g_planes, so they have to be ours. The AROS ROM
+	 * ignores SA_BitMap; a Graffiti screen on it would be meaningless anyway. */
+	if (g_screen->RastPort.BitMap == NULL ||
+	    g_screen->RastPort.BitMap->Planes[0] != g_bitmap.Planes[0]) {
+		CloseScreen(g_screen); g_screen = NULL;
+		FreeMem(g_chip, g_planesize * DEPTH_GRAFFITI); g_chip = NULL;
+		amigagfx_log("Graffiti: the system ignored our bitmap - opening AGA instead");
+		return 10;
+	}
+
+	ucl = (struct UCopList *)AllocMem(sizeof(struct UCopList), MEMF_PUBLIC | MEMF_CLEAR);
+	if (ucl == NULL) {
+		CloseScreen(g_screen); g_screen = NULL;
+		FreeMem(g_chip, g_planesize * DEPTH_GRAFFITI); g_chip = NULL;
+		return 2;
+	}
+
+	g_planes      = g_chip;
+	g_planes_step = g_planesize;
+	g_planes_bm   = &g_bitmap;
+	g_planes_wcp  = 0;
+	g_depth       = DEPTH_GRAFFITI;
+	g_backend     = AMIGAGFX_BACKEND_GRAFFITI;
+	g_yoff        = GF_HEADER_ROWS;
+
+	vp = &g_screen->ViewPort;
+	gf_load_wire_colours(vp);
+	gf_write_stream();
+
+	v0 = (int)GfxBase->ActiView->DyOffset + (int)vp->DyOffset;
+
+	UCopperListInit(ucl, 24);
+	CWait(ucl, 0, 0); CBump(ucl);
+	CMove(ucl, &cu->diwstrt, (LONG)((v0 << 8) | 0x81)); CBump(ucl);
+	CMove(ucl, &cu->diwstop, (LONG)((((v0 + (int)rows) & 0xff) << 8) | 0xc1)); CBump(ucl);
+	CMove(ucl, &cu->ddfstrt, 0x38); CBump(ucl);
+	CMove(ucl, &cu->ddfstop, 0xd0); CBump(ucl);
+	CMove(ucl, &cu->bplcon1, 0); CBump(ucl);
+	CMove(ucl, &cu->bpl1mod, 0); CBump(ucl);
+	CMove(ucl, &cu->bpl2mod, 0); CBump(ucl);
+	CMove(ucl, (APTR)0xdff1fc, 1); CBump(ucl);          /* FMODE */
+	CMove(ucl, &cu->bplcon0, 0xc100); CBump(ucl);       /* hires, 4 planes, GAUD */
+	CWait(ucl, GF_STREAM_ROW, 0); CBump(ucl);
+	for (i = 0; i < DEPTH_GRAFFITI; i++) {
+		ULONG a = (ULONG)(g_chip + (ULONG)i * g_planesize + (ULONG)GF_STREAM_ROW * g_bpr);
+		CMove(ucl, (UBYTE *)&cu->bplpt[i], (LONG)(a >> 16)); CBump(ucl);
+		CMove(ucl, (UBYTE *)&cu->bplpt[i] + 2, (LONG)(a & 0xffff)); CBump(ucl);
+	}
+	CWait(ucl, 10000, 255); CBump(ucl);
+
+	/* CloseScreen frees the list again, through FreeVPortCopLists. */
+	Forbid();
+	vp->UCopIns = ucl;
+	Permit();
+	RethinkDisplay();
+
+	gfx_printf("amiga: Graffiti screen: first line %d, %lu rows, chip %lu KB\n",
+	           v0, rows, (unsigned long)((g_planesize * DEPTH_GRAFFITI) >> 10));
+	return 0;
+#endif
+}
+
+/* Sort 16 chunky bytes into the four planes: a 4x4 byte transpose, in longs so the
+ * Chip RAM sees the fewest possible accesses - byte writes would make it four times
+ * as many. x and w are multiples of 32 (amigagfx_blit), so everything is aligned. */
+static void gf_blit(int x, int y, int w, int h)
+{
+	ULONG step = g_planes_step / 4;     /* in longs */
+	ULONG *row = (ULONG *)(g_planes + (ULONG)(y + g_yoff) * g_bpr + (ULONG)(x >> 2));
+	const ULONG *src0 = (const ULONG *)(g_chunky + (ULONG)y * g_width + x);
+	ULONG srcstep = (ULONG)g_width / 4;
+	ULONG dststep = (ULONG)g_bpr / 4;
+	int   groups = w / 16;
+
+	while (h-- > 0) {
+		const ULONG *s = src0;
+		ULONG *p = row;
+		int n = groups;
+		while (n-- > 0) {
+			ULONG a = *s++, b = *s++, c = *s++, d = *s++, t;
+			t = ((c >> 16) ^ a) & 0xffffUL;     a ^= t; c ^= t << 16;
+			t = ((d >> 16) ^ b) & 0xffffUL;     b ^= t; d ^= t << 16;
+			t = ((b >> 8) ^ a) & 0x00ff00ffUL;  a ^= t; b ^= t << 8;
+			t = ((d >> 8) ^ c) & 0x00ff00ffUL;  c ^= t; d ^= t << 8;
+			p[0]        = a;
+			p[step]     = b;
+			p[step * 2] = c;
+			p[step * 3] = d;
+			p++;
+		}
+		src0 += srcstep;
+		row  += dststep;
+	}
 }
 
 /* RTG: an 8-bit CyberGraphX/Picasso96 screen. Deliberately NO SA_BitMap - the
@@ -1645,6 +1907,7 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 	        w, h, show_bar,
 	        backend == AMIGAGFX_BACKEND_WB  ? "WINDOW" :
 	        backend == AMIGAGFX_BACKEND_RTG ? "RTG" :
+	        backend == AMIGAGFX_BACKEND_GRAFFITI ? "GRAFFITI" :
 	        backend == AMIGAGFX_BACKEND_EHB ? "EHB" : "AGA");
 	fflush(stdout);
 	g_width  = w;
@@ -1682,6 +1945,9 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 		case AMIGAGFX_BACKEND_EHB:
 			err = open_screen_aga(w, h, quiet, title, DEPTH_EHB);
 			break;
+		case AMIGAGFX_BACKEND_GRAFFITI:
+			err = open_screen_graffiti(w, h);
+			break;
 		default:
 			err = 5;
 			break;
@@ -1697,7 +1963,7 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 	 * BarHeight+1 lines (BarHeight excludes the separator line), so the game
 	 * area starts right below that and everything downstream (chunky buffer,
 	 * dirty rects, blit, mouse warp) works in the reduced height. */
-	if (show_bar) {
+	if (show_bar && g_backend != AMIGAGFX_BACKEND_GRAFFITI) {
 		int bar = (int)g_screen->BarHeight + 1;
 		if (bar > 0 && bar < h / 2) {
 			g_yoff   = bar;
@@ -1717,7 +1983,10 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 		 * screen running in a hires mode looks identical in a log that only
 		 * prints the pixel dimensions. */
 		ULONG got = GetVPModeID(&g_screen->ViewPort);
-		if (g_backend == AMIGAGFX_BACKEND_RTG) {
+		if (g_backend == AMIGAGFX_BACKEND_GRAFFITI) {
+			gfx_printf("amiga: GRAFFITI screen open %dx%d (no c2p), modeid wanted $%08lx got $%08lx\n",
+			           w, h, (unsigned long)g_want_modeid, (unsigned long)got);
+		} else if (g_backend == AMIGAGFX_BACKEND_RTG) {
 			gfx_printf("amiga: RTG screen open %dx%d, %d-bit (no Chip RAM, no c2p)\n",
 			        w, h, g_rtg_bits);
 			gfx_printf("amiga: modeid wanted $%08lx got $%08lx  blit=%s\n",
@@ -1762,7 +2031,9 @@ int amigagfx_open(int w, int h, int show_bar, int backend)
 	g_window = OpenWindowTags(NULL,
 	                          WA_CustomScreen, (ULONG)g_screen,
 	                          WA_Left, 0UL, WA_Top, (ULONG)g_yoff,
-	                          WA_Width, (ULONG)w, WA_Height, (ULONG)g_height,
+	                          /* A Graffiti screen is hires: two of its pixels are one of ours. */
+	                          WA_Width, (ULONG)(g_backend == AMIGAGFX_BACKEND_GRAFFITI ? w * 2 : w),
+	                          WA_Height, (ULONG)g_height,
 	                          WA_Flags, (ULONG)(WFLG_BACKDROP | WFLG_BORDERLESS |
 	                                            WFLG_ACTIVATE | WFLG_REPORTMOUSE |
 	                                            WFLG_RMBTRAP | WFLG_NOCAREREFRESH),
@@ -1844,6 +2115,13 @@ void amigagfx_set_palette(const unsigned char *rgb, int first, int count)
 		                       (ULONG)rgb[i*3 + 2];
 	}
 	table[1 + count * 3] = 0UL;
+
+	/* The registers of a Graffiti screen are the wire's encoding (open_screen_graffiti):
+	 * loading the game's colours there would destroy the picture. */
+	if (g_backend == AMIGAGFX_BACKEND_GRAFFITI && g_screen != NULL) {
+		gf_set_colours(rgb, first, count);
+		return;
+	}
 
 	/* WINDOW MODE STOPS HERE, and the reason is worth stating plainly: that
 	 * ViewPort belongs to WORKBENCH. Loading our palette into it would repaint
@@ -2328,6 +2606,17 @@ void amigagfx_blit(int x, int y, int w, int h)
 		return;
 	}
 
+	if (g_backend == AMIGAGFX_BACKEND_GRAFFITI) {
+		gf_blit(x, y, x2 - x, y2 - y);
+		g_blits++;
+		if (g_blits == 1 || (g_verbose && (g_blits % 200) == 0)) {
+			gfx_printf("amiga: graffiti blit #%lu  %dx%d at %d,%d\n",
+			           g_blits, x2 - x, y2 - y, x, y);
+			fflush(stdout);
+		}
+		return;
+	}
+
 	if (g_planes_wcp) {
 		/* The system ignored SA_BitMap and its planes are not laid out for the
 		 * c2p (adopt_screen_planes). The chunky bytes are pen numbers on both
@@ -2408,6 +2697,7 @@ int amigagfx_poll(AmigaGfxEvent *ev)
 		ev->x = mx - g_win_bl;
 		ev->y = my - g_win_bt;
 		ev->code = 0;
+		if (g_backend == AMIGAGFX_BACKEND_GRAFFITI) ev->x >>= 1;   /* hires screen */
 
 		switch (cls) {
 		case IDCMP_MOUSEMOVE:

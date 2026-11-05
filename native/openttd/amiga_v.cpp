@@ -108,6 +108,17 @@ static const Dimension _amiga_ehb_resolutions[] = {
 	{ 352, 272 },
 };
 
+/**
+ * Graffiti - the adapter on the RGB port, or an Indivision emulating it. Offered
+ * only when amiga.graffiti_modes is on: nothing can detect the adapter, and picking
+ * one of these without it leaves an unreadable screen (the way back is to hold the
+ * left mouse button while the game starts). So with the setting at its default,
+ * this list and the player's game are exactly what they were.
+ */
+static const Dimension _amiga_graffiti_resolutions[] = {
+	{ 320, 256 },
+};
+
 /*
  * RTG modes are no longer a fixed list here. They come from the machine's own
  * display database (amigagfx_rtg_modes): every size the card offers, once, at
@@ -156,6 +167,7 @@ static const char *AmigaBackendName(int backend)
 		case AMIGAGFX_BACKEND_RTG: return "RTG";
 		case AMIGAGFX_BACKEND_EHB: return "OCS";
 		case AMIGAGFX_BACKEND_WB:  return "WINDOW";
+		case AMIGAGFX_BACKEND_GRAFFITI: return "GRAFFITI";
 		default:                   return "AGA";
 	}
 }
@@ -640,6 +652,7 @@ static bool CreateMainSurface(uint w, uint h, int want_backend)
 	DEBUG(driver, 1, "amiga: %dx%d, %s", _screen.width, _screen.height,
 	      got_backend == AMIGAGFX_BACKEND_WB  ? "window on the Workbench screen" :
 	      got_backend == AMIGAGFX_BACKEND_RTG ? "8bpp RTG, chunky straight to the card" :
+	      got_backend == AMIGAGFX_BACKEND_GRAFFITI ? "Graffiti: 4 bitplanes hires, no c2p" :
 	      got_backend == AMIGAGFX_BACKEND_EHB ? "OCS: 6 bitplanes EHB, Kalms c2p1x1_6_c5_bm_040"
 	                                          : "8 bitplanes, Kalms c2p_rect");
 	return true;
@@ -950,6 +963,25 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 		ehb_offered++;
 	}
 
+	/* Graffiti, for players who asked for it. The left mouse button held at startup
+	 * leaves it out, and a saved Graffiti mode then finds its AGA twin below - the
+	 * only way back for someone who cannot read the screen. The choice is saved
+	 * further down, so it needs doing once. */
+	bool graffiti_escape = false;
+	uint graffiti_offered = 0;
+	if (have_aga && _settings_client.amiga.graffiti_modes) {
+		if (_settings_client.amiga.graffiti && amigagfx_escape_held()) {
+			graffiti_escape = true;
+			amigagfx_log("left mouse button held - leaving the saved Graffiti mode");
+		} else {
+			for (uint i = 0; i < lengthof(_amiga_graffiti_resolutions) && _num_resolutions < max_res; i++) {
+				_amiga_res_backend[_num_resolutions] = AMIGAGFX_BACKEND_GRAFFITI;
+				_resolutions[_num_resolutions++] = _amiga_graffiti_resolutions[i];
+				graffiti_offered++;
+			}
+		}
+	}
+
 	/* What the card really has, not what a fixed list hopes for - see
 	 * amigagfx_rtg_modes(). The diagnostic log is written first so a player whose
 	 * modes are missing has one file to send. */
@@ -970,8 +1002,8 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 	}
 	{
 		char b[96];
-		snprintf(b, sizeof(b), "resolution list: %u AGA + %d OCS + %u RTG mode(s)",
-		         aga_offered, (int)ehb_offered, rtg_offered);
+		snprintf(b, sizeof(b), "resolution list: %u AGA + %d OCS + %u Graffiti + %u RTG mode(s)",
+		         aga_offered, (int)ehb_offered, graffiti_offered, rtg_offered);
 		amigagfx_log(b);
 	}
 
@@ -998,6 +1030,7 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 	 * see, while the backend is an implementation detail the driver picked. */
 	int saved_backend = _settings_client.amiga.rtg ? AMIGAGFX_BACKEND_RTG :
 	                    _settings_client.amiga.ehb ? AMIGAGFX_BACKEND_EHB :
+	                    _settings_client.amiga.graffiti ? AMIGAGFX_BACKEND_GRAFFITI :
 	                                                 AMIGAGFX_BACKEND_AGA;
 	_amiga_cur_res = -1;
 	_amiga_pending_res = -1;
@@ -1103,6 +1136,9 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 	_settings_client.amiga.ehb = (_amiga_ehb_active != 0);
 	_settings_client.amiga.rtg =
 		(_amiga_res_backend[_amiga_cur_res] == AMIGAGFX_BACKEND_RTG);
+	_settings_client.amiga.graffiti =
+		(_amiga_res_backend[_amiga_cur_res] == AMIGAGFX_BACKEND_GRAFFITI);
+	if (graffiti_escape) SaveToConfig();
 	if (_amiga_ehb_active) {
 		amigagfx_log("OCS mode: 6 bitplanes, 64 colours - sprites reduced at load time");
 
@@ -1196,6 +1232,7 @@ const char *VideoDriver_Amiga::Start(const char * const *parm)
 		if (got != (int)_amiga_res_backend[_amiga_cur_res]) {
 			_settings_client.amiga.rtg = (got == AMIGAGFX_BACKEND_RTG);
 			_settings_client.amiga.ehb = (got == AMIGAGFX_BACKEND_EHB);
+			_settings_client.amiga.graffiti = (got == AMIGAGFX_BACKEND_GRAFFITI);
 		}
 	}
 
@@ -1311,6 +1348,17 @@ static void AmigaWindowSelfTest()
 		case 500: amigagfx_log("selftest: start a new game"); StartNewGameWithoutGUI(GENERATE_NEW_SEED); break;
 		case 900: amigagfx_log("selftest: in game - open Game Options"); ShowGameOptions(); break;
 		case 1000: amigagfx_log("selftest: in game - close Game Options"); DeleteWindowById(WC_GAME_OPTIONS, 0); break;
+		case 1100: amigagfx_log("selftest: warp the pointer to 200,100"); amigagfx_warp_pointer(200, 100); break;
+		case 120:
+		case 1200: {
+			/* The cost of a full frame on this screen, for comparing backends. */
+			uint32 t0 = amigagfx_millis();
+			for (int i = 0; i < 50; i++) amigagfx_blit(0, 0, _screen.width, _screen.height);
+			snprintf(b, sizeof(b), "selftest: 50 full blits %dx%d: %u ms",
+			         _screen.width, _screen.height, (uint)(amigagfx_millis() - t0));
+			amigagfx_log(b);
+			break;
+		}
 		default:
 			if (ticks > 400 && ticks % 100 == 0 && ticks <= 1500) {
 				snprintf(b, sizeof(b), "selftest: alive at tick %d", ticks);
@@ -1533,6 +1581,7 @@ static bool AmigaDoChangeResolution(int w, int h)
 	 * clears rtg and a player who tried Picasso96 can get back out again. */
 	_settings_client.amiga.ehb = (picked_backend == AMIGAGFX_BACKEND_EHB);
 	_settings_client.amiga.rtg = (picked_backend == AMIGAGFX_BACKEND_RTG);
+	_settings_client.amiga.graffiti = (picked_backend == AMIGAGFX_BACKEND_GRAFFITI);
 
 	/* The size persisted is the LIST ENTRY, not what came back from the open.
 	 * The entry is what the player picked and what Start() will search for by
@@ -1822,6 +1871,7 @@ const char *AmigaResolutionSuffix(int index)
 			}
 		case AMIGAGFX_BACKEND_EHB: return " OCS";
 		case AMIGAGFX_BACKEND_WB:  return " WINDOW";
+		case AMIGAGFX_BACKEND_GRAFFITI: return " GRAFFITI";
 		default:                   return " AGA";
 	}
 }

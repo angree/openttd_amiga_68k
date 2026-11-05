@@ -11,9 +11,9 @@
 #ifndef AMIGA_TTD_VERSION_H
 #define AMIGA_TTD_VERSION_H
 
-#define AMIGA_TTD_VERSION "1.2.13"
-#define AMIGA_TTD_DATE    "20261103"
-#define AMIGA_TTD_DATE_DMY "03.11.2026"   /* the same date as $VER: wants it (rev.cpp, MorphOS) */
+#define AMIGA_TTD_VERSION "1.2.14"
+#define AMIGA_TTD_DATE    "20261105"
+#define AMIGA_TTD_DATE_DMY "05.11.2026"   /* the same date as $VER: wants it (rev.cpp, MorphOS) */
 
 /* How many leading characters of _openttd_revision decide MULTIPLAYER
  * compatibility. The string starts "AmiTTD X.Y.Z / OpenTTD 1.0.5 ...", and 10
